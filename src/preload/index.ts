@@ -109,15 +109,41 @@ const browserAPI = {
    */
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
-  closeWindow: () => ipcRenderer.send('window:close'),
+  closeWindow:    () => ipcRenderer.send('window:close'),
 
   /**
    * Fetch a random background image from the Pexels API.
-   * The API key stays in the main process — only the resulting image URL
-   * (plus attribution) is returned to the renderer.
    */
   pexelsImage: (category?: string): Promise<import('../shared/types').PexelsImage | null> =>
     ipcRenderer.invoke('pexels:image', category),
+
+  // ── SQLite persistence ────────────────────────────────────────────────────
+
+  /** History */
+  history: {
+    get:    ():                    Promise<import('../shared/types').HistoryEntry[]> =>
+      ipcRenderer.invoke('db:history:get'),
+    search: (query: string):       Promise<import('../shared/types').HistoryEntry[]> =>
+      ipcRenderer.invoke('db:history:search', query),
+    delete: (id: number):          Promise<void> =>
+      ipcRenderer.invoke('db:history:delete', id),
+    clear:  ():                    Promise<void> =>
+      ipcRenderer.invoke('db:history:clear'),
+  },
+
+  /** Bookmarks */
+  bookmarks: {
+    get:    ():                                          Promise<import('../shared/types').Bookmark[]> =>
+      ipcRenderer.invoke('db:bookmarks:get'),
+    search: (query: string):                             Promise<import('../shared/types').Bookmark[]> =>
+      ipcRenderer.invoke('db:bookmarks:search', query),
+    add:    (url: string, title: string, favicon?: string): Promise<import('../shared/types').Bookmark> =>
+      ipcRenderer.invoke('db:bookmarks:add', url, title, favicon),
+    remove: (url: string):                               Promise<void> =>
+      ipcRenderer.invoke('db:bookmarks:remove', url),
+    is:     (url: string):                               Promise<boolean> =>
+      ipcRenderer.invoke('db:bookmarks:is', url),
+  },
 };
 
 // SECURITY: Expose only the API object, not ipcRenderer or any other Electron/Node APIs

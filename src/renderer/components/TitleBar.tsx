@@ -4,7 +4,7 @@ import { Minus, Square, X } from 'lucide-react';
 export const TitleBar: React.FC = () => {
   const minimize = () => window.browserAPI?.minimizeWindow();
   const maximize = () => window.browserAPI?.maximizeWindow();
-  const close = () => window.browserAPI?.closeWindow();
+  const close    = () => window.browserAPI?.closeWindow();
 
   return (
     <div
@@ -12,10 +12,34 @@ export const TitleBar: React.FC = () => {
       // @ts-ignore
       style={{ WebkitAppRegion: 'drag' }}
     >
-      {/* Spacer fills the draggable area */}
+      {/* Branding — no-drag so it doesn't interfere with double-click-to-maximise */}
+      <div
+        className="pl-4 flex items-center gap-2"
+        // @ts-ignore
+        style={{ WebkitAppRegion: 'no-drag' }}
+      >
+        {/* Z glyph */}
+        <svg
+          width="16" height="16" viewBox="0 0 24 24" fill="none"
+          className="text-[var(--accent)] shrink-0"
+        >
+          <polygon
+            points="3,4 21,4 21,8 9,18 21,18 21,22 3,22 3,18 15,8 3,8"
+            fill="currentColor"
+          />
+        </svg>
+        <span
+          className="text-[13px] font-semibold tracking-wide text-[var(--text)]"
+          style={{ fontFamily: '"Cormorant Garamond", serif', letterSpacing: '0.06em' }}
+        >
+          Zyphora
+        </span>
+      </div>
+
+      {/* Drag spacer */}
       <div className="flex-1" />
 
-      {/* Windows-style control buttons — no-drag so clicks register */}
+      {/* Windows controls — no-drag */}
       <div
         className="flex items-center h-full"
         // @ts-ignore

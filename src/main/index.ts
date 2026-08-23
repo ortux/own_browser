@@ -9,6 +9,20 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Tab, BrowserState, RendererToMainMessage } from '../shared/types';
 import { registerPexelsHandlers } from './pexels';
+import {
+  addHistory,
+  getHistory,
+  searchHistory,
+  deleteHistoryEntry,
+  clearHistory,
+  addBookmark,
+  removeBookmark,
+  isBookmarked,
+  getBookmarks,
+  searchBookmarks,
+  closeDb,
+  initDb,
+} from './db';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -222,10 +236,15 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       case 'webview-nav-state': {
         const tab = tabs.get(message.tabId);
         if (tab) {
+          const urlChanged = tab.url !== message.url;
           tab.url = message.url;
           tab.canGoBack = message.canGoBack;
           tab.canGoForward = message.canGoForward;
           tab.loading = false;
+          // Only record a history entry when navigating to a new page
+          if (urlChanged) {
+            addHistory(message.url, tab.title, tab.favicon);
+          }
           updateRendererState();
         }
         break;
@@ -260,10 +279,27 @@ function normalizeUrl(input: string): string {
   return `https://${trimmed}`;
 }
 
-app.on('ready', () => {
+app.on('ready', async () => {
+  await initDb();
   registerPexelsHandlers();
+  registerDbHandlers();
   createWindow();
 });
+
+// ── DB IPC handlers ──────────────────────────────────────────────────────────
+
+function registerDbHandlers() {
+  ipcMain.handle('db:history:get',    () => getHistory());
+  ipcMain.handle('db:history:search', (_e, query: string) => searchHistory(query));
+  ipcMain.handle('db:history:delete', (_e, id: number)    => deleteHistoryEntry(id));
+  ipcMain.handle('db:history:clear',  ()                  => clearHistory());
+
+  ipcMain.handle('db:bookmarks:get',    ()                                    => getBookmarks());
+  ipcMain.handle('db:bookmarks:search', (_e, query: string)                   => searchBookmarks(query));
+  ipcMain.handle('db:bookmarks:add',    (_e, url: string, title: string, favicon?: string) => addBookmark(url, title, favicon));
+  ipcMain.handle('db:bookmarks:remove', (_e, url: string)                     => removeBookmark(url));
+  ipcMain.handle('db:bookmarks:is',     (_e, url: string)                     => isBookmarked(url));
+}
 
 // Window control IPC (used by custom title bar buttons)
 ipcMain.on('window:minimize', () => mainWindow?.minimize());
@@ -274,6 +310,7 @@ ipcMain.on('window:maximize', () => {
 ipcMain.on('window:close', () => mainWindow?.close());
 
 app.on('window-all-closed', () => {
+  closeDb();
   if (process.platform !== 'darwin') {
     app.quit();
   }

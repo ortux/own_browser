@@ -47,7 +47,6 @@ export type RendererToMainMessage =
   | { type: 'webview-favicon-updated'; tabId: string; favicon: string }
   | { type: 'webview-loading'; tabId: string; loading: boolean }
   | { type: 'webview-nav-state'; tabId: string; url: string; canGoBack: boolean; canGoForward: boolean };
-
 // IPC Messages from Main to Renderer
 export type MainToRendererMessage =
   | { type: 'state-updated'; state: BrowserState }
@@ -55,3 +54,35 @@ export type MainToRendererMessage =
   | { type: 'tab-title-updated'; tabId: string; title: string }
   | { type: 'tab-favicon-updated'; tabId: string; favicon?: string }
   | { type: 'tab-navigation-state'; tabId: string; canGoBack: boolean; canGoForward: boolean };
+
+// ── Persistence types (mirrored from main/db.ts for use in renderer) ─────────
+
+export interface HistoryEntry {
+  id: number;
+  url: string;
+  title: string;
+  favicon: string | null;
+  visited_at: number; // unix ms
+}
+
+export interface Bookmark {
+  id: number;
+  url: string;
+  title: string;
+  favicon: string | null;
+  created_at: number; // unix ms
+}
+
+// IPC channels for DB operations (all go through ipcRenderer.invoke)
+export type DbChannel =
+  // History
+  | 'db:history:get'           // () => HistoryEntry[]
+  | 'db:history:search'        // (query: string) => HistoryEntry[]
+  | 'db:history:delete'        // (id: number) => void
+  | 'db:history:clear'         // () => void
+  // Bookmarks
+  | 'db:bookmarks:get'         // () => Bookmark[]
+  | 'db:bookmarks:add'         // (url, title, favicon?) => Bookmark
+  | 'db:bookmarks:remove'      // (url: string) => void
+  | 'db:bookmarks:is'          // (url: string) => boolean
+  | 'db:bookmarks:search';     // (query: string) => Bookmark[]

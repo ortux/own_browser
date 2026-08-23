@@ -105,9 +105,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
   };
 
   return (
-    <div className="flex h-full w-full bg-[var(--bg)] text-[var(--text)]">
-      {/* Sidebar */}
-      <aside className="flex w-56 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface-2)] p-4">
+    <div className="flex w-full h-full bg-[var(--bg)] text-[var(--text)] overflow-hidden">
+      {/* Left nav sidebar */}
+      <aside className="flex w-56 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)] h-full p-4">
         <button
           onClick={onBack}
           className="mb-6 flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
@@ -117,10 +117,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
 
         <nav className="flex flex-col gap-1">
           {[
-            { id: 'general', label: 'General', icon: User },
-            { id: 'search', label: 'Search Engine', icon: SearchIcon },
-            { id: 'appearance', label: 'Appearance', icon: ImageIcon },
-            { id: 'security', label: 'Security', icon: Shield },
+            { id: 'general',    label: 'General',       icon: User },
+            { id: 'search',     label: 'Search Engine', icon: SearchIcon },
+            { id: 'appearance', label: 'Appearance',    icon: ImageIcon },
+            { id: 'security',   label: 'Security',      icon: Shield },
           ].map((item) => {
             const Icon = item.icon;
             const active = activeSection === item.id;
@@ -141,12 +141,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
         </nav>
 
         <div className="mt-auto px-2 text-[11px] text-[var(--text-faint)]">
-          Own Browser · Settings
+          Zyphora · Settings
         </div>
       </aside>
 
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto p-10">
+      {/* Scrollable content */}
+      <main className="flex-1 overflow-y-auto p-10 h-full">
         <h1 className="mb-8 text-2xl font-semibold">Settings</h1>
 
         {activeSection === 'general' && (

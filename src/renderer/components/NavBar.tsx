@@ -5,12 +5,9 @@ import {
   RotateCcw,
   X,
   Star,
-  User,
   Lock,
   Search,
   Home,
-  Puzzle,
-  Settings,
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -24,6 +21,8 @@ interface NavBarProps {
   onNavigate: (url: string) => void;
   onOpenSettings: () => void;
   onHome: () => void;
+  onBookmark?: () => void;
+  isBookmarked?: boolean;
 }
 
 function looksLikeUrl(input: string): boolean {
@@ -53,15 +52,14 @@ export const NavBar: React.FC<NavBarProps> = ({
   onReload,
   onStop,
   onNavigate,
-  onOpenSettings,
   onHome,
+  onBookmark,
+  isBookmarked = false,
 }) => {
   const [input, setInput] = useState('');
   const [isFocused, setIsFocused] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
   const getSearchEngine = useSettingsStore((s) => s.getSearchEngine);
-  const account = useSettingsStore((s) => s.account);
   const engine = getSearchEngine();
 
   const isSecure = activeTab?.url?.startsWith('https://');
@@ -190,105 +188,22 @@ export const NavBar: React.FC<NavBarProps> = ({
 
       {/* Bookmark */}
       <button
-        className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)]"
-        title="Bookmark (Ctrl+D)"
+        onClick={onBookmark}
+        className={`p-2 rounded-lg hover:bg-[var(--hover)] transition-colors ${
+          isBookmarked
+            ? 'text-yellow-400 hover:text-yellow-300'
+            : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+        }`}
+        title={isBookmarked ? 'Remove bookmark (Ctrl+D)' : 'Bookmark (Ctrl+D)'}
       >
-        <Star size={16} />
+        <Star
+          size={16}
+          fill={isBookmarked ? 'currentColor' : 'none'}
+        />
       </button>
 
       {/* Account / menu */}
-      <div className="relative">
-        <button
-          onClick={() => setMenuOpen((v) => !v)}
-          className={`p-2 rounded-lg transition-colors ${
-            menuOpen
-              ? 'bg-[var(--hover)] text-[var(--text)]'
-              : 'hover:bg-[var(--hover)] text-[var(--text-muted)] hover:text-[var(--text)]'
-          }`}
-          title="Account & settings"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-        >
-          {account?.image ? (
-            <img
-              src={account.image}
-              alt=""
-              className="h-5 w-5 rounded-full object-cover"
-            />
-          ) : (
-            <User size={16} />
-          )}
-        </button>
-
-        {menuOpen && (
-          <>
-            {/* Backdrop to close on outside click */}
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setMenuOpen(false)}
-            />
-            <div
-              role="menu"
-              className="absolute bottom-full right-0 mb-2 z-50 w-60 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
-            >
-              {/* Account section */}
-              {account ? (
-                <div className="flex items-center gap-3 px-3 py-3">
-                  {account.image ? (
-                    <img
-                      src={account.image}
-                      alt=""
-                      className="h-9 w-9 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
-                      <User size={18} />
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-[var(--text)]">
-                      {account.name}
-                    </div>
-                    <div className="text-xs text-[var(--text-faint)]">Signed in</div>
-                  </div>
-                </div>
-              ) : (
-                <div className="px-3 py-3">
-                  <div className="mb-1 text-sm font-medium text-[var(--text)]">
-                    Not signed in
-                  </div>
-                  <p className="mb-2 text-xs leading-snug text-[var(--text-faint)]">
-                    Sign in to sync your bookmarks, history and settings.
-                  </p>
-                  <button className="w-full rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90">
-                    Sign in
-                  </button>
-                </div>
-              )}
-
-              <div className="h-px bg-[var(--border)]" />
-
-              <button
-                role="menuitem"
-                onClick={() => setMenuOpen(false)}
-                className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
-              >
-                <Puzzle size={16} /> Extensions
-              </button>
-              <button
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onOpenSettings();
-                }}
-                className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
-              >
-                <Settings size={16} /> Settings
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+      
     </div>
   );
 };

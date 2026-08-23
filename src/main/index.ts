@@ -2,10 +2,13 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  Menu,
+  clipboard,
 } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Tab, BrowserState, RendererToMainMessage } from '../shared/types';
+import { registerPexelsHandlers } from './pexels';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -257,7 +260,10 @@ function normalizeUrl(input: string): string {
   return `https://${trimmed}`;
 }
 
-app.on('ready', createWindow);
+app.on('ready', () => {
+  registerPexelsHandlers();
+  createWindow();
+});
 
 // Window control IPC (used by custom title bar buttons)
 ipcMain.on('window:minimize', () => mainWindow?.minimize());
@@ -298,5 +304,58 @@ app.on('web-contents-created', (_event, contents) => {
   // Prevent web content from opening new OS windows
   contents.setWindowOpenHandler(() => {
     return { action: 'deny' };
+  });
+
+  // Build a context menu for right-click (Electron shows none by default)
+  contents.on('context-menu', (_event, params) => {
+    const { selectionText, linkURL, srcURL, mediaType, isEditable, x, y } = params;
+    const items: Electron.MenuItemConstructorOptions[] = [];
+
+    if (isEditable) {
+      items.push({ role: 'undo' }, { role: 'redo' }, { type: 'separator' });
+    }
+    if (isEditable) {
+      items.push({ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { type: 'separator' });
+    } else if (selectionText) {
+      items.push({ role: 'copy' }, { type: 'separator' });
+    }
+
+    if (linkURL) {
+      items.push(
+        {
+          label: 'Open link in new tab',
+          click: () => createNewTab(linkURL),
+        },
+        {
+          label: 'Copy link address',
+          click: () => clipboard.writeText(linkURL),
+        },
+        { type: 'separator' },
+      );
+    }
+
+    if (srcURL && mediaType === 'image') {
+      items.push(
+        {
+          label: 'Open image in new tab',
+          click: () => createNewTab(srcURL),
+        },
+        {
+          label: 'Copy image',
+          click: () => contents.copyImageAt(x, y),
+        },
+        { type: 'separator' },
+      );
+    }
+
+    if (!isEditable) {
+      items.push({ role: 'selectAll' });
+    }
+
+    if (items.length === 0) {
+      items.push({ role: 'selectAll' });
+    }
+
+    Menu.buildFromTemplate(items).popup();
   });
 });

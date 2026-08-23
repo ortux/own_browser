@@ -8,7 +8,7 @@ export const TitleBar: React.FC = () => {
 
   return (
     <div
-      className="flex items-center h-9 shrink-0 bg-[#171717] border-b border-white/10"
+      className="flex items-center h-9 shrink-0 bg-[var(--chrome)] border-b border-[var(--border)]"
       // @ts-ignore
       style={{ WebkitAppRegion: 'drag' }}
     >
@@ -23,21 +23,21 @@ export const TitleBar: React.FC = () => {
       >
         <button
           onClick={minimize}
-          className="flex items-center justify-center w-12 h-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+          className="flex items-center justify-center w-12 h-full text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)] transition-colors"
           title="Minimize"
         >
           <Minus size={14} />
         </button>
         <button
           onClick={maximize}
-          className="flex items-center justify-center w-12 h-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+          className="flex items-center justify-center w-12 h-full text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)] transition-colors"
           title="Maximize / Restore"
         >
           <Square size={11} strokeWidth={1.5} />
         </button>
         <button
           onClick={close}
-          className="flex items-center justify-center w-12 h-full text-white/60 hover:text-white hover:bg-red-600 transition-colors"
+          className="flex items-center justify-center w-12 h-full text-[var(--text-muted)] hover:text-white hover:bg-red-600 transition-colors"
           title="Close"
         >
           <X size={14} />

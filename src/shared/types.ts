@@ -22,6 +22,14 @@ export interface BrowserState {
   activeTabId: string;
 }
 
+// A background image fetched from the Pexels API
+export interface PexelsImage {
+  url: string;
+  photographer: string;
+  link: string;
+  query: string;
+}
+
 // IPC Messages from Renderer to Main
 export type RendererToMainMessage =
   | { type: 'navigate'; tabId: string; url: string }

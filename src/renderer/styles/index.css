@@ -1,4 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
+
+@theme {
+  --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    sans-serif;
+}
+
+/* ── Theme tokens (toggled via [data-theme] on <html>) ── */
+:root,
+[data-theme='dark'] {
+  --bg: #0f0f12;
+  --chrome: #171717;
+  --surface: #141417;
+  --surface-2: #1a1a1f;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --hover: rgba(255, 255, 255, 0.08);
+  --text: #ededed;
+  --text-muted: #b8b8bd;
+  --text-faint: #6e6e73;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.12);
+  --scrollbar: #3a3a3e;
+  --scrollbar-hover: #4a4a4f;
+}
+
+[data-theme='light'] {
+  --bg: #f4f4f7;
+  --chrome: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #ececf1;
+  --border: rgba(0, 0, 0, 0.12);
+  --border-strong: rgba(0, 0, 0, 0.22);
+  --hover: rgba(0, 0, 0, 0.05);
+  --text: #1a1a1f;
+  --text-muted: #5a5a5f;
+  --text-faint: #8a8a8f;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.14);
+  --scrollbar: #cbd5e1;
+  --scrollbar-hover: #94a3b8;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
 
 * {
   -webkit-user-select: none;
@@ -15,11 +68,12 @@ textarea,
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg);
+  color: var(--text);
 }
 
 #root {
@@ -39,10 +93,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--scrollbar);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--scrollbar-hover);
 }

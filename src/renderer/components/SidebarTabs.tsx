@@ -22,14 +22,14 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
 
   return (
     <div
-      className="flex flex-col h-full bg-[#171717] transition-all duration-200 ease-in-out overflow-hidden shrink-0 select-none z-10"
+      className="flex flex-col h-full bg-[var(--chrome)] transition-all duration-200 ease-in-out overflow-hidden shrink-0 select-none z-10"
       style={{ width: expanded ? '220px' : '48px' }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Drag region at top — matches TitleBar height */}
       <div
-        className="h-9 shrink-0 border-b border-white/10"
+        className="h-9 shrink-0 border-b border-[var(--border)]"
         // @ts-ignore
         style={{ WebkitAppRegion: 'drag' }}
       />
@@ -44,8 +44,8 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               onClick={() => onTabClick(tab.id)}
               className={`group flex items-center gap-2.5 mx-1.5 my-0.5 rounded-lg cursor-pointer transition-colors ${
                 isActive
-                  ? 'bg-white/15 text-white'
-                  : 'text-white/60 hover:bg-white/10 hover:text-white/90'
+                  ? 'bg-[var(--hover)] text-[var(--text)]'
+                  : 'text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]'
               }`}
               style={{
                 padding: expanded ? '7px 8px' : '7px 0',
@@ -67,7 +67,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                     }}
                   />
                 ) : (
-                  <Globe size={14} className="text-white/40" />
+                   <Globe size={14} className="text-[var(--text-faint)]" />
                 )}
               </div>
 
@@ -82,7 +82,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                       e.stopPropagation();
                       onTabClose(tab.id);
                     }}
-                    className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-all"
+                    className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--border-strong)] transition-all"
                     title="Close tab"
                   >
                     <X size={13} />
@@ -95,10 +95,10 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
       </div>
 
       {/* New tab button */}
-      <div className="shrink-0 px-1.5 pb-3 pt-1 border-t border-white/10">
+      <div className="shrink-0 px-1.5 pb-3 pt-1 border-t border-[var(--border)]">
         <button
           onClick={onNewTab}
-          className={`flex items-center gap-2.5 w-full rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors ${
+          className={`flex items-center gap-2.5 w-full rounded-lg text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)] transition-colors ${
             expanded ? 'px-2 py-2' : 'justify-center py-2'
           }`}
           title={expanded ? undefined : 'New tab (Ctrl+T)'}

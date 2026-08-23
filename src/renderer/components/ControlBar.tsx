@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, RotateCcw, X, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RotateCcw, X, User } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 
 interface ControlBarProps {
@@ -20,11 +20,11 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   onOpenSettings,
 }) => {
   return (
-    <div className="flex items-center gap-1 px-2 py-2 bg-gray-50 border-b border-gray-200">
+    <div className="flex items-center gap-1 px-2 py-2 bg-[var(--chrome)] border-b border-[var(--border)]">
       <button
         onClick={onBack}
         disabled={!activeTab?.canGoBack}
-        className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="p-2 rounded-lg hover:bg-[var(--hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
         title="Go back (Alt+Left)"
       >
         <ChevronLeft size={18} />
@@ -33,18 +33,18 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       <button
         onClick={onForward}
         disabled={!activeTab?.canGoForward}
-        className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="p-2 rounded-lg hover:bg-[var(--hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
         title="Go forward (Alt+Right)"
       >
         <ChevronRight size={18} />
       </button>
 
-      <div className="w-px h-6 bg-gray-300" />
+      <div className="w-px h-6 bg-[var(--border)]" />
 
       {activeTab?.loading ? (
         <button
           onClick={onStop}
-          className="p-2 rounded-lg hover:bg-gray-200 transition-colors"
+          className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
           title="Stop loading"
         >
           <X size={18} />
@@ -52,7 +52,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       ) : (
         <button
           onClick={onReload}
-          className="p-2 rounded-lg hover:bg-gray-200 transition-colors"
+          className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
           title="Reload (Ctrl+R)"
         >
           <RotateCcw size={18} />
@@ -62,14 +62,14 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       {/* Spacer pushes settings to the right */}
       <div className="flex-1" />
 
-      <div className="w-px h-6 bg-gray-300" />
+      <div className="w-px h-6 bg-[var(--border)]" />
 
       <button
         onClick={onOpenSettings}
-        className="p-2 rounded-lg hover:bg-gray-200 transition-colors text-gray-600"
+        className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
         title="Settings"
       >
-        <Settings size={18} />
+        <User size={18} />
       </button>
     </div>
   );

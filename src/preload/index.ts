@@ -110,6 +110,14 @@ const browserAPI = {
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
   closeWindow: () => ipcRenderer.send('window:close'),
+
+  /**
+   * Fetch a random background image from the Pexels API.
+   * The API key stays in the main process — only the resulting image URL
+   * (plus attribution) is returned to the renderer.
+   */
+  pexelsImage: (category?: string): Promise<import('../shared/types').PexelsImage | null> =>
+    ipcRenderer.invoke('pexels:image', category),
 };
 
 // SECURITY: Expose only the API object, not ipcRenderer or any other Electron/Node APIs

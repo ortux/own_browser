@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,8 +7,93 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300..700;1,300..700&display=swap" rel="stylesheet">
+
+    <style>
+      /* Preloader — visible until React removes it */
+      #preloader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: #0f0f12;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        transition: opacity 0.35s ease, visibility 0.35s ease;
+      }
+      #preloader.hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      #preloader .logo {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      #preloader .logo svg {
+        color: #2563eb;
+        filter: drop-shadow(0 0 12px rgba(37,99,235,0.5));
+        animation: pulse 1.8s ease-in-out infinite;
+      }
+      #preloader .logo span {
+        font-family: 'Cormorant Garamond', serif;
+        font-size: 2.5rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: #ededed;
+      }
+      #preloader .tagline {
+        font-family: 'Cormorant Garamond', serif;
+        font-size: 0.7rem;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #6e6e73;
+      }
+      #preloader .dots {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      #preloader .dots span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #2563eb;
+        animation: bounce 1.2s ease-in-out infinite;
+      }
+      #preloader .dots span:nth-child(2) { animation-delay: 0.2s; }
+      #preloader .dots span:nth-child(3) { animation-delay: 0.4s; }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.6; }
+      }
+      @keyframes bounce {
+        0%, 80%, 100% { transform: translateY(0);    opacity: 0.4; }
+        40%           { transform: translateY(-8px); opacity: 1;   }
+      }
+    </style>
   </head>
   <body>
+    <!-- Preloader shown before React hydrates -->
+    <div id="preloader">
+      <div class="logo">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+          <polygon
+            points="3,4 21,4 21,8 9,18 21,18 21,22 3,22 3,18 15,8 3,8"
+            fill="currentColor"
+          />
+        </svg>
+        <span>Zyphora</span>
+      </div>
+      <div class="tagline">Browse with clarity</div>
+      <div class="dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="./main.tsx"></script>
   </body>

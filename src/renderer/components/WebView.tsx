@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Tab } from '../../shared/types';
 import { webviewRegistry } from '../stores/webviewRegistry';
 
@@ -8,8 +8,9 @@ interface WebViewProps {
 
 export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   const webviewRef = useRef<Electron.WebviewTag>(null);
+  const [loadError, setLoadError] = useState<{ code: number; desc: string } | null>(null);
 
-  // Register / unregister with the registry so ControlBar commands reach us
+  // Register / unregister with the registry so nav controls work
   useEffect(() => {
     const el = webviewRef.current;
     if (!el) return;
@@ -17,28 +18,25 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     return () => webviewRegistry.unregister(tab.id);
   }, [tab.id]);
 
-  // When the tab URL changes from outside (e.g. address bar / new tab navigation),
-  // drive the webview to the new URL.
+  // Drive the webview to the new URL when it changes externally
   useEffect(() => {
     const el = webviewRef.current;
     if (!el || !tab.url || tab.url === 'about:blank') return;
-
-    // Only push if the webview is already showing a different URL
+    setLoadError(null);
     try {
       if (el.src !== tab.url) {
         el.src = tab.url;
       }
-    } catch {
-      // webview may not be ready yet; the src attribute on the element handles init
-    }
+    } catch { /* webview not ready yet */ }
   }, [tab.url]);
 
-  // Wire webview events → IPC → main process → state update
+  // Wire webview events → IPC → main → Zustand
   useEffect(() => {
     const el = webviewRef.current;
     if (!el || !window.browserAPI) return;
 
     const onLoadStart = () => {
+      setLoadError(null);
       window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: true });
     };
 
@@ -92,31 +90,69 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       } catch { /* ignore */ }
     };
 
-    el.addEventListener('did-start-loading', onLoadStart);
-    el.addEventListener('did-stop-loading', onLoadStop);
-    el.addEventListener('page-title-updated', onTitleUpdated as EventListener);
-    el.addEventListener('page-favicon-updated', onFaviconUpdated as EventListener);
-    el.addEventListener('did-navigate', onDidNavigate);
-    el.addEventListener('did-navigate-in-page', onDidNavigate);
+    const onDidFailLoad = (e: Electron.DidFailLoadEvent) => {
+      // -3 = ABORTED (user navigated away), ignore it
+      if (e.errorCode === -3) return;
+      setLoadError({ code: e.errorCode, desc: e.errorDescription });
+      window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: false });
+    };
+
+    el.addEventListener('did-start-loading',   onLoadStart);
+    el.addEventListener('did-stop-loading',    onLoadStop);
+    el.addEventListener('page-title-updated',  onTitleUpdated  as EventListener);
+    el.addEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
+    el.addEventListener('did-navigate',        onDidNavigate);
+    el.addEventListener('did-navigate-in-page',onDidNavigate);
+    el.addEventListener('did-fail-load',       onDidFailLoad   as EventListener);
 
     return () => {
-      el.removeEventListener('did-start-loading', onLoadStart);
-      el.removeEventListener('did-stop-loading', onLoadStop);
-      el.removeEventListener('page-title-updated', onTitleUpdated as EventListener);
-      el.removeEventListener('page-favicon-updated', onFaviconUpdated as EventListener);
-      el.removeEventListener('did-navigate', onDidNavigate);
-      el.removeEventListener('did-navigate-in-page', onDidNavigate);
+      el.removeEventListener('did-start-loading',   onLoadStart);
+      el.removeEventListener('did-stop-loading',    onLoadStop);
+      el.removeEventListener('page-title-updated',  onTitleUpdated  as EventListener);
+      el.removeEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
+      el.removeEventListener('did-navigate',        onDidNavigate);
+      el.removeEventListener('did-navigate-in-page',onDidNavigate);
+      el.removeEventListener('did-fail-load',       onDidFailLoad   as EventListener);
     };
   }, [tab.id]);
 
   return (
-    <webview
-      ref={webviewRef}
-      src={tab.url}
-      className="w-full h-full border-none"
-      // Allow the page to run its own scripts; we're sandboxing at the
-      // renderer-shell level, not inside the webview itself.
-      webpreferences="contextIsolation=yes"
-    />
+    <div className="relative w-full h-full">
+      <webview
+        ref={webviewRef}
+        src={tab.url}
+        className="w-full h-full border-none"
+        webpreferences="contextIsolation=yes"
+      />
+
+      {/* Error overlay — shown when the page fails to load */}
+      {loadError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--bg)] text-[var(--text)] gap-4">
+          <div className="text-5xl">⚠</div>
+          <h2 className="text-xl font-semibold">Page failed to load</h2>
+          <p className="text-sm text-[var(--text-muted)] max-w-sm text-center">
+            {loadError.desc || 'An unknown error occurred.'}
+            {loadError.code === -130 || loadError.code === -101
+              ? ' — If proxy is enabled, it may be unreachable. Try rotating or disabling the proxy.'
+              : ''}
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setLoadError(null); webviewRef.current?.reload(); }}
+              className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm hover:opacity-90 transition-opacity"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => { setLoadError(null); webviewRef.current?.stop(); }}
+              className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm hover:bg-[var(--hover)] transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+          <p className="text-xs text-[var(--text-faint)]">Error {loadError.code}</p>
+        </div>
+      )}
+    </div>
   );
 };

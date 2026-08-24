@@ -19,6 +19,7 @@ interface SidebarTabsProps {
   activeTabId: string;
   onTabClick: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
+  onTabReorder: (draggedTabId: string, targetTabId: string) => void;
   onNewTab: () => void;
   onOpenSettings: () => void;
   onOpenHistory: () => void;
@@ -65,6 +66,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   activeTabId,
   onTabClick,
   onTabClose,
+  onTabReorder,
   onNewTab,
   onOpenSettings,
   onOpenHistory,
@@ -72,6 +74,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [tabSearch, setTabSearch] = useState('');
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const account = useSettingsStore((s) => s.account);
 
   const filteredTabs = useMemo(() => {
@@ -230,7 +233,24 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               return (
                 <div
                   key={tab.id}
+                  draggable
                   onClick={() => onTabClick(tab.id)}
+                  onDragStart={(event) => {
+                    setDraggedTabId(tab.id);
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', tab.id);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const draggedId = event.dataTransfer.getData('text/plain') || draggedTabId;
+                    if (draggedId) onTabReorder(draggedId, tab.id);
+                    setDraggedTabId(null);
+                  }}
+                  onDragEnd={() => setDraggedTabId(null)}
                   className={`group flex items-center gap-2.5 px-3 py-2 my-0.5 rounded-lg cursor-pointer transition-colors ${
                     isActive
                       ? 'bg-[var(--hover)] text-[var(--text)]'

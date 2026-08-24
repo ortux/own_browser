@@ -122,33 +122,53 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
     <div className="relative h-full w-full animate-[pageEnter_0.5s_ease-out_both] overflow-hidden bg-[var(--bg)]">
 
       {/* Zyphora brand lockup — top-left */}
-      <div className="absolute left-7 top-6 z-10 flex flex-col gap-1">
+      <div
+        className="absolute left-7 top-6 z-10 flex flex-col gap-1 px-3 py-2 rounded-xl"
+        style={newTabMode === 'full' ? { background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' } : {}}
+      >
         <div className="flex items-center gap-2.5">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
             className="text-[var(--accent)] shrink-0 drop-shadow-lg">
             <polygon points="3,4 21,4 21,8 9,18 21,18 21,22 3,22 3,18 15,8 3,8" fill="currentColor" />
           </svg>
           <span
-            className="text-3xl font-semibold text-[var(--text)]"
-            style={{ fontFamily: '"Cormorant Garamond", serif', letterSpacing: '0.08em', textShadow: '0 2px 20px rgba(0,0,0,0.4)' }}
+            className="text-3xl font-semibold"
+            style={{
+              fontFamily: '"Cormorant Garamond", serif',
+              letterSpacing: '0.08em',
+              color: newTabMode === 'full' ? '#fff' : 'var(--text)',
+              textShadow: newTabMode === 'full' ? '0 2px 12px rgba(0,0,0,0.8)' : '0 2px 20px rgba(0,0,0,0.2)',
+            }}
           >
             Zyphora
           </span>
         </div>
-        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)] pl-0.5"
-          style={{ textShadow: '0 1px 8px rgba(0,0,0,0.3)' }}>
+        <p
+          className="text-[10px] uppercase tracking-[0.2em] pl-0.5"
+          style={{ color: newTabMode === 'full' ? 'rgba(255,255,255,0.5)' : 'var(--text-faint)' }}
+        >
           Browse with clarity
         </p>
       </div>
 
       {/* Clock — top-right */}
-      <div className="absolute right-7 top-6 z-10 flex flex-col items-end">
-        <div className="text-5xl font-bold tabular-nums text-[var(--text)]"
-          style={{ textShadow: '0 2px 24px rgba(0,0,0,0.35)' }}>
+      <div
+        className="absolute right-7 top-6 z-10 flex flex-col items-end px-3 py-2 rounded-xl"
+        style={newTabMode === 'full' ? { background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' } : {}}
+      >
+        <div
+          className="text-5xl font-bold tabular-nums"
+          style={{
+            color: newTabMode === 'full' ? '#fff' : 'var(--text)',
+            textShadow: newTabMode === 'full' ? '0 2px 16px rgba(0,0,0,0.8)' : 'none',
+          }}
+        >
           {time}
         </div>
-        <div className="mt-1.5 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]"
-          style={{ textShadow: '0 1px 12px rgba(0,0,0,0.35)' }}>
+        <div
+          className="mt-1.5 text-xs uppercase tracking-[0.18em]"
+          style={{ color: newTabMode === 'full' ? 'rgba(255,255,255,0.6)' : 'var(--text-muted)' }}
+        >
           {date}
         </div>
       </div>
@@ -165,6 +185,12 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
               style={{ opacity: bgVisible ? 1 : 0 }}
             />
           )}
+          {/* Dark overlay so text is always readable */}
+          {bg && bgVisible && (
+            <div className="absolute inset-0 pointer-events-none"
+              style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.15) 50%, rgba(0,0,0,0.45) 100%)' }}
+            />
+          )}
           {bg && bgVisible && (
             <a
               href={bg.link} target="_blank" rel="noreferrer"
@@ -179,12 +205,19 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
       )}
 
       {/* Centre column: greeting + quote + search */}
-      <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-5 px-6 w-full max-w-2xl">
+      <div
+        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-5 px-8 py-8 w-full max-w-2xl rounded-2xl"
+        style={newTabMode === 'full' ? { background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' } : {}}
+      >
 
         {/* Greeting */}
         <h1
-          className="text-5xl font-semibold tracking-tight text-[var(--text)]"
-          style={{ textShadow: '0 2px 20px rgba(0,0,0,0.4)', fontFamily: '"Cormorant Garamond", serif' }}
+          className="text-5xl font-semibold tracking-tight"
+          style={{
+            fontFamily: '"Cormorant Garamond", serif',
+            color: newTabMode === 'full' ? '#fff' : 'var(--text)',
+            textShadow: newTabMode === 'full' ? '0 2px 16px rgba(0,0,0,0.8)' : 'none',
+          }}
         >
           {greeting}, {account?.name ?? 'Guest'}
         </h1>
@@ -194,11 +227,21 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
           className="text-center max-w-lg transition-opacity duration-[400ms] ease-in-out"
           style={{ opacity: quoteVisible ? 1 : 0 }}
         >
-          <p className="text-sm italic text-[var(--text-muted)] leading-relaxed"
-            style={{ textShadow: '0 1px 10px rgba(0,0,0,0.4)' }}>
+          <p
+            className="text-sm italic leading-relaxed"
+            style={{
+              color: newTabMode === 'full' ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)',
+              textShadow: newTabMode === 'full' ? '0 1px 8px rgba(0,0,0,0.9)' : 'none',
+            }}
+          >
             "{quote.text}"
           </p>
-          <p className="mt-1.5 text-xs text-[var(--text-faint)]">— {quote.author}</p>
+          <p
+            className="mt-1.5 text-xs"
+            style={{ color: newTabMode === 'full' ? 'rgba(255,255,255,0.5)' : 'var(--text-faint)' }}
+          >
+            — {quote.author}
+          </p>
         </div>
 
         {/* Search bar + button */}

@@ -144,6 +144,18 @@ const browserAPI = {
     is:     (url: string):                               Promise<boolean> =>
       ipcRenderer.invoke('db:bookmarks:is', url),
   },
+
+  /** Proxy */
+  proxy: {
+    fetch:  (): Promise<import('../renderer/stores/settingsStore').ProxyInfo> =>
+      ipcRenderer.invoke('proxy:fetch'),
+    apply:  (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<void> =>
+      ipcRenderer.invoke('proxy:apply', proxy),
+    clear:  (): Promise<void> =>
+      ipcRenderer.invoke('proxy:clear'),
+    verify: (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<boolean> =>
+      ipcRenderer.invoke('proxy:verify', proxy),
+  },
 };
 
 // SECURITY: Expose only the API object, not ipcRenderer or any other Electron/Node APIs

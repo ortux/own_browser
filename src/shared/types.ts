@@ -86,3 +86,10 @@ export type DbChannel =
   | 'db:bookmarks:remove'      // (url: string) => void
   | 'db:bookmarks:is'          // (url: string) => boolean
   | 'db:bookmarks:search';     // (query: string) => Bookmark[]
+
+// ── Proxy IPC channels ────────────────────────────────────────────────────────
+// proxy:fetch   — () => ProxyInfo           fetch a new proxy from pubproxy.com
+// proxy:apply   — (proxy: ProxyInfo) => void   apply proxy to Electron session
+// proxy:clear   — () => void               remove proxy, use direct connection
+// proxy:verify  — (proxy: ProxyInfo) => boolean  check proxy is alive
+export type ProxyChannel = 'proxy:fetch' | 'proxy:apply' | 'proxy:clear' | 'proxy:verify';

@@ -9,6 +9,20 @@ export interface SearchEngine {
   shortcut: string;
 }
 
+export interface ProxyInfo {
+  ip: string;
+  port: string;
+  ipPort: string;
+  country: string;
+  type: string;           // "http" | "socks4" | "socks5"
+  proxyLevel: string;     // "anonymous" | "elite" | "transparent"
+  supportsHttps: boolean;
+  speed: number;          // seconds
+  fetchedAt: number;      // unix ms
+  username?: string;      // for authenticated proxies
+  password?: string;
+}
+
 export interface SecuritySettings {
   blockTrackers: boolean;
   forceHttps: boolean;
@@ -81,6 +95,12 @@ interface SettingsStore {
   backgroundCategory: BackgroundCategory;
   setNewTabMode: (mode: 'minimal' | 'full') => void;
   setBackgroundCategory: (category: BackgroundCategory) => void;
+
+  // Proxy
+  proxy: ProxyInfo | null;
+  proxyEnabled: boolean;
+  setProxy: (proxy: ProxyInfo | null) => void;
+  setProxyEnabled: (enabled: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -147,6 +167,11 @@ export const useSettingsStore = create<SettingsStore>()(
       backgroundCategory: 'random',
       setNewTabMode: (mode) => set({ newTabMode: mode }),
       setBackgroundCategory: (category) => set({ backgroundCategory: category }),
+
+      proxy: null,
+      proxyEnabled: false,
+      setProxy: (proxy) => set({ proxy }),
+      setProxyEnabled: (enabled) => set({ proxyEnabled: enabled }),
     }),
     {
       name: 'own-browser-settings',

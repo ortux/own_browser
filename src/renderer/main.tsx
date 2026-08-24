@@ -17,7 +17,13 @@ ReactDOM.createRoot(root).render(
   </React.StrictMode>
 );
 
-console.log('[Renderer] App rendered');
+// Dismiss preloader once React has painted the first frame
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
+    const preloader = document.getElementById('preloader');
+    if (preloader) preloader.classList.add('hidden');
+  });
+});
 
 // Apply the saved theme on startup so it's correct before Settings is opened.
 function applyTheme() {

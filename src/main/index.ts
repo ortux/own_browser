@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Tab, BrowserState, RendererToMainMessage } from '../shared/types';
 import { registerPexelsHandlers } from './pexels';
+import { fetchProxy, applyProxy, clearProxy, verifyProxy, initProxyAutoApply } from './proxy';
 import {
   addHistory,
   getHistory,
@@ -63,11 +64,6 @@ function createWindow() {
     : `file://${path.join(__dirname, '../renderer/index.html')}`;
 
   mainWindow.loadURL(url);
-
-  // Open DevTools in development
-  if (isDev) {
-    mainWindow.webContents.openDevTools();
-  }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -280,9 +276,11 @@ function normalizeUrl(input: string): string {
 }
 
 app.on('ready', async () => {
+  initProxyAutoApply(); // must be before createWindow so session-created fires
   await initDb();
   registerPexelsHandlers();
   registerDbHandlers();
+  registerProxyHandlers();
   createWindow();
 });
 
@@ -299,6 +297,16 @@ function registerDbHandlers() {
   ipcMain.handle('db:bookmarks:add',    (_e, url: string, title: string, favicon?: string) => addBookmark(url, title, favicon));
   ipcMain.handle('db:bookmarks:remove', (_e, url: string)                     => removeBookmark(url));
   ipcMain.handle('db:bookmarks:is',     (_e, url: string)                     => isBookmarked(url));
+}
+
+// ── Proxy IPC handlers ───────────────────────────────────────────────────────
+
+function registerProxyHandlers() {
+  // fetchProxy is synchronous — no async needed
+  ipcMain.handle('proxy:fetch',  () => fetchProxy());
+  ipcMain.handle('proxy:apply',  async (_e, proxy) => applyProxy(proxy));
+  ipcMain.handle('proxy:clear',  async () => clearProxy());
+  ipcMain.handle('proxy:verify', async (_e, proxy) => verifyProxy(proxy));
 }
 
 // Window control IPC (used by custom title bar buttons)

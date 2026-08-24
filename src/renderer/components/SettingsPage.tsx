@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor } from 'lucide-react';
+import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
+import { useProxy } from '../hooks/useProxy';
 import type { BackgroundCategory } from '../lib/backgroundCache';
 import type { SecuritySettings } from '../stores/settingsStore';
 
@@ -70,7 +71,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     setBackgroundCategory,
   } = useSettingsStore();
 
-  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security'>('general');
+  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy'>('general');
+
+  const { proxy, proxyEnabled, status: proxyStatus, error: proxyError, fetchAndApply, toggle: toggleProxy } = useProxy();
 
   const allEngines = [...SEARCH_ENGINES, ...customSearchEngines];
 
@@ -121,6 +124,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
             { id: 'search',     label: 'Search Engine', icon: SearchIcon },
             { id: 'appearance', label: 'Appearance',    icon: ImageIcon },
             { id: 'security',   label: 'Security',      icon: Shield },
+            { id: 'proxy',      label: 'Proxy',         icon: Wifi },
           ].map((item) => {
             const Icon = item.icon;
             const active = activeSection === item.id;
@@ -411,6 +415,111 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
             </div>
             <p className="text-xs text-[var(--text-faint)]">
               These protections apply wherever supported by the browsing engine.
+            </p>
+          </div>
+        )}
+
+        {activeSection === 'proxy' && (
+          <div className="max-w-2xl space-y-5">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
+              Proxy
+            </h2>
+
+            {/* Toggle row */}
+            <div className="flex items-center justify-between rounded-xl border border-[var(--border)] px-4 py-3.5">
+              <div>
+                <div className="text-sm font-medium text-[var(--text)]">Enable proxy</div>
+                <div className="text-xs text-[var(--text-faint)] mt-0.5">
+                  Route browser traffic through a free anonymous proxy. Google uses your direct connection.
+                </div>
+              </div>
+              <button
+                role="switch"
+                aria-checked={proxyEnabled}
+                onClick={toggleProxy}
+                disabled={proxyStatus === 'fetching' || proxyStatus === 'verifying'}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                  proxyEnabled ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    proxyEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Status + info card */}
+            {(proxyStatus === 'fetching' || proxyStatus === 'verifying') && (
+              <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+                <RefreshCw size={16} className="text-[var(--accent)] animate-spin shrink-0" />
+                <span className="text-sm text-[var(--text-muted)]">
+                  {proxyStatus === 'fetching' ? 'Fetching proxy…' : 'Verifying connection…'}
+                </span>
+              </div>
+            )}
+
+            {proxyStatus === 'failed' && proxyError && (
+              <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+                <AlertTriangle size={16} className="text-red-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-red-400">{proxyError}</p>
+                  <p className="text-xs text-[var(--text-faint)] mt-0.5">Free proxies can be unreliable. Try fetching a new one.</p>
+                </div>
+              </div>
+            )}
+
+            {proxyEnabled && proxy && proxyStatus === 'active' && (
+              <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-4 py-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Wifi size={15} className="text-[var(--accent)]" />
+                    <span className="text-sm font-medium text-[var(--text)]">Connected</span>
+                  </div>
+                  <button
+                    onClick={fetchAndApply}
+                    title="Get a new proxy"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <RefreshCw size={12} /> Rotate
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {[
+                    { label: 'IP:Port',  value: proxy.ipPort },
+                    { label: 'Country',  value: proxy.country },
+                    { label: 'Type',     value: proxy.type.toUpperCase() },
+                    { label: 'Level',    value: proxy.proxyLevel },
+                    { label: 'HTTPS',    value: proxy.supportsHttps ? 'Yes' : 'No' },
+                    { label: 'Speed',    value: `${proxy.speed}s` },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between rounded-lg bg-[var(--surface)] px-3 py-2">
+                      <span className="text-[var(--text-faint)]">{label}</span>
+                      <span className="font-medium text-[var(--text)]">{value}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-[var(--text-faint)]">
+                  Last fetched {new Date(proxy.fetchedAt).toLocaleTimeString()}
+                </p>
+              </div>
+            )}
+
+            {!proxyEnabled && proxyStatus !== 'fetching' && proxyStatus !== 'verifying' && (
+              <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] px-4 py-3">
+                <WifiOff size={15} className="text-[var(--text-faint)] shrink-0" />
+                <span className="text-sm text-[var(--text-faint)]">
+                  No proxy — using direct connection
+                </span>
+              </div>
+            )}
+
+            <p className="text-xs text-[var(--text-faint)] leading-relaxed">
+              Proxies are sourced from{' '}
+              <span className="text-[var(--text-muted)]">pubproxy.com</span>. Free public proxies
+              may be slow, blocked by some sites, or go offline without notice. Use for
+              light anonymity only — not a substitute for a VPN.
             </p>
           </div>
         )}

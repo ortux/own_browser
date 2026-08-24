@@ -43,6 +43,7 @@ export const BrowserWindow: React.FC = () => {
     navigate, createTab, closeTab, activateTab,
     goBack, goForward, reload, stop, duplicateTab,
   } = useBrowser();
+  const reorderTabs = useBrowserStore((s) => s.reorderTabs);
 
   // ── Navigation ── (defined before any callback that calls it)
   const handleNavigate = useCallback((input: string) => {
@@ -97,6 +98,7 @@ export const BrowserWindow: React.FC = () => {
         activeTabId={activeTabId}
         onTabClick={activateTab}
         onTabClose={closeTab}
+        onTabReorder={reorderTabs}
         onNewTab={createTab}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenHistory={() => togglePanel('history')}
@@ -132,8 +134,8 @@ export const BrowserWindow: React.FC = () => {
               {tabs
                 .filter((t) => t.url && t.url !== 'about:blank')
                 .map((t) => (
-                  <div key={t.id} className="absolute inset-0"
-                    style={{ display: !settingsOpen && t.id === activeTabId ? 'block' : 'none' }}>
+                  <div key={t.id} className="absolute inset-0 w-full h-full"
+                    style={{ display: !settingsOpen && t.id === activeTabId ? 'flex' : 'none' }}>
                     <WebView tab={t} />
                   </div>
                 ))}

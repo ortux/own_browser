@@ -37,6 +37,7 @@
     "vite": "^5.0.0"
   },
   "dependencies": {
+    "@ghostery/adblocker-electron": "^2.18.2",
     "lucide-react": "^0.372.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

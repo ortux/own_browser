@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen } from 'lucide-react';
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useProxy } from '../hooks/useProxy';
 import type { BackgroundCategory } from '../lib/backgroundCache';
@@ -69,9 +69,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     backgroundCategory,
     setNewTabMode,
     setBackgroundCategory,
+    downloadPath,
+    setDownloadPath,
+    openDownloadsOnStart,
+    setOpenDownloadsOnStart,
   } = useSettingsStore();
 
-  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy'>('general');
+  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads'>('general');
 
   const { proxy, proxyEnabled, status: proxyStatus, error: proxyError, fetchAndApply, toggle: toggleProxy } = useProxy();
 
@@ -94,6 +98,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
   const [customName, setCustomName] = useState('');
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState('');
+
+  // Initialise the download path from the OS default if the user hasn't set one,
+  // and keep the main process in sync whenever it changes.
+  useEffect(() => {
+    if (!downloadPath) {
+      window.browserAPI.downloads.defaultPath().then((p) => {
+        if (p) setDownloadPath(p);
+      }).catch(() => {});
+    }
+  }, [downloadPath, setDownloadPath]);
+
+  useEffect(() => {
+    if (downloadPath) {
+      window.browserAPI.downloads.setPath(downloadPath).catch(() => {});
+    }
+  }, [downloadPath]);
 
   // Live ad-blocker stats (blocked request count)
   const [adblockStats, setAdblockStats] = useState<{ enabled: boolean; blocked: number }>({
@@ -131,13 +151,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
         </button>
 
         <nav className="flex flex-col gap-1">
-          {[
-            { id: 'general',    label: 'General',       icon: User },
-            { id: 'search',     label: 'Search Engine', icon: SearchIcon },
-            { id: 'appearance', label: 'Appearance',    icon: ImageIcon },
-            { id: 'security',   label: 'Security',      icon: Shield },
-            { id: 'proxy',      label: 'Proxy',         icon: Wifi },
-          ].map((item) => {
+           {[
+             { id: 'general',    label: 'General',       icon: User },
+             { id: 'search',     label: 'Search Engine', icon: SearchIcon },
+             { id: 'appearance', label: 'Appearance',    icon: ImageIcon },
+             { id: 'security',   label: 'Security',      icon: Shield },
+             { id: 'downloads',  label: 'Downloads',      icon: Download },
+             { id: 'proxy',      label: 'Proxy',         icon: Wifi },
+           ].map((item) => {
             const Icon = item.icon;
             const active = activeSection === item.id;
             return (
@@ -546,6 +567,82 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
               may be slow, blocked by some sites, or go offline without notice. Use for
               light anonymity only — not a substitute for a VPN.
             </p>
+          </div>
+        )}
+
+        {activeSection === 'downloads' && (
+          <div className="max-w-2xl space-y-5">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
+              Downloads
+            </h2>
+
+            {/* Save location */}
+            <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+              <div>
+                <div className="text-sm font-medium text-[var(--text)]">Save location</div>
+                <div className="text-xs text-[var(--text-faint)] mt-0.5">
+                  Files are saved here automatically — no save dialog is shown.
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={downloadPath}
+                  onChange={(e) => setDownloadPath(e.target.value)}
+                  placeholder="Default downloads folder"
+                  className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:border-[var(--accent)]"
+                />
+                <button
+                  onClick={async () => {
+                    const picked = await window.browserAPI.downloads.pickFolder().catch(() => null);
+                    if (picked) setDownloadPath(picked);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                >
+                  <FolderOpen size={15} /> Browse
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[var(--text-faint)]">
+                  Press{' '}
+                  <kbd className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] text-[var(--text-muted)]">
+                    Ctrl + J
+                  </kbd>{' '}
+                  to open the Downloads page.
+                </span>
+                <button
+                  onClick={() => window.browserAPI.downloads.revealFolder().catch(() => {})}
+                  className="text-xs text-[var(--accent)] hover:underline"
+                >
+                  Open folder
+                </button>
+              </div>
+            </div>
+
+            {/* Behaviour */}
+            <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
+              <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+                <div>
+                  <div className="text-sm text-[var(--text)]">Open Downloads page on new download</div>
+                  <div className="text-xs text-[var(--text-faint)]">
+                    Automatically switch to the Downloads page whenever a download starts.
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={openDownloadsOnStart}
+                  onClick={() => setOpenDownloadsOnStart(!openDownloadsOnStart)}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                    openDownloadsOnStart ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      openDownloadsOnStart ? 'translate-x-5' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </main>

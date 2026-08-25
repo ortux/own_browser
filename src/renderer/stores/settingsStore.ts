@@ -101,6 +101,12 @@ interface SettingsStore {
   proxyEnabled: boolean;
   setProxy: (proxy: ProxyInfo | null) => void;
   setProxyEnabled: (enabled: boolean) => void;
+
+  // Downloads
+  downloadPath: string;
+  setDownloadPath: (path: string) => void;
+  openDownloadsOnStart: boolean;
+  setOpenDownloadsOnStart: (value: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -172,6 +178,11 @@ export const useSettingsStore = create<SettingsStore>()(
       proxyEnabled: false,
       setProxy: (proxy) => set({ proxy }),
       setProxyEnabled: (enabled) => set({ proxyEnabled: enabled }),
+
+      downloadPath: '',
+      setDownloadPath: (path) => set({ downloadPath: path }),
+      openDownloadsOnStart: false,
+      setOpenDownloadsOnStart: (value) => set({ openDownloadsOnStart: value }),
     }),
     {
       name: 'own-browser-settings',

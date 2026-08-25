@@ -46,6 +46,18 @@ function getDailyQuote() {
   return QUOTES[day % QUOTES.length];
 }
 
+// A softer frosted-glass layer that dissolves at its edges (mask fades to
+// transparent) so the panel blends into the background instead of sitting on it.
+function glassLayer(opacity: number, blur: number): React.CSSProperties {
+  return {
+    background: `rgba(0,0,0,${opacity})`,
+    backdropFilter: `blur(${blur}px) saturate(120%)`,
+    WebkitBackdropFilter: `blur(${blur}px) saturate(120%)`,
+    WebkitMaskImage: 'radial-gradient(135% 135% at 50% 50%, #000 50%, transparent 100%)',
+    maskImage: 'radial-gradient(135% 135% at 50% 50%, #000 50%, transparent 100%)',
+  };
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
   const newTabMode        = useSettingsStore((s) => s.newTabMode);
@@ -123,53 +135,61 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
 
       {/* Zyphora brand lockup — top-left */}
       <div
-        className="absolute left-7 top-6 z-10 flex flex-col gap-1 px-3 py-2 rounded-xl"
-        style={newTabMode === 'full' ? { background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' } : {}}
+        className="absolute left-7 top-6 z-10 px-3 py-2 rounded-xl"
       >
-        <div className="flex items-center gap-2.5">
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
-            className="text-[var(--accent)] shrink-0 drop-shadow-lg">
-            <polygon points="3,4 21,4 21,8 9,18 21,18 21,22 3,22 3,18 15,8 3,8" fill="currentColor" />
-          </svg>
-          <span
-            className="text-3xl font-semibold"
-            style={{
-              fontFamily: '"Poppins", sans-serif',
-              letterSpacing: '0.08em',
-              color: newTabMode === 'full' ? '#fff' : 'var(--text)',
-              textShadow: newTabMode === 'full' ? '0 2px 12px rgba(0,0,0,0.8)' : '0 2px 20px rgba(0,0,0,0.2)',
-            }}
+        {newTabMode === 'full' && (
+          <div className="absolute inset-0 rounded-xl" style={glassLayer(0.14, 5)} />
+        )}
+        <div className="relative flex flex-col items-center gap-1">
+          <div className="flex items-center gap-2.5">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
+              className="text-[var(--accent)] shrink-0 drop-shadow-lg">
+              <polygon points="3,4 21,4 21,8 9,18 21,18 21,22 3,22 3,18 15,8 3,8" fill="currentColor" />
+            </svg>
+            <span
+              className="text-3xl font-semibold"
+              style={{
+                fontFamily: '"Poppins", sans-serif',
+                letterSpacing: '0.08em',
+                color: newTabMode === 'full' ? '#fff' : 'var(--text)',
+                textShadow: newTabMode === 'full' ? '0 2px 12px rgba(0,0,0,0.8)' : '0 2px 20px rgba(0,0,0,0.2)',
+              }}
+            >
+              Zyphora
+            </span>
+          </div>
+          <p
+            className="text-[10px] uppercase tracking-[0.2em] pl-0.5"
+            style={{ color: newTabMode === 'full' ? 'rgba(255,255,255,0.5)' : 'var(--text-faint)' }}
           >
-            Zyphora
-          </span>
+            Browse with clarity
+          </p>
         </div>
-        <p
-          className="text-[10px] uppercase tracking-[0.2em] pl-0.5"
-          style={{ color: newTabMode === 'full' ? 'rgba(255,255,255,0.5)' : 'var(--text-faint)' }}
-        >
-          Browse with clarity
-        </p>
       </div>
 
       {/* Clock — top-right */}
       <div
-        className="absolute right-7 top-6 z-10 flex flex-col items-end px-3 py-2 rounded-xl"
-        style={newTabMode === 'full' ? { background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' } : {}}
+        className="absolute right-7 top-6 z-10 px-3 py-2 rounded-xl"
       >
-        <div
-          className="text-5xl font-bold tabular-nums"
-          style={{
-            color: newTabMode === 'full' ? '#fff' : 'var(--text)',
-            textShadow: newTabMode === 'full' ? '0 2px 16px rgba(0,0,0,0.8)' : 'none',
-          }}
-        >
-          {time}
-        </div>
-        <div
-          className="mt-1.5 text-xs uppercase tracking-[0.18em]"
-          style={{ color: newTabMode === 'full' ? 'rgba(255,255,255,0.6)' : 'var(--text-muted)' }}
-        >
-          {date}
+        {newTabMode === 'full' && (
+          <div className="absolute inset-0 rounded-xl" style={glassLayer(0.14, 5)} />
+        )}
+        <div className="relative flex flex-col items-center">
+          <div
+            className="text-5xl font-bold tabular-nums"
+            style={{
+              color: newTabMode === 'full' ? '#fff' : 'var(--text)',
+              textShadow: newTabMode === 'full' ? '0 2px 16px rgba(0,0,0,0.8)' : 'none',
+            }}
+          >
+            {time}
+          </div>
+          <div
+            className="mt-1.5 text-xs uppercase tracking-[0.18em]"
+            style={{ color: newTabMode === 'full' ? 'rgba(255,255,255,0.6)' : 'var(--text-muted)' }}
+          >
+            {date}
+          </div>
         </div>
       </div>
 
@@ -206,9 +226,12 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
 
       {/* Centre column: greeting + quote + search */}
       <div
-        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-5 px-8 py-8 w-full max-w-2xl rounded-2xl"
-        style={newTabMode === 'full' ? { background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' } : {}}
+        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 px-8 py-8 w-full max-w-2xl rounded-2xl"
       >
+        {newTabMode === 'full' && (
+          <div className="absolute inset-0 rounded-2xl" style={glassLayer(0.18, 7)} />
+        )}
+        <div className="relative flex flex-col items-center gap-5">
 
         {/* Greeting */}
         <h1
@@ -275,6 +298,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
           >
             <Search size={20} className="text-white" />
           </button>
+        </div>
         </div>
       </div>
 

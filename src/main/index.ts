@@ -4,6 +4,7 @@ import {
   ipcMain,
   Menu,
   clipboard,
+  globalShortcut,
 } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -26,6 +27,20 @@ import {
 } from './db';
 import { initAdblock, setAdblockEnabled, isAdblockEnabled, getBlockedCount } from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
+import {
+  initDownloads,
+  setMainWindow,
+  getDownloads,
+  setDownloadPath,
+  cancelDownload,
+  removeDownload,
+  clearDownloads,
+  openDownload,
+  showDownload,
+  pickFolder,
+  revealFolder,
+  getDownloadPath,
+} from './downloads';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -102,10 +117,19 @@ function createWindow() {
 
 function createNewTab(url?: string): string {
   const tabId = `tab-${nextTabId++}`;
+  // Give internal pages a friendly title up-front so the tab strip reads well.
+  const isInternal = !!url && url.startsWith('zyphora://');
+  const title = !url
+    ? 'New Tab'
+    : isInternal
+      ? url === 'zyphora://downloads'
+        ? 'Downloads'
+        : 'Zyphora'
+      : 'Loading...';
   const tab: Tab = {
     id: tabId,
     url: url || 'about:blank',
-    title: url ? 'Loading...' : 'New Tab',
+    title,
     loading: false,
     canGoBack: false,
     canGoForward: false,
@@ -183,6 +207,9 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       }
       case 'create-tab':
         createNewTab();
+        break;
+      case 'create-tab-url':
+        createNewTab(message.url);
         break;
       case 'close-tab':
         closeTab(message.tabId);
@@ -288,12 +315,13 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
 function normalizeUrl(input: string): string {
   const trimmed = input.trim();
 
-  // Already a full URL (http/https/file/about)
+  // Already a full URL (http/https/file/about/zyphora)
   if (
     trimmed.startsWith('http://') ||
     trimmed.startsWith('https://') ||
     trimmed.startsWith('file://') ||
-    trimmed.startsWith('about:')
+    trimmed.startsWith('about:') ||
+    trimmed.startsWith('zyphora://')
   ) {
     return trimmed;
   }
@@ -306,13 +334,26 @@ app.on('ready', async () => {
   initProxyAutoApply(); // must be before createWindow so session-created fires
   initCertificateMonitor();
   initAdblock(() => mainWindow?.webContents ?? null);
+  initDownloads(); // session will-download handler — before any webview exists
   await initDb();
   registerPexelsHandlers();
   registerDbHandlers();
   registerProxyHandlers();
   registerAdblockHandlers();
   registerCertHandlers();
+  registerDownloadHandlers();
   createWindow();
+  setMainWindow(mainWindow);
+
+  // Global shortcut — opens the Downloads page as a new tab (zyphora://downloads).
+  // Registered at the OS level so it fires even when a webview has keyboard focus.
+  globalShortcut.register('CommandOrControl+J', () => {
+    createNewTab('zyphora://downloads');
+  });
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 // ── DB IPC handlers ──────────────────────────────────────────────────────────
@@ -355,6 +396,21 @@ function registerAdblockHandlers() {
 
 function registerCertHandlers() {
   ipcMain.handle('cert:get', (_e, hostname: string) => getCertInfo(hostname));
+}
+
+// ── Downloads IPC handlers ────────────────────────────────────────────────────
+
+function registerDownloadHandlers() {
+  ipcMain.handle('download:list',         () => getDownloads());
+  ipcMain.handle('download:set-path',     (_e, p: string) => setDownloadPath(p));
+  ipcMain.handle('download:default-path', () => getDownloadPath());
+  ipcMain.handle('download:pick-folder',  async () => pickFolder());
+  ipcMain.handle('download:cancel',       (_e, id: string) => cancelDownload(id));
+  ipcMain.handle('download:remove',       (_e, id: string) => removeDownload(id));
+  ipcMain.handle('download:clear',        () => clearDownloads());
+  ipcMain.handle('download:open',         (_e, id: string) => openDownload(id));
+  ipcMain.handle('download:show',         (_e, id: string) => showDownload(id));
+  ipcMain.handle('download:reveal-folder', () => revealFolder());
 }
 
 // Window control IPC (used by custom title bar buttons)

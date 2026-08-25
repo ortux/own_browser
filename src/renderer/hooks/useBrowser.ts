@@ -41,6 +41,10 @@ export const useBrowser = () => {
     window.browserAPI?.createTab();
   }, []);
 
+  const createTabWithUrl = useCallback((url: string) => {
+    window.browserAPI?.sendMessage({ type: 'create-tab-url', url });
+  }, []);
+
   const closeTab = useCallback((tabId: string) => {
     window.browserAPI?.closeTab(tabId);
   }, []);
@@ -79,6 +83,7 @@ export const useBrowser = () => {
   return {
     navigate,
     createTab,
+    createTabWithUrl,
     closeTab,
     activateTab,
     goBack,

@@ -5,6 +5,7 @@ import { NavBar } from './NavBar';
 import { WebView } from './WebView';
 import { NewTabPage } from './NewTabPage';
 import { SettingsPage } from './SettingsPage';
+import { DownloadsPage } from './DownloadsPage';
 import { HistoryPanel } from './HistoryPanel';
 import { BookmarksPanel } from './BookmarksPanel';
 import { useBrowserStore } from '../stores/tabStore';
@@ -19,6 +20,7 @@ function looksLikeUrl(input: string): boolean {
     trimmed.startsWith('https://') ||
     trimmed.startsWith('file://') ||
     trimmed.startsWith('about:') ||
+    trimmed.startsWith('zyphora://') ||
     trimmed.startsWith('localhost')
   ) return true;
   return trimmed.includes('.') && !trimmed.includes(' ');
@@ -41,7 +43,7 @@ export const BrowserWindow: React.FC = () => {
   const { toggle: toggleBookmark, isBookmarked } = useBookmarks();
 
   const {
-    navigate, createTab, closeTab, activateTab,
+    navigate, createTab, createTabWithUrl, closeTab, activateTab,
     goBack, goForward, reload, stop, duplicateTab,
   } = useBrowser();
   const reorderTabs = useBrowserStore((s) => s.reorderTabs);
@@ -85,15 +87,38 @@ export const BrowserWindow: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTabId, panel, settingsOpen, createTab, closeTab, reload,
-      duplicateTab, goBack, goForward, handleBookmarkToggle]);
+  }, [activeTabId, panel, settingsOpen, createTab, createTabWithUrl, closeTab, reload,
+       duplicateTab, goBack, goForward, handleBookmarkToggle]);
 
   const isNewTab = !activeTab?.url || activeTab.url === 'about:blank';
+  const isDownloads = activeTab?.url === 'zyphora://downloads';
+
+  // Keep internal pages showing a friendly tab title (the webview never loads
+  // them, so main never receives a real title for zyphora:// URLs).
+  React.useEffect(() => {
+    if (activeTab && isDownloads && activeTab.title !== 'Downloads') {
+      window.browserAPI.sendMessage({
+        type: 'webview-title-updated',
+        tabId: activeTab.id,
+        title: 'Downloads',
+      });
+    }
+  }, [activeTab?.id, activeTab?.url, activeTab?.title, isDownloads]);
 
   // ── Keep the inbuilt ad blocker in sync with the security setting ──
   React.useEffect(() => {
     window.browserAPI.adblock.set(blockTrackers).catch(() => {});
   }, [blockTrackers]);
+
+  // ── Optionally open the Downloads page when a new download begins ──
+  const openDownloadsOnStart = useSettingsStore((s) => s.openDownloadsOnStart);
+  React.useEffect(() => {
+    if (!window.browserAPI?.downloads?.onStarted) return;
+    const unsub = window.browserAPI.downloads.onStarted(() => {
+      if (openDownloadsOnStart) createTabWithUrl('zyphora://downloads');
+    });
+    return unsub;
+  }, [openDownloadsOnStart, createTabWithUrl]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg)]">
@@ -136,9 +161,16 @@ export const BrowserWindow: React.FC = () => {
                 </div>
               )}
 
+              {/* Downloads page (zyphora://downloads) */}
+              {!settingsOpen && isDownloads && (
+                <div className="absolute inset-0">
+                  <DownloadsPage />
+                </div>
+              )}
+
               {/* Webviews — all mounted, visibility toggled */}
               {tabs
-                .filter((t) => t.url && t.url !== 'about:blank')
+                .filter((t) => t.url && t.url !== 'about:blank' && !t.url.startsWith('zyphora://'))
                 .map((t) => (
                   <div key={t.id} className="absolute inset-0 w-full h-full"
                     style={{ display: !settingsOpen && t.id === activeTabId ? 'flex' : 'none' }}>
@@ -158,6 +190,7 @@ export const BrowserWindow: React.FC = () => {
               onHome={() => handleNavigate('about:blank')}
               onBookmark={handleBookmarkToggle}
               isBookmarked={activeTab?.url ? isBookmarked(activeTab.url) : false}
+              onOpenDownloads={() => createTabWithUrl('zyphora://downloads')}
             />
           </div>
 

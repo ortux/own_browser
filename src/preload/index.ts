@@ -176,6 +176,47 @@ const browserAPI = {
     };
   },
 
+  // ── Downloads ──────────────────────────────────────────────────────────────
+
+  downloads: {
+    list: ():       Promise<import('../shared/types').Download[]> =>
+      ipcRenderer.invoke('download:list'),
+    setPath: (p: string): Promise<void> =>
+      ipcRenderer.invoke('download:set-path', p),
+    defaultPath: (): Promise<string> =>
+      ipcRenderer.invoke('download:default-path'),
+    pickFolder: (): Promise<string | null> =>
+      ipcRenderer.invoke('download:pick-folder'),
+    cancel: (id: string): Promise<void> =>
+      ipcRenderer.invoke('download:cancel', id),
+    remove: (id: string): Promise<void> =>
+      ipcRenderer.invoke('download:remove', id),
+    clear: ():  Promise<void> =>
+      ipcRenderer.invoke('download:clear'),
+    open: (id: string): Promise<void> =>
+      ipcRenderer.invoke('download:open', id),
+    show: (id: string): Promise<void> =>
+      ipcRenderer.invoke('download:show', id),
+    revealFolder: (): Promise<void> =>
+      ipcRenderer.invoke('download:reveal-folder'),
+    /** Live updates: receives the full download list on every change. */
+    onUpdated: (callback: (list: import('../shared/types').Download[]) => void) => {
+      const handler = (_event: any, list: import('../shared/types').Download[]) => callback(list);
+      ipcRenderer.on('download:updated', handler);
+      return () => {
+        ipcRenderer.removeListener('download:updated', handler);
+      };
+    },
+    /** Fired once when a new download begins. */
+    onStarted: (callback: (d: import('../shared/types').Download) => void) => {
+      const handler = (_event: any, d: import('../shared/types').Download) => callback(d);
+      ipcRenderer.on('download:started', handler);
+      return () => {
+        ipcRenderer.removeListener('download:started', handler);
+      };
+    },
+  },
+
   /** Certificate information for a given hostname. */
   cert: {
     get: (hostname: string): Promise<import('../main/certificate').CertInfo | null> =>

@@ -46,7 +46,9 @@ export type RendererToMainMessage =
   | { type: 'webview-title-updated'; tabId: string; title: string }
   | { type: 'webview-favicon-updated'; tabId: string; favicon: string }
   | { type: 'webview-loading'; tabId: string; loading: boolean }
-  | { type: 'webview-nav-state'; tabId: string; url: string; canGoBack: boolean; canGoForward: boolean };
+  | { type: 'webview-nav-state'; tabId: string; url: string; canGoBack: boolean; canGoForward: boolean }
+  // Open a new tab directly at a given URL (used for internal pages like downloads)
+  | { type: 'create-tab-url'; url: string };
 // IPC Messages from Main to Renderer
 export type MainToRendererMessage =
   | { type: 'state-updated'; state: BrowserState }
@@ -73,6 +75,20 @@ export interface Bookmark {
   created_at: number; // unix ms
 }
 
+// A tracked download in the browser
+export interface Download {
+  id: string;
+  filename: string;
+  url: string;
+  state: 'progressing' | 'completed' | 'interrupted' | 'canceled';
+  receivedBytes: number;
+  totalBytes: number;
+  percent: number; // 0..1
+  path: string;
+  startTime: number;
+  endTime: number | null;
+}
+
 // IPC channels for DB operations (all go through ipcRenderer.invoke)
 export type DbChannel =
   // History
@@ -93,3 +109,24 @@ export type DbChannel =
 // proxy:clear   — () => void               remove proxy, use direct connection
 // proxy:verify  — (proxy: ProxyInfo) => boolean  check proxy is alive
 export type ProxyChannel = 'proxy:fetch' | 'proxy:apply' | 'proxy:clear' | 'proxy:verify';
+
+// ── Downloads IPC channels ─────────────────────────────────────────────────────
+// download:list        — () => Download[]
+// download:set-path    — (path: string) => void
+// download:pick-folder — () => string | null   open a folder picker (main only)
+// download:default-path— () => string          default OS downloads dir
+// download:cancel      — (id: string) => void
+// download:remove      — (id: string) => void  remove from history list
+// download:clear       — () => void
+// download:open        — (id: string) => void  open the file
+// download:show        — (id: string) => void  reveal in file manager
+export type DownloadChannel =
+  | 'download:list'
+  | 'download:set-path'
+  | 'download:pick-folder'
+  | 'download:default-path'
+  | 'download:cancel'
+  | 'download:remove'
+  | 'download:clear'
+  | 'download:open'
+  | 'download:show';

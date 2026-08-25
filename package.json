@@ -16,6 +16,7 @@
     "start": "electron dist/main/index.js",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write src"
   },
@@ -46,23 +47,47 @@
   },
   "build": {
     "appId": "com.you.ownbrowser",
-    "productName": "Own Browser",
+    "productName": "Zyphora",
+    "copyright": "Copyright © 2026",
+    "npmRebuild": false,
+    "compression": "maximum",
+    "asarUnpack": [
+      "node_modules/@ghostery/adblocker-electron-preload/**/*"
+    ],
     "files": [
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "!**/*.map"
     ],
     "extraResources": [
-      ".env"
+      ".env*"
     ],
+    "icon": "public/icon.png",
     "directories": {
       "output": "release"
     },
+    "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "category": "Network"
+      "category": "Network;WebBrowser",
+      "executableName": "zyphora",
+      "maintainer": "Suprit Pahari <supritpahari123@gmail.com>",
+      "description": "A secure, privacy-focused desktop web browser built with Electron and React",
+      "synopsis": "Privacy-focused desktop web browser",
+      "desktop": {
+        "entry": {
+          "GenericName": "Web Browser",
+          "Comment": "Browse the web without being tracked",
+          "Keywords": "Internet;WWW;Browser;Web;Explorer;Privacy;"
+        }
+      },
+      "mimeTypes": [
+        "x-scheme-handler/http",
+        "x-scheme-handler/https"
+      ]
     }
   }
 }

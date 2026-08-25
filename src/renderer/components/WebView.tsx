@@ -120,6 +120,10 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
         src={tab.url}
         className="w-full h-full border-none"
         webpreferences="contextIsolation=yes"
+        // Required for target=_blank/window.open events to reach the main
+        // process. The main process safely routes http(s) URLs into browser tabs
+        // and still denies unmanaged native popup windows.
+        allowpopups
       />
 
       {/* Error overlay — shown when the page fails to load */}

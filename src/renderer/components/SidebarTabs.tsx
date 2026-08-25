@@ -108,8 +108,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
       {/* Drag region */}
       <div
         className="h-9 shrink-0 border-b border-[var(--border)]"
-        // @ts-ignore
-        style={{ WebkitAppRegion: 'drag' }}
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       />
 
       {/* ══════════ COLLAPSED ══════════ */}

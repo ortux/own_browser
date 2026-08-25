@@ -29,9 +29,34 @@ import { initCertificateMonitor, getCertInfo } from './certificate';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Present web content as the Chromium version it actually runs on, without the
+ * Electron/application tokens that cause some sites to serve a restricted or
+ * non-interactive client. We retain the real Chrome version and platform rather
+ * than hard-coding a newer browser version.
+ */
+function makeWebCompatibleUserAgent(userAgent: string): string {
+  return userAgent
+    .replace(/\sElectron\/[\w.-]+/gi, '')
+    .replace(/\sown-browser\/[\w.-]+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+app.userAgentFallback = makeWebCompatibleUserAgent(app.userAgentFallback);
+
+function canOpenInTab(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // Store for browser state
 let mainWindow: BrowserWindow | null = null;
-let tabs: Map<string, Tab> = new Map();
+const tabs: Map<string, Tab> = new Map();
 let activeTabId: string = '';
 let nextTabId = 1;
 
@@ -134,7 +159,7 @@ function updateRendererState() {
  */
 ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) => {
   // SECURITY: Verify sender is the main window
-  if (event.senderFrame.parent === null) {
+  if (event.senderFrame?.parent === null) {
     // This is a top-level frame
     switch (message.type) {
       case 'navigate': {
@@ -356,8 +381,10 @@ app.on('activate', () => {
 // SECURITY: Prevent dangerous protocols in the main renderer window only.
 // Webview tags manage their own navigation separately.
 app.on('web-contents-created', (_event, contents) => {
-  // Only restrict the top-level renderer (not embedded webviews)
-  if (contents.getType() === 'window') {
+  const contentsType = contents.getType();
+
+  // Only restrict the top-level renderer (not embedded webviews).
+  if (contentsType === 'window') {
     contents.on('will-navigate', (event, navigationUrl) => {
       const allowed =
         navigationUrl.startsWith('http://localhost') ||
@@ -369,8 +396,21 @@ app.on('web-contents-created', (_event, contents) => {
     });
   }
 
-  // Prevent web content from opening new OS windows
-  contents.setWindowOpenHandler(() => {
+  if (contentsType === 'webview') {
+    // Use the sanitized, Chrome-compatible UA from the very first request.
+    // Some Google/YouTube clients detect the Electron token and return a page
+    // shell whose player and interactive API calls are restricted.
+    contents.setUserAgent(app.userAgentFallback);
+  }
+
+  // A browser must support target=_blank/window.open, but untrusted pages must
+  // not create unmanaged Electron BrowserWindows. Route safe web URLs into our
+  // own tab model and deny the native popup. This restores links and controls
+  // that previously appeared to do nothing while preserving the sandbox.
+  contents.setWindowOpenHandler(({ url }) => {
+    if (contentsType === 'webview' && canOpenInTab(url)) {
+      createNewTab(url);
+    }
     return { action: 'deny' };
   });
 

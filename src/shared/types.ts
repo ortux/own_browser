@@ -120,6 +120,7 @@ export type ProxyChannel = 'proxy:fetch' | 'proxy:apply' | 'proxy:clear' | 'prox
 // download:clear       — () => void
 // download:open        — (id: string) => void  open the file
 // download:show        — (id: string) => void  reveal in file manager
+// download:reveal-folder — () => void          open the save folder itself
 export type DownloadChannel =
   | 'download:list'
   | 'download:set-path'
@@ -129,4 +130,5 @@ export type DownloadChannel =
   | 'download:remove'
   | 'download:clear'
   | 'download:open'
-  | 'download:show';
+  | 'download:show'
+  | 'download:reveal-folder';

@@ -104,6 +104,9 @@ export const DownloadsPage: React.FC = () => {
               const StatusIcon = meta.icon;
               const pct = Math.round(d.percent * 100);
               const showBar = d.state === 'progressing';
+              // Unknown content-length: we can't compute a percentage, so the
+              // bar pulses instead of sitting stuck at 0%.
+              const indeterminate = showBar && d.totalBytes <= 0;
               return (
                 <div
                   key={d.id}
@@ -127,7 +130,7 @@ export const DownloadsPage: React.FC = () => {
                       <span>
                         {formatBytes(d.receivedBytes)}
                         {d.totalBytes > 0 && ` / ${formatBytes(d.totalBytes)}`}
-                        {showBar && ` (${pct}%)`}
+                        {showBar && !indeterminate && ` (${pct}%)`}
                       </span>
                     </div>
 
@@ -135,8 +138,10 @@ export const DownloadsPage: React.FC = () => {
                     {showBar && (
                       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
                         <div
-                          className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-200"
-                          style={{ width: `${pct}%` }}
+                          className={`h-full rounded-full bg-[var(--accent)] ${
+                            indeterminate ? 'animate-pulse' : 'transition-[width] duration-200'
+                          }`}
+                          style={{ width: indeterminate ? '100%' : `${pct}%` }}
                         />
                       </div>
                     )}

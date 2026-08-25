@@ -491,43 +491,48 @@ export const NavBar: React.FC<NavBarProps> = ({
       </button>
 
       {/* Live download indicator — shows while anything is downloading */}
-      {activeDownloads.length > 0 && onOpenDownloads && (
-        <button
-          onClick={onOpenDownloads}
-          title="Open Downloads"
-          className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 hover:bg-[var(--hover)] transition-colors max-w-[220px]"
-        >
-          <DownloadIcon size={15} className="shrink-0 text-[var(--accent)] animate-pulse" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-2 text-[11px] leading-none">
-              <span className="truncate text-[var(--text-muted)]">
-                {activeDownloads.length === 1
-                  ? activeDownloads[0].filename
-                  : `${activeDownloads.length} downloads`}
-              </span>
-              <span className="shrink-0 tabular-nums text-[var(--text-faint)]">
-                {Math.round(
-                  (activeDownloads.reduce((s, d) => s + d.percent, 0) /
-                    activeDownloads.length) *
-                    100
-                )}%
-              </span>
-            </div>
-            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
-              <div
-                className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-200"
-                style={{
-                  width: `${
-                    (activeDownloads.reduce((s, d) => s + d.percent, 0) /
-                      activeDownloads.length) *
-                    100
-                  }%`,
-                }}
-              />
-            </div>
-          </div>
-        </button>
-      )}
+      {activeDownloads.length > 0 &&
+        onOpenDownloads &&
+        (() => {
+          // Byte-weighted progress across downloads whose size is known.
+          // Unknown-size downloads are excluded; if none are known the bar
+          // pulses indeterminately instead of being stuck at 0%.
+          const known = activeDownloads.filter((d) => d.totalBytes > 0);
+          const total = known.reduce((s, d) => s + d.totalBytes, 0);
+          const received = known.reduce((s, d) => s + d.receivedBytes, 0);
+          const aggPct = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null;
+          return (
+            <button
+              onClick={onOpenDownloads}
+              title="Open Downloads"
+              className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 hover:bg-[var(--hover)] transition-colors max-w-[220px]"
+            >
+              <DownloadIcon size={15} className="shrink-0 text-[var(--accent)] animate-pulse" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2 text-[11px] leading-none">
+                  <span className="truncate text-[var(--text-muted)]">
+                    {activeDownloads.length === 1
+                      ? activeDownloads[0].filename
+                      : `${activeDownloads.length} downloads`}
+                  </span>
+                  {aggPct !== null && (
+                    <span className="shrink-0 tabular-nums text-[var(--text-faint)]">
+                      {aggPct}%
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
+                  <div
+                    className={`h-full rounded-full bg-[var(--accent)] ${
+                      aggPct === null ? 'animate-pulse' : 'transition-[width] duration-200'
+                    }`}
+                    style={{ width: aggPct === null ? '100%' : `${aggPct}%` }}
+                  />
+                </div>
+              </div>
+            </button>
+          );
+        })()}
 
       {/* Account / menu */}
        

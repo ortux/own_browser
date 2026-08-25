@@ -9,14 +9,12 @@ export const TitleBar: React.FC = () => {
   return (
     <div
       className="flex items-center h-9 shrink-0 bg-[var(--chrome)] border-b border-[var(--border)]"
-      // @ts-ignore
-      style={{ WebkitAppRegion: 'drag' }}
+      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {/* Branding — no-drag so it doesn't interfere with double-click-to-maximise */}
       <div
         className="pl-4 flex items-center gap-2"
-        // @ts-ignore
-        style={{ WebkitAppRegion: 'no-drag' }}
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         {/* Z glyph */}
         <svg
@@ -42,8 +40,7 @@ export const TitleBar: React.FC = () => {
       {/* Windows controls — no-drag */}
       <div
         className="flex items-center h-full"
-        // @ts-ignore
-        style={{ WebkitAppRegion: 'no-drag' }}
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <button
           onClick={minimize}

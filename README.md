@@ -14,7 +14,7 @@ Own Browser prioritizes:
 ## Technology Stack
 
 ### Current (Phase 1-2)
-- **Desktop**: Electron 31+
+- **Desktop**: Electron 43+
 - **UI**: React 18 + TypeScript 5 + Vite 5
 - **Styling**: Tailwind CSS 4
 - **Icons**: Lucide React
@@ -88,7 +88,7 @@ own-browser/
 ## Development
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 22.12+
 - npm or yarn
 - (Optional) Go 1.21+ for Phase 4+
 

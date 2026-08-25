@@ -16,6 +16,33 @@ import { app, session, webContents, type WebContents } from 'electron';
 let enabled = true;
 let blockedCount = 0;
 let mainWindowGetter: (() => WebContents | null) | null = null;
+let statsTimer: ReturnType<typeof setTimeout> | null = null;
+
+// insertCSS() styles survive for the lifetime of the current document. Keep the
+// returned keys so turning the blocker off restores the page immediately rather
+// than requiring a reload.
+const cosmeticCssKeys = new Map<number, string>();
+
+const YOUTUBE_PAGE_HOSTS = [
+  'youtube.com',
+  'youtube-nocookie.com',
+  'youtu.be',
+] as const;
+
+function isHostOrSubdomain(hostname: string, domain: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+function isYouTubePageUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const host = new URL(value).hostname;
+    return YOUTUBE_PAGE_HOSTS.some((domain) => isHostOrSubdomain(host, domain));
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Hosts known to serve ads, trackers, analytics, beacons, telemetry and
@@ -558,24 +585,31 @@ const BLOCK_PATTERNS: ReadonlyArray<RegExp> = [
   /\b(?:ad_|ads_|adserve|ad-server|banner|creative|impression|sponsor)\b/i,
 ];
 
-/** CSS used to hide the empty boxes left by blocked elements. */
+/**
+ * CSS used to collapse known ad slots after their network requests are blocked.
+ *
+ * Keep this deliberately conservative. The old rules matched generic fragments
+ * such as `popup`, `banner`, `promo`, `recommended`, and even any class containing
+ * `ads`. Those fragments are also used by real dialogs and controls (for example
+ * a share popup), leaving invisible overlays that swallowed every click beneath
+ * them. Network filtering does the actual blocking; cosmetic rules must never be
+ * broad enough to break page functionality.
+ */
 const COSMETIC_CSS = `
-[class*="ad-"],[class*="ad_"],[class*="-ad-"],[class*="_ad_"],
-[class*="ads"],[class*="Ads"],[id*="ad-"],[id*="ad_"],[id*="ads"],
-[class*="sponsor"],[class*="Sponsor"],[id*="sponsor"],
-[class*="banner"],[id*="banner"],[class*="Banner"],
-[class*="promo"],[id*="promo"],[class*="Promo"],
-[class*="tracking"],[id*="tracking"],
-[class*="advert"],[id*="advert"],[class*="Advert"],
-[class*="affiliate"],[class*="popup"],[class*="interstitial"],
-[data-ad],[data-ads],[data-adslot],[data-ad-slot],
-[id^="google_ads"],[id^="div-gpt-ad"],[class*="dfp"],
-[class*="taboola"],[class*="outbrain"],[class*="mgid"],
-[id*="ad-slot"],[class*="ad-container"],[class*="adwrapper"],
-[id*="adzone"],[class*="adzone"],[class*="adbox"],[id*="adbox"],
-[class*="native-ad"],[class*="nativead"],[class*="recommended"],
-[class*="partner-sponsored"],[class*="feed-ad"],[class*="inread"],
-[class*="sticky-ad"],[class*="overlay-ad"]
+ins.adsbygoogle,
+[id^="google_ads_iframe_"],
+[id^="google_ads_frame"],
+[id^="div-gpt-ad-"],
+[data-ad-slot]:not([data-ad-slot=""]),
+[data-ad-unit]:not([data-ad-unit=""]),
+[data-google-query-id],
+.ad-container[data-ad],
+.ad-wrapper[data-ad],
+.taboola-widget,
+[id^="taboola-"],
+.OUTBRAIN,
+iframe[src*="doubleclick.net"],
+iframe[src*="googlesyndication.com"]
 { display: none !important; }
 `;
 
@@ -612,13 +646,48 @@ function emitStats() {
   }
 }
 
-function injectCosmetic(contents: WebContents) {
-  if (!enabled) return;
-  contents
-    .insertCSS(COSMETIC_CSS)
-    .catch(() => {
-      /* webContents may have navigated away — ignore */
-    });
+async function removeCosmeticCss(contents: WebContents): Promise<void> {
+  const key = cosmeticCssKeys.get(contents.id);
+  if (!key) return;
+
+  cosmeticCssKeys.delete(contents.id);
+  if (contents.isDestroyed()) return;
+
+  try {
+    await contents.removeInsertedCSS(key);
+  } catch {
+    // Navigation may already have discarded the old document and its CSS key.
+  }
+}
+
+async function refreshCosmeticCss(contents: WebContents): Promise<void> {
+  await removeCosmeticCss(contents);
+
+  // YouTube's player and dialogs are sensitive to page modifications. It is
+  // already exempt from network filtering below, so exempt it from cosmetic
+  // filtering as well.
+  if (!enabled || contents.isDestroyed() || isYouTubePageUrl(contents.getURL())) return;
+
+  try {
+    const pageUrl = contents.getURL();
+    const key = await contents.insertCSS(COSMETIC_CSS);
+
+    // insertCSS is asynchronous. Do not leave the stylesheet attached if the
+    // setting or page changed while it was being inserted.
+    if (
+      !enabled ||
+      contents.isDestroyed() ||
+      contents.getURL() !== pageUrl ||
+      isYouTubePageUrl(contents.getURL())
+    ) {
+      if (!contents.isDestroyed()) await contents.removeInsertedCSS(key).catch(() => {});
+      return;
+    }
+
+    cosmeticCssKeys.set(contents.id, key);
+  } catch {
+    // webContents may have navigated away or been destroyed — ignore.
+  }
 }
 
 export function initAdblock(getMainWindow: () => WebContents | null): void {
@@ -636,35 +705,25 @@ export function initAdblock(getMainWindow: () => WebContents | null): void {
       }
 
       // Only filter requests coming from a <webview> tab, never the app shell.
-      let isWebview = false;
-      let topHost = '';
-      try {
-        const source =
-          details.webContentsId != null ? webContents.fromId(details.webContentsId) : null;
-        isWebview = !!source && source.getType() === 'webview';
-        if (source) {
-          try {
-            topHost = new URL(source.getURL()).hostname;
-          } catch {
-            topHost = '';
-          }
-        }
-      } catch {
-        isWebview = false;
-      }
-      if (!isWebview) {
+      const source =
+        details.webContents ??
+        (details.webContentsId != null ? webContents.fromId(details.webContentsId) : null);
+      if (!source || source.getType() !== 'webview') {
         callback({});
         return;
       }
 
-      // YouTube aggressively disables its player (and consequently comments)
-      // when any of its requests are blocked (anti-adblock). To keep YouTube
-      // usable, never block anything loaded on a YouTube / googlevideo page.
-      if (
-        topHost.endsWith('youtube.com') ||
-        topHost.endsWith('googlevideo.com') ||
-        topHost.endsWith('youtu.be')
-      ) {
+      // YouTube treats partially-blocked player/API traffic as a failed client:
+      // videos stop, lazy-loaded comments never arrive, and controls can become
+      // inert. The source URL can still be about:blank during the first burst of
+      // requests, so also inspect the frame URL and referrer.
+      const isYouTubeRequest = [
+        source.getURL(),
+        details.frame?.url,
+        details.referrer,
+        details.url,
+      ].some(isYouTubePageUrl);
+      if (isYouTubeRequest) {
         callback({});
         return;
       }
@@ -678,9 +737,9 @@ export function initAdblock(getMainWindow: () => WebContents | null): void {
       if (isBlocked(details.url)) {
         blockedCount++;
         // Throttle stats emission to at most once per ~500ms.
-        if (!(globalThis as any).__adblockStatsTimer) {
-          (globalThis as any).__adblockStatsTimer = setTimeout(() => {
-            (globalThis as any).__adblockStatsTimer = null;
+        if (!statsTimer) {
+          statsTimer = setTimeout(() => {
+            statsTimer = null;
             emitStats();
           }, 500);
         }
@@ -697,7 +756,8 @@ export function initAdblock(getMainWindow: () => WebContents | null): void {
   // Inject cosmetic CSS into webview documents as they load.
   app.on('web-contents-created', (_event, contents) => {
     if (contents.getType() !== 'webview') return;
-    contents.on('dom-ready' as any, () => injectCosmetic(contents));
+    contents.on('dom-ready', () => void refreshCosmeticCss(contents));
+    contents.once('destroyed', () => cosmeticCssKeys.delete(contents.id));
   });
 
   emitStats();
@@ -705,14 +765,16 @@ export function initAdblock(getMainWindow: () => WebContents | null): void {
 
 export function setAdblockEnabled(value: boolean): void {
   enabled = value;
-  if (enabled) {
-    // Inject into any webviews that are already open.
-    for (const contents of webContents.getAllWebContents()) {
-      if (contents.getType() === 'webview' && !contents.isDestroyed()) {
-        injectCosmetic(contents);
-      }
+
+  // Apply/remove cosmetic filtering on webviews that are already open. Network
+  // filtering reads `enabled` on each request and changes immediately.
+  for (const contents of webContents.getAllWebContents()) {
+    if (contents.getType() === 'webview' && !contents.isDestroyed()) {
+      if (enabled) void refreshCosmeticCss(contents);
+      else void removeCosmeticCss(contents);
     }
   }
+
   emitStats();
 }
 

@@ -156,6 +156,31 @@ const browserAPI = {
     verify: (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<boolean> =>
       ipcRenderer.invoke('proxy:verify', proxy),
   },
+
+  /** Ad blocker */
+  adblock: {
+    set:   (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('adblock:set', enabled),
+    get:   (): Promise<boolean> =>
+      ipcRenderer.invoke('adblock:get'),
+    stats: (): Promise<{ enabled: boolean; blocked: number }> =>
+      ipcRenderer.invoke('adblock:stats'),
+  },
+
+  /** Subscribe to live ad-blocker stats (blocked count + enabled state). */
+  onAdblockStats: (callback: (stats: { enabled: boolean; blocked: number }) => void) => {
+    const handler = (_event: any, stats: { enabled: boolean; blocked: number }) => callback(stats);
+    ipcRenderer.on('adblock:stats', handler);
+    return () => {
+      ipcRenderer.removeListener('adblock:stats', handler);
+    };
+  },
+
+  /** Certificate information for a given hostname. */
+  cert: {
+    get: (hostname: string): Promise<import('../main/certificate').CertInfo | null> =>
+      ipcRenderer.invoke('cert:get', hostname),
+  },
 };
 
 // SECURITY: Expose only the API object, not ipcRenderer or any other Electron/Node APIs

@@ -134,7 +134,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
           <span
             className="text-3xl font-semibold"
             style={{
-              fontFamily: '"Cormorant Garamond", serif',
+              fontFamily: '"Poppins", sans-serif',
               letterSpacing: '0.08em',
               color: newTabMode === 'full' ? '#fff' : 'var(--text)',
               textShadow: newTabMode === 'full' ? '0 2px 12px rgba(0,0,0,0.8)' : '0 2px 20px rgba(0,0,0,0.2)',
@@ -214,7 +214,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
         <h1
           className="text-5xl font-semibold tracking-tight"
           style={{
-            fontFamily: '"Cormorant Garamond", serif',
+            fontFamily: '"Poppins", sans-serif',
             color: newTabMode === 'full' ? '#fff' : 'var(--text)',
             textShadow: newTabMode === 'full' ? '0 2px 16px rgba(0,0,0,0.8)' : 'none',
           }}

@@ -24,6 +24,8 @@ import {
   closeDb,
   initDb,
 } from './db';
+import { initAdblock, setAdblockEnabled, isAdblockEnabled, getBlockedCount } from './adblock';
+import { initCertificateMonitor, getCertInfo } from './certificate';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -277,10 +279,14 @@ function normalizeUrl(input: string): string {
 
 app.on('ready', async () => {
   initProxyAutoApply(); // must be before createWindow so session-created fires
+  initCertificateMonitor();
+  initAdblock(() => mainWindow?.webContents ?? null);
   await initDb();
   registerPexelsHandlers();
   registerDbHandlers();
   registerProxyHandlers();
+  registerAdblockHandlers();
+  registerCertHandlers();
   createWindow();
 });
 
@@ -307,6 +313,23 @@ function registerProxyHandlers() {
   ipcMain.handle('proxy:apply',  async (_e, proxy) => applyProxy(proxy));
   ipcMain.handle('proxy:clear',  async () => clearProxy());
   ipcMain.handle('proxy:verify', async (_e, proxy) => verifyProxy(proxy));
+}
+
+// ── Ad blocker IPC handlers ──────────────────────────────────────────────────
+
+function registerAdblockHandlers() {
+  ipcMain.handle('adblock:set',  (_e, value: boolean) => {
+    setAdblockEnabled(Boolean(value));
+    return isAdblockEnabled();
+  });
+  ipcMain.handle('adblock:get',  () => isAdblockEnabled());
+  ipcMain.handle('adblock:stats', () => ({ enabled: isAdblockEnabled(), blocked: getBlockedCount() }));
+}
+
+// ── Certificate IPC handlers ─────────────────────────────────────────────────
+
+function registerCertHandlers() {
+  ipcMain.handle('cert:get', (_e, hostname: string) => getCertInfo(hostname));
 }
 
 // Window control IPC (used by custom title bar buttons)

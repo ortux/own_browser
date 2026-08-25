@@ -31,6 +31,7 @@ export const BrowserWindow: React.FC = () => {
   const activeTabId = useBrowserStore((s) => s.activeTabId);
   const activeTab   = tabs.find((t) => t.id === activeTabId);
   const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
+  const blockTrackers = useSettingsStore((s) => s.security.blockTrackers);
 
   // ── UI state ──
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -88,6 +89,11 @@ export const BrowserWindow: React.FC = () => {
       duplicateTab, goBack, goForward, handleBookmarkToggle]);
 
   const isNewTab = !activeTab?.url || activeTab.url === 'about:blank';
+
+  // ── Keep the inbuilt ad blocker in sync with the security setting ──
+  React.useEffect(() => {
+    window.browserAPI.adblock.set(blockTrackers).catch(() => {});
+  }, [blockTrackers]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg)]">

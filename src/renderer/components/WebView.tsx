@@ -18,16 +18,13 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     return () => webviewRegistry.unregister(tab.id);
   }, [tab.id]);
 
-  // Drive the webview to the new URL when it changes externally
+  // Drive the webview to the new URL when it changes externally.
+  // The `src` prop below already performs the navigation; we only clear the
+  // error overlay here so we don't double-navigate (which aborts with -3).
   useEffect(() => {
-    const el = webviewRef.current;
-    if (!el || !tab.url || tab.url === 'about:blank') return;
-    setLoadError(null);
-    try {
-      if (el.src !== tab.url) {
-        el.src = tab.url;
-      }
-    } catch { /* webview not ready yet */ }
+    if (tab.url && tab.url !== 'about:blank') {
+      setLoadError(null);
+    }
   }, [tab.url]);
 
   // Wire webview events → IPC → main → Zustand

@@ -95,6 +95,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState('');
 
+  // Live ad-blocker stats (blocked request count)
+  const [adblockStats, setAdblockStats] = useState<{ enabled: boolean; blocked: number }>({
+    enabled: true,
+    blocked: 0,
+  });
+
+  useEffect(() => {
+    window.browserAPI.adblock.stats().then(setAdblockStats).catch(() => {});
+    const unsub = window.browserAPI.onAdblockStats(setAdblockStats);
+    return unsub;
+  }, []);
+
   const handleAddCustom = () => {
     const ok = addCustomSearchEngine(customName, customUrl);
     if (!ok) {
@@ -416,6 +428,19 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
             <p className="text-xs text-[var(--text-faint)]">
               These protections apply wherever supported by the browsing engine.
             </p>
+
+            {/* Live ad-blocker summary */}
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Shield size={15} className={adblockStats.enabled ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'} />
+                <span className="text-sm text-[var(--text)]">
+                  {adblockStats.enabled ? 'Ad blocker active' : 'Ad blocker off'}
+                </span>
+              </div>
+              <span className="text-xs text-[var(--text-faint)]">
+                {adblockStats.blocked.toLocaleString()} requests blocked
+              </span>
+            </div>
           </div>
         )}
 

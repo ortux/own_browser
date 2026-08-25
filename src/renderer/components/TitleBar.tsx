@@ -30,7 +30,7 @@ export const TitleBar: React.FC = () => {
         </svg>
         <span
           className="text-[13px] font-semibold tracking-wide text-[var(--text)]"
-          style={{ fontFamily: '"Cormorant Garamond", serif', letterSpacing: '0.06em' }}
+          style={{ fontFamily: '"Poppins", sans-serif', letterSpacing: '0.06em' }}
         >
           Zyphora
         </span>

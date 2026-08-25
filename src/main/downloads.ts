@@ -15,11 +15,11 @@ let mainWindow: Electron.BrowserWindow | null = null;
 let downloadPath = '';
 
 // In-memory store of download records + the live Electron.DownloadItem handles.
-// We must keep references to BOTH the will-download `event` and the `item`, or
-// Electron may garbage-collect them and silently cancel the download.
+// We must keep a reference to each in-flight `item`, or Electron may
+// garbage-collect it and silently cancel the download. Items are released as
+// soon as the download reaches a terminal state.
 const records = new Map<string, Download>();
 const items = new Map<string, Electron.DownloadItem>();
-const events = new Map<string, Electron.Event>();
 
 function ensurePath(): string {
   if (!downloadPath) downloadPath = app.getPath('downloads');
@@ -40,6 +40,28 @@ function notify(): void {
 }
 
 /**
+ * Pick a destination that doesn't collide with an existing file:
+ * "name.ext" → "name (1).ext" → "name (2).ext" …
+ * Without this, two downloads with the same name silently overwrite each other.
+ */
+function uniqueSavePath(dir: string, filename: string): string {
+  const ext = path.extname(filename);
+  const base = ext ? filename.slice(0, -ext.length) : filename;
+  let candidate = path.join(dir, filename);
+  let n = 1;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(dir, `${base} (${n})${ext}`);
+    n++;
+  }
+  return candidate;
+}
+
+/** True while the download is still transferring data. */
+function isActive(id: string): boolean {
+  return records.get(id)?.state === 'progressing';
+}
+
+/**
  * Register the will-download handler on the default session. Must be called
  * once at startup, before any webview is created.
  */
@@ -48,10 +70,11 @@ export function initDownloads(): void {
 
   session.defaultSession.on(
     'will-download',
-    (event: Electron.Event, item: Electron.DownloadItem) => {
-      // We manage the save path ourselves — suppress the native dialog.
-      event.preventDefault();
-
+    (_event: Electron.Event, item: Electron.DownloadItem) => {
+      // NOTE: setting the save path synchronously inside this handler is what
+      // suppresses the native save dialog (Electron only shows the dialog when
+      // no save path was set). Do NOT call event.preventDefault() here — per
+      // the Electron docs that CANCELS the download entirely.
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       // Sanitize the server-provided name so it can't escape the save folder.
       const rawName = item.getFilename() || 'download';
@@ -65,12 +88,12 @@ export function initDownloads(): void {
       } catch {
         /* ignore — best effort; Electron will report an error on save */
       }
-      const savePath = path.join(dir, filename);
-      item.savePath = savePath;
+      const savePath = uniqueSavePath(dir, filename);
+      item.setSavePath(savePath);
 
       const rec: Download = {
         id,
-        filename,
+        filename: path.basename(savePath),
         url: item.getURL(),
         state: 'progressing',
         receivedBytes: 0,
@@ -81,8 +104,7 @@ export function initDownloads(): void {
         endTime: null,
       };
       records.set(id, rec);
-      items.set(id, item);
-      events.set(id, event); // retain to avoid GC-triggered cancellation
+      items.set(id, item); // retain to avoid GC-triggered cancellation
       notify();
       // Let the renderer optionally pop open the Downloads page on a new download.
       mainWindow?.webContents.send('download:started', rec);
@@ -92,9 +114,8 @@ export function initDownloads(): void {
         if (!r) return;
         r.receivedBytes = item.getReceivedBytes();
         r.totalBytes = item.getTotalBytes();
-        r.percent = r.totalBytes > 0 ? r.receivedBytes / r.totalBytes : 0;
+        r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
         if (state === 'interrupted') r.state = 'interrupted';
-        else if (state === 'progressing' && item.isPaused()) r.state = 'progressing';
         notify();
       });
 
@@ -103,12 +124,21 @@ export function initDownloads(): void {
         if (!r) return;
         r.receivedBytes = item.getReceivedBytes();
         r.totalBytes = item.getTotalBytes();
-        r.percent = r.totalBytes > 0 ? r.receivedBytes / r.totalBytes : 1;
         r.endTime = Date.now();
-        if (state === 'completed') r.state = 'completed';
-        else if (state === 'cancelled') r.state = 'canceled';
-        else r.state = 'interrupted';
-        events.delete(id);
+        if (state === 'completed') {
+          r.state = 'completed';
+          // A finished download is exactly 100%, even if the server never
+          // advertised a content-length.
+          r.percent = 1;
+        } else if (state === 'cancelled') {
+          r.state = 'canceled';
+          r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
+        } else {
+          r.state = 'interrupted';
+          r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
+        }
+        // The download is finished — releasing our handle is now safe.
+        items.delete(id);
         notify();
       });
     }
@@ -128,13 +158,18 @@ export function cancelDownload(id: string): void {
 }
 
 export function removeDownload(id: string): void {
+  // Cancelling first prevents an orphaned in-flight download that keeps
+  // writing to disk (or dies to a GC-cancel) with no visible record.
+  if (isActive(id)) items.get(id)?.cancel();
   records.delete(id);
   items.delete(id);
-  events.delete(id);
   notify();
 }
 
 export function clearDownloads(): void {
+  for (const [id, item] of items) {
+    if (isActive(id)) item.cancel();
+  }
   records.clear();
   items.clear();
   notify();

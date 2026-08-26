@@ -30,6 +30,11 @@ function parseProxy(raw: string) {
 let currentAuth: { user: string; pass: string } | null = null;
 let lastProxyRules: string | null = null;
 const credentialsByProxy = new Map<string, { user: string; pass: string }>();
+const knownSessions = new Set<Electron.Session>();
+
+export function forgetProxySession(ses: Electron.Session): void {
+  knownSessions.delete(ses);
+}
 
 /**
  * Apply proxy config to a single session instance.
@@ -83,23 +88,42 @@ export function fetchProxy(): ProxyInfo {
 /** Apply proxy to ALL active sessions (default session + any webview partitions). */
 export async function applyProxy(proxy: ProxyInfo): Promise<void> {
   const credentials = credentialsByProxy.get(proxy.ipPort);
-  const user = credentials?.user ?? '';
-  const pass = credentials?.pass ?? '';
+  const nextAuth = credentials?.user
+    ? { user: credentials.user, pass: credentials.pass }
+    : null;
+  const nextRules = `http://${proxy.ipPort}`;
+  const previousAuth = currentAuth;
+  const previousRules = lastProxyRules;
 
-  // Store for login event handlers
-  currentAuth = user ? { user, pass } : null;
-
-  // Keep credentials out of proxyRules. Electron requests them through the
-  // `login` event when the proxy challenges the browser.
-  const proxyRules = `http://${proxy.ipPort}`;
-  lastProxyRules = proxyRules;
-
-  // Apply to the default session (main window)
-  await applyToSession(session.defaultSession, proxyRules);
-
-  // Apply to all existing named sessions (webview partitions created so far)
-  const allSessions = getAllSessions();
-  await Promise.all(allSessions.map((ses) => applyToSession(ses, proxyRules)));
+  try {
+    // Keep credentials out of proxyRules. Electron requests them through the
+    // `login` event when the proxy challenges the browser.
+    await applyToSession(session.defaultSession, nextRules);
+    knownSessions.add(session.defaultSession);
+    await Promise.all(
+      [...knownSessions]
+        .filter((ses) => ses !== session.defaultSession)
+        .map((ses) => applyToSession(ses, nextRules))
+    );
+    currentAuth = nextAuth;
+    lastProxyRules = nextRules;
+  } catch (error) {
+    // Do not leave a half-applied proxy behind when one session fails.
+    const rollbackRules = previousRules ?? 'direct://';
+    try {
+      await applyToSession(session.defaultSession, rollbackRules);
+      await Promise.all(
+        [...knownSessions]
+          .filter((ses) => ses !== session.defaultSession)
+          .map((ses) => applyToSession(ses, rollbackRules))
+      );
+    } catch {
+      // Best effort; the caller still receives the original failure.
+    }
+    currentAuth = previousAuth;
+    lastProxyRules = previousRules;
+    throw error;
+  }
 }
 
 /** Remove proxy from all sessions and restore direct connection. */
@@ -107,45 +131,30 @@ export async function clearProxy(): Promise<void> {
   currentAuth = null;
   lastProxyRules = null;
 
-  const allSessions = [session.defaultSession, ...getAllSessions()];
+  knownSessions.add(session.defaultSession);
   await Promise.all(
-    allSessions.map((ses) => ses.setProxy({ proxyRules: 'direct://' }))
+    [...knownSessions].map((ses) => ses.setProxy({ proxyRules: 'direct://' }))
   );
-}
-
-/**
- * Get all named/partitioned sessions that Electron has created.
- * Electron doesn't expose a "list all sessions" API, so we use the
- * fromPartition helper for known partition names. Webviews without
- * an explicit partition use the default session (already handled).
- */
-function getAllSessions(): Electron.Session[] {
-  const sessions: Electron.Session[] = [];
-  // Try common partition names used by webviews
-  for (const name of ['persist:default', 'webview']) {
-    try {
-      const ses = session.fromPartition(name, { cache: false });
-      if (ses && ses !== session.defaultSession) sessions.push(ses);
-    } catch { /* partition doesn't exist yet */ }
-  }
-  return sessions;
 }
 
 /** Verify the proxy through Electron's session network stack. */
 export async function verifyProxy(_proxy: ProxyInfo): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 10_000);
     // Node's global fetch bypasses Electron's session proxy. `Session.fetch`
     // uses the same Chromium network stack as the webview, so this actually
     // tests the proxy the user just enabled.
     const res = await session.defaultSession.fetch('https://api.ipify.org?format=json', {
       signal: controller.signal,
     });
-    clearTimeout(id);
-    return res.ok;
+    if (!res.ok) return false;
+    const body = await res.json() as { ip?: unknown };
+    return typeof body.ip === 'string' && body.ip.length > 0;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -155,6 +164,8 @@ export async function verifyProxy(_proxy: ProxyInfo): Promise<boolean> {
  * Also registers the app-level login handler for proxy auth challenges.
  */
 export function initProxyAutoApply() {
+  knownSessions.add(session.defaultSession);
+
   // Proxy auth challenges are fired on app, not on session.
   // This single handler covers ALL webcontents including webview tags.
   app.on('login', (_event, _webContents, _req, authInfo, callback) => {
@@ -168,6 +179,7 @@ export function initProxyAutoApply() {
   // When Electron creates a new session for a webview partition,
   // apply the current proxy config to it automatically.
   app.on('session-created', (ses) => {
+    knownSessions.add(ses);
     if (lastProxyRules) {
       applyToSession(ses, lastProxyRules).catch(() => { /* best-effort */ });
     }

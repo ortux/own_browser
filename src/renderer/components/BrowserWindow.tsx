@@ -36,8 +36,13 @@ export const BrowserWindow: React.FC = () => {
   const activeTab   = tabs.find((t) => t.id === activeTabId);
   const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
   const blockTrackers = useSettingsStore((s) => s.security.blockTrackers);
+  const forceHttps = useSettingsStore((s) => s.security.forceHttps);
+  const doNotTrack = useSettingsStore((s) => s.security.doNotTrack);
+  const privateByDefault = useSettingsStore((s) => s.security.privateByDefault);
   const savedProxy = useSettingsStore((s) => s.proxy);
+  const savedDownloadPath = useSettingsStore((s) => s.downloadPath);
   const proxyEnabled = useSettingsStore((s) => s.proxyEnabled);
+  const setProxy = useSettingsStore((s) => s.setProxy);
   const setProxyEnabled = useSettingsStore((s) => s.setProxyEnabled);
 
   // ── UI state ──
@@ -51,6 +56,10 @@ export const BrowserWindow: React.FC = () => {
     navigate, createTab, createTabWithUrl, closeTab, activateTab,
     goBack, goForward, reload, stop, duplicateTab,
   } = useBrowser();
+  const createNewBrowserTab = useCallback(
+    () => createTab(privateByDefault),
+    [createTab, privateByDefault]
+  );
   const reorderTabs = useBrowserStore((s) => s.reorderTabs);
 
   // ── Navigation ── (defined before any callback that calls it)
@@ -59,19 +68,25 @@ export const BrowserWindow: React.FC = () => {
     if (!trimmed) return;
     if (trimmed === 'about:blank') { navigate('about:blank'); return; }
     const url = looksLikeUrl(trimmed) ? normalizeNavigationUrl(trimmed) : null;
-    navigate(url ?? buildSearchUrl(trimmed));
-  }, [navigate, buildSearchUrl]);
+    const destination = url ?? buildSearchUrl(trimmed);
+    const secureDestination = forceHttps && destination.startsWith('http://')
+      ? `https://${destination.slice('http://'.length)}`
+      : destination;
+    navigate(secureDestination);
+  }, [navigate, buildSearchUrl, forceHttps]);
 
   const handleBookmarkToggle = useCallback(() => {
     if (!activeTab?.url || activeTab.url.startsWith('about:')) return;
-    toggleBookmark(activeTab.url, activeTab.title, activeTab.favicon);
+    void toggleBookmark(activeTab.url, activeTab.title, activeTab.favicon).catch((error: unknown) => {
+      console.error('[bookmarks] failed to toggle bookmark:', error);
+    });
   }, [activeTab, toggleBookmark]);
 
   // ── Keyboard shortcuts ──
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 't') {
-        e.preventDefault(); createTab();
+        e.preventDefault(); createNewBrowserTab();
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
         e.preventDefault(); if (activeTabId) closeTab(activeTabId);
       } else if (((e.ctrlKey || e.metaKey) && e.key === 'r') || e.key === 'F5') {
@@ -93,7 +108,7 @@ export const BrowserWindow: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTabId, panel, settingsOpen, createTab, createTabWithUrl, closeTab, reload,
+  }, [activeTabId, panel, settingsOpen, createNewBrowserTab, createTabWithUrl, closeTab, reload,
        duplicateTab, goBack, goForward, handleBookmarkToggle]);
 
   const isNewTab = !activeTab?.url || activeTab.url === 'about:blank';
@@ -111,10 +126,37 @@ export const BrowserWindow: React.FC = () => {
     }
   }, [activeTab?.id, activeTab?.url, activeTab?.title, isDownloads]);
 
+  // Keep network security settings in sync with the main process before a
+  // renderer-initiated navigation can happen.
+  React.useEffect(() => {
+    window.browserAPI.security.set({ forceHttps, doNotTrack }).catch(() => {});
+  }, [forceHttps, doNotTrack]);
+
+  // The initial tab is created by the main process before the renderer can read
+  // persisted settings. Mark it private while it is still a blank page so the
+  // setting applies to the first tab as well.
+  React.useEffect(() => {
+    if (privateByDefault && activeTab?.url === 'about:blank' && !activeTab.privateMode) {
+      window.browserAPI.sendMessage({
+        type: 'set-tab-private',
+        tabId: activeTab.id,
+        privateMode: true,
+      }).catch(() => {});
+    }
+  }, [activeTab?.id, activeTab?.url, activeTab?.privateMode, privateByDefault]);
+
   // ── Keep the inbuilt ad blocker in sync with the security setting ──
   React.useEffect(() => {
     window.browserAPI.adblock.set(blockTrackers).catch(() => {});
   }, [blockTrackers]);
+
+  React.useEffect(() => {
+    if (!savedDownloadPath) return;
+    window.browserAPI.downloads.setPath(savedDownloadPath).catch(() => {
+      // Keep the main process on its safe OS default until the user chooses a
+      // valid directory again in Settings.
+    });
+  }, [savedDownloadPath]);
 
   // A persisted proxy must be restored before the first webview navigation.
   // Otherwise the UI says it is active while the main process is still direct;
@@ -132,10 +174,11 @@ export const BrowserWindow: React.FC = () => {
         }
       } catch {
         await window.browserAPI.proxy.clear().catch(() => {});
+        setProxy(null);
         setProxyEnabled(false);
       }
     })();
-  }, [proxyEnabled, savedProxy, setProxyEnabled]);
+  }, [proxyEnabled, savedProxy, setProxy, setProxyEnabled]);
 
   // ── Optionally open the Downloads page when a new download begins ──
   const openDownloadsOnStart = useSettingsStore((s) => s.openDownloadsOnStart);
@@ -157,7 +200,7 @@ export const BrowserWindow: React.FC = () => {
         onTabClick={activateTab}
         onTabClose={closeTab}
         onTabReorder={reorderTabs}
-        onNewTab={createTab}
+        onNewTab={createNewBrowserTab}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenHistory={() => togglePanel('history')}
         onOpenBookmarks={() => togglePanel('bookmarks')}

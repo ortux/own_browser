@@ -8,8 +8,17 @@ let enabled = true;
 let blockedCount = 0;
 let engine: AdBlockEngine | null = null;
 let mainWindowGetter: (() => WebContents | null) | null = null;
-let listenerAttached = false;
 let statsTimer: ReturnType<typeof setTimeout> | null = null;
+let forceHttps = true;
+let doNotTrack = false;
+
+const attachedSessions = new WeakSet<Electron.Session>();
+
+type WebRequestDetails = {
+  webContents?: WebContents;
+  referrer: string;
+  url: string;
+};
 
 const resourceTypeMap: Record<string, ResourceType> = {
   mainFrame: 'main_frame',
@@ -19,6 +28,7 @@ const resourceTypeMap: Record<string, ResourceType> = {
   image: 'image',
   font: 'font',
   media: 'media',
+  webSocket: 'websocket',
   websocket: 'websocket',
   xhr: 'xhr',
   fetch: 'fetch',
@@ -51,7 +61,7 @@ function domainFromUrl(value: string): string {
   }
 }
 
-function sourceUrlFor(details: Electron.OnBeforeRequestListenerDetails): string {
+function sourceUrlFor(details: WebRequestDetails): string {
   try {
     return details.webContents?.getURL() || details.referrer || details.url;
   } catch {
@@ -79,7 +89,7 @@ function requestContext(details: Electron.OnBeforeRequestListenerDetails): Reque
   };
 }
 
-function isWebviewRequest(details: Electron.OnBeforeRequestListenerDetails): boolean {
+function isWebviewRequest(details: WebRequestDetails): boolean {
   try {
     // The application shell also uses the default session. Filtering it would
     // allow a filter list to cancel the shell's own JS/CSS and make the whole
@@ -91,10 +101,39 @@ function isWebviewRequest(details: Electron.OnBeforeRequestListenerDetails): boo
   }
 }
 
-function attachRequestListener(): void {
-  if (listenerAttached) return;
-  session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-    if (!isWebviewRequest(details) || details.resourceType === 'mainFrame') {
+function upgradeHttpUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:') return null;
+    url.protocol = 'https:';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Attach filtering and network privacy policy to one Electron session. */
+export function attachAdblockToSession(ses: Electron.Session): void {
+  if (attachedSessions.has(ses)) return;
+  attachedSessions.add(ses);
+
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    if (!isWebviewRequest(details)) {
+      callback({ cancel: false });
+      return;
+    }
+
+    // Keep the top-level navigation alive. A DNS/list match should never turn
+    // an address-bar click into a blank tab. Force HTTPS is an explicit
+    // redirect, not an ad-block decision.
+    if (forceHttps) {
+      const upgraded = upgradeHttpUrl(details.url);
+      if (upgraded) {
+        callback({ redirectURL: upgraded });
+        return;
+      }
+    }
+    if (details.resourceType === 'mainFrame') {
       callback({ cancel: false });
       return;
     }
@@ -108,7 +147,13 @@ function attachRequestListener(): void {
     }
     callback({ cancel: false });
   });
-  listenerAttached = true;
+
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    if (doNotTrack && isWebviewRequest(details)) {
+      details.requestHeaders.DNT = '1';
+    }
+    callback({ requestHeaders: details.requestHeaders });
+  });
 }
 
 async function loadLocalFilter(): Promise<void> {
@@ -126,7 +171,7 @@ async function loadLocalFilter(): Promise<void> {
 
 export function initAdblock(getMainWindow: () => WebContents | null): void {
   mainWindowGetter = getMainWindow;
-  attachRequestListener();
+  attachAdblockToSession(session.defaultSession);
   emitStats();
   void loadLocalFilter();
 }
@@ -135,6 +180,14 @@ export function setAdblockEnabled(value: boolean): void {
   enabled = Boolean(value);
   engine?.setEnabled(enabled);
   emitStats();
+}
+
+export function setNetworkSecuritySettings(settings: {
+  forceHttps: boolean;
+  doNotTrack: boolean;
+}): void {
+  forceHttps = Boolean(settings.forceHttps);
+  doNotTrack = Boolean(settings.doNotTrack);
 }
 
 export function isAdblockEnabled(): boolean {

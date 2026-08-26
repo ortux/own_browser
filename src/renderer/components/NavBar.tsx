@@ -14,6 +14,7 @@ import {
   History as HistoryIcon,
   CornerDownLeft,
   Download as DownloadIcon,
+  Globe,
 } from 'lucide-react';
 import type { Tab, HistoryEntry, Download } from '../../shared/types';
 import type { CertInfo } from '../../main/certificate';
@@ -59,10 +60,6 @@ function domainOf(url: string): string {
   try { return new URL(url).hostname; } catch { return url; }
 }
 
-function faviconFor(url: string): string {
-  return `https://www.google.com/s2/favicons?domain=${domainOf(url)}&sz=32`;
-}
-
 export const NavBar: React.FC<NavBarProps> = ({
   activeTab,
   onBack,
@@ -100,6 +97,7 @@ export const NavBar: React.FC<NavBarProps> = ({
 
   // ── History suggestions ──
   const [history, setHistory]           = useState<HistoryEntry[]>([]);
+  const suggestionRequest = useRef(0);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIdx, setActiveIdx]       = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -117,20 +115,24 @@ export const NavBar: React.FC<NavBarProps> = ({
 
   const loadSuggestions = useCallback(async (q: string) => {
     if (!window.browserAPI) return;
+    const request = ++suggestionRequest.current;
     try {
       const data = q.trim()
         ? await window.browserAPI.history.search(q.trim())
         : await window.browserAPI.history.get();
-      setHistory(data);
+      if (request === suggestionRequest.current) setHistory(data);
     } catch {
-      setHistory([]);
+      if (request === suggestionRequest.current) setHistory([]);
     }
   }, []);
 
   // Fetch (de-duplicated by domain) suggestions whenever the typed query changes.
+  // Debouncing prevents an IPC/database round-trip for every keystroke.
   useEffect(() => {
-    if (isFocused) loadSuggestions(input);
     setActiveIdx(-1);
+    if (!isFocused) return;
+    const timer = setTimeout(() => { void loadSuggestions(input); }, 120);
+    return () => clearTimeout(timer);
   }, [input, isFocused, loadSuggestions]);
 
   // De-duplicate history entries by domain, keeping the most recent visit.
@@ -206,22 +208,28 @@ export const NavBar: React.FC<NavBarProps> = ({
     };
   }, [tabHost, isHttps, activeTab?.id, activeTab?.loading]);
 
-  const certStatus: 'insecure' | 'pending' | 'secure' | 'invalid' = !isHttps
+  const certStatus: 'insecure' | 'pending' | 'secure' | 'invalid' | 'unknown' = !isHttps
     ? 'insecure'
     : certPending
       ? 'pending'
       : cert?.present && cert.valid
         ? 'secure'
-        : 'invalid';
+        : cert?.present
+          ? 'invalid'
+          : 'unknown';
 
   const shieldColor =
     certStatus === 'secure'
       ? 'text-green-400 hover:text-green-300'
-      : certStatus === 'pending'
+      : certStatus === 'pending' || certStatus === 'unknown'
         ? 'text-[var(--text-faint)]'
         : 'text-red-400 hover:text-red-300';
   const ShieldIcon =
-    certStatus === 'secure' ? ShieldCheck : certStatus === 'pending' ? Shield : ShieldAlert;
+    certStatus === 'secure'
+      ? ShieldCheck
+      : certStatus === 'pending' || certStatus === 'unknown'
+        ? Shield
+        : ShieldAlert;
   const shieldTitle =
     certStatus === 'secure'
       ? 'Secure connection'
@@ -229,7 +237,9 @@ export const NavBar: React.FC<NavBarProps> = ({
         ? 'Checking connection…'
         : certStatus === 'insecure'
           ? 'Not secure (no HTTPS)'
-          : 'Invalid certificate';
+          : certStatus === 'unknown'
+            ? 'Certificate details unavailable'
+            : 'Invalid certificate';
 
   // The left affordance shows the search icon on the home page (and while
   // typing); on any real site it becomes the shield that reveals cert details.
@@ -471,14 +481,18 @@ export const NavBar: React.FC<NavBarProps> = ({
                 i === activeIdx ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
               }`}
             >
-              <img
-                src={s.favicon || faviconFor(s.url)}
-                alt=""
-                className="h-5 w-5 shrink-0 rounded-sm"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = faviconFor(s.url);
-                }}
-              />
+              {s.favicon ? (
+                <img
+                  src={s.favicon}
+                  alt=""
+                  className="h-5 w-5 shrink-0 rounded-sm"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ) : (
+                <Globe size={18} className="shrink-0 text-[var(--text-faint)]" />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-[var(--text)]">
                   {domainOf(s.url)}

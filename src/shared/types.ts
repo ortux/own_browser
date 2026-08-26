@@ -37,7 +37,7 @@ export type RendererToMainMessage =
   | { type: 'go-forward'; tabId: string }
   | { type: 'reload'; tabId: string }
   | { type: 'stop'; tabId: string }
-  | { type: 'create-tab' }
+  | { type: 'create-tab'; privateMode?: boolean }
   | { type: 'close-tab'; tabId: string }
   | { type: 'activate-tab'; tabId: string }
   | { type: 'duplicate-tab'; tabId: string }
@@ -47,8 +47,12 @@ export type RendererToMainMessage =
   | { type: 'webview-favicon-updated'; tabId: string; favicon: string }
   | { type: 'webview-loading'; tabId: string; loading: boolean }
   | { type: 'webview-nav-state'; tabId: string; url: string; canGoBack: boolean; canGoForward: boolean }
+  | { type: 'webview-attached'; tabId: string; webContentsId: number }
   // Open a new tab directly at a given URL (used for internal pages like downloads)
-  | { type: 'create-tab-url'; url: string };
+  | { type: 'create-tab-url'; url: string; privateMode?: boolean }
+  // Synchronise network privacy settings from the renderer.
+  | { type: 'security-settings'; forceHttps: boolean; doNotTrack: boolean }
+  | { type: 'set-tab-private'; tabId: string; privateMode: boolean };
 // IPC Messages from Main to Renderer
 export type MainToRendererMessage =
   | { type: 'state-updated'; state: BrowserState }
@@ -104,7 +108,7 @@ export type DbChannel =
   | 'db:bookmarks:search';     // (query: string) => Bookmark[]
 
 // ── Proxy IPC channels ────────────────────────────────────────────────────────
-// proxy:fetch   — () => ProxyInfo           fetch a new proxy from pubproxy.com
+// proxy:fetch   — () => ProxyInfo           fetch a proxy from local configuration
 // proxy:apply   — (proxy: ProxyInfo) => void   apply proxy to Electron session
 // proxy:clear   — () => void               remove proxy, use direct connection
 // proxy:verify  — (proxy: ProxyInfo) => boolean  check proxy is alive

@@ -31,6 +31,8 @@ export function useProxy() {
       setProxyEnabled(true);
       setStatus('active');
     } catch (e: unknown) {
+      await window.browserAPI.proxy.clear().catch(() => {});
+      setProxy(null);
       setProxyEnabled(false);
       setError(e instanceof Error ? e.message : 'Failed to apply proxy');
       setStatus('failed');

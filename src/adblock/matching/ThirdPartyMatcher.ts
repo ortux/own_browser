@@ -1,14 +1,12 @@
+import { getDomain } from 'tldts';
 import type { RequestContext } from '../engine/RequestContext';
 
-function isIpAddress(value: string): boolean {
-  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(value) || value.includes(':');
-}
-
 function registrableDomain(value: string): string {
-  const domain = value.toLowerCase().replace(/^www\./, '');
-  if (!domain || domain === 'localhost' || isIpAddress(domain)) return domain;
-  const labels = domain.split('.').filter(Boolean);
-  return labels.length > 1 ? labels.slice(-2).join('.') : domain;
+  const normalized = value.toLowerCase().replace(/^www\./, '').replace(/\.$/, '');
+  if (!normalized) return '';
+  // tldts ships the public suffix list and correctly handles co.uk, co.in,
+  // private suffixes, IDNs, and other cases a last-two-label heuristic misses.
+  return getDomain(normalized, { allowPrivateDomains: true }) ?? normalized;
 }
 
 export function isThirdParty(sourceDomain: string, destinationDomain: string): boolean {

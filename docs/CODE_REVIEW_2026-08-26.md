@@ -1,20 +1,21 @@
 # Zyphora application review
 
 **Review date:** 2026-08-26  
-**Reviewed commit:** `4fbb93b` (`Fix black webview navigation failures`)  
+**Baseline reviewed commit:** `4fbb93b` (`Fix black webview navigation failures`)
+**Follow-up remediation:** applied in the working tree after the baseline review
 **Scope:** Electron main process, preload bridge, React renderer, webview navigation, persistence, downloads, proxy, DNS, ad blocking, packaging, and available tests.
 
 ## Executive overview
 
 The application is structurally understandable and the basic Electron security defaults are good: `nodeIntegration: false`, `contextIsolation: true`, and `sandbox: true`. The black-webview mitigation from the previous change is also present.
 
-The project is **not yet production-ready as a privacy-focused browser**. The largest risks are:
+The project is still a **functional prototype rather than a production-ready privacy browser**. The highest remaining risks are:
 
-1. Several visible security/privacy settings do not currently change browser behavior.
-2. Only the main browser-message IPC channel validates its sender and payload. The other IPC handlers accept calls and arguments without equivalent validation.
-3. A database, download-path, or renderer-startup failure can prevent the application from starting or can write to an unintended local path.
-4. The app has no Electron UI/integration test suite, so webview, popup, proxy, DNS, download, crash, and packaged-build behavior are not verified automatically.
-5. The project is reproducible only by dependency luck because lockfiles are ignored.
+1. There is still no Electron UI/integration test suite for webview, popup, proxy, DNS, download, crash, and packaged-build behavior.
+2. Local history, bookmarks, settings, and cookies are not encrypted at rest.
+3. Blank-window OAuth/payment flows are still denied rather than represented as managed tabs.
+4. All open tabs keep webviews mounted, so long sessions can consume substantial memory.
+5. Database writes are synchronous and download metadata is session-only.
 
 ## Verification performed
 
@@ -24,12 +25,30 @@ The project is **not yet production-ready as a privacy-focused browser**. The la
 | `npm run build` | Pass: TypeScript and Electron/Vite bundles build |
 | `npm run lint` | Pass: no errors or warnings |
 | `npm audit --omit=dev` | Pass: 0 production vulnerabilities reported |
-| Full `npm audit` | 3 development-tree vulnerabilities: 1 high, 2 moderate |
+| Full `npm audit` | Pass: 0 vulnerabilities after the Vite/electron-vite/esbuild upgrade |
 | Electron GUI launch | Not possible in this sandbox: the Electron runtime binary was not available after install |
 
 The current tests are almost entirely ad-block parser tests plus URL-helper tests. A successful build does not prove that an Electron webview can navigate, paint, open popups, download, recover from DNS failure, or survive a renderer crash.
 
-## Findings by priority
+## Remediation applied after the baseline review
+
+The follow-up changes in this branch now implement or harden the following baseline findings:
+
+- Force HTTPS and Do Not Track are synchronised to every normal and private webview session.
+- New tabs can use temporary private partitions and private navigation is excluded from history.
+- All privileged IPC handlers and window controls verify the trusted main frame and validate arguments.
+- A shell Content Security Policy is present.
+- Corrupt local databases are backed up and recreated; persistence uses a temporary file and rename.
+- Download paths are validated, saved paths are synchronised at startup, terminal records are capped, and resumed downloads recover their state.
+- Failed proxy application rolls back, verification uses Electron's session network stack, and credentials are kept in the main process rather than renderer settings.
+- Search suggestions no longer fall back to Google's domain favicon service and are debounced/stale-response safe.
+- Pexels and SponsorBlock requests have timeouts; background image pools are separated by category.
+- Filter regex flags, separator syntax, badfilter handling, WebSocket mapping, and public-suffix third-party detection are covered.
+- Vite/electron-vite/esbuild dependencies were upgraded and a tracked `package-lock.json` was added.
+
+The remaining items are listed in the **Open items after remediation** section at the end of this document.
+
+## Baseline findings by priority
 
 ### High priority
 
@@ -286,13 +305,7 @@ The remaining black-window risk is not fully eliminated because the Electron UI 
 
 ## Dependency and release risks
 
-The production dependency audit is clean with `npm audit --omit=dev`, but the full development tree currently reports:
-
-- `vite` vulnerability: high severity, including the `server.fs.deny` bypass advisory for affected versions.
-- `esbuild` vulnerability: moderate severity, development-server request exposure.
-- `electron-vite` inherits vulnerable Vite/esbuild ranges.
-
-`npm audit fix --force` proposes a breaking Vite 8 upgrade, so this should be handled as a tested dependency upgrade rather than blindly applied. Also, `package-lock.json` is ignored, which makes installs non-reproducible and makes it difficult to prove which transitive versions were audited.
+The dependency audit is now clean after upgrading Vite/electron-vite/esbuild-compatible ranges and adding a tracked `package-lock.json`. Keep dependency updates under CI and rerun both `npm audit` and the Electron smoke suite after future upgrades.
 
 ## Recommended order of work
 
@@ -305,8 +318,21 @@ The production dependency audit is clean with `npm audit --omit=dev`, but the fu
 7. Fix popup/OAuth flows and define a tab lifecycle to control memory.
 8. Add a tracked lockfile, upgrade dev dependencies, and refresh all documentation.
 
+## Open items after remediation
+
+The following items remain intentionally open and should be handled before calling this a production privacy browser:
+
+- Add an Electron smoke/integration suite and run it in CI with the actual runtime binary.
+- Support blank-window OAuth/payment flows through a managed popup or a carefully constrained native child window.
+- Add a tab discard/suspend policy instead of keeping every webview alive indefinitely.
+- Move database export/write work off the main process or batch it, while preserving atomic recovery.
+- Encrypt local history, bookmarks, settings, and any future credentials at rest.
+- Add a download-history retention policy and optional persistence.
+- Complete URL/filter-list semantics or replace the custom matcher with a maintained engine.
+- Finish updating the remaining Phase 2/roadmap text in the architecture and security documentation.
+
 ## Overall assessment
 
-**Current rating: functional prototype / not production-ready browser.**
+**Current rating: functional prototype with materially improved safety / not yet a production browser.**
 
-The core navigation architecture is serviceable and the previous black-webview fixes address several real failure modes. However, the combination of unimplemented security switches, broad privileged IPC surface, persistent sensitive browsing data, incomplete private mode, lack of CSP, and lack of Electron integration coverage makes a production privacy/security claim premature.
+The core navigation architecture is serviceable and the black-webview failure paths are now guarded. The remaining limitations are mostly around integration coverage, storage privacy, popup compatibility, and long-session resource management rather than the original all-links black-screen failure.

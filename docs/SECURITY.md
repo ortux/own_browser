@@ -172,35 +172,17 @@ eval(userInput);  // ✗ CATASTROPHIC
 mainWindow.loadURL('https://untrusted-site.com');
 ```
 
-## URL Security (Phase 2-3)
+## URL Security
 
 ### Safe URL Handling
 
-```typescript
-// ✓ GOOD: Validate and normalize URLs
-function normalizeUrl(input: string): string {
-  const trimmed = input.trim();
-
-  // Detect search queries
-  if (!trimmed.includes('.') && !trimmed.startsWith('http')) {
-    return `about:search?q=${encodeURIComponent(trimmed)}`;
-  }
-
-  try {
-    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
-    return url.toString();
-  } catch {
-    // Invalid URL - return search
-    return `about:search?q=${encodeURIComponent(trimmed)}`;
-  }
-}
-```
+The shared `src/shared/navigation.ts` helper validates and normalizes address-bar values. Search text is encoded through the selected search engine. Main-frame IPC rejects unsupported protocols such as `javascript:`, `data:`, and `chrome-error:`.
 
 ### Protocol Whitelisting
 
 ```typescript
-// ✓ GOOD: Only allow safe protocols
-const ALLOWED_PROTOCOLS = ['https:', 'http:', 'file:', 'data:', 'blob:'];
+// Approved browser-shell protocols.
+const ALLOWED_PROTOCOLS = ['https:', 'http:', 'file:'];
 
 function isValidProtocol(url: string): boolean {
   try {
@@ -229,7 +211,7 @@ chrome-extension://
 ms-local-stream://
 ```
 
-## Content Security (Phase 3+)
+## Content Security
 
 ### Content Security Policy (CSP)
 
@@ -417,22 +399,20 @@ Security is ongoing:
 ✗ We cannot prevent website fingerprinting (can only slow it down)
 ✗ We cannot hide your IP address (use Tor - Phase 12+)
 
-## Known Limitations (Phase 2)
+## Known Limitations
 
-- No actual web content yet (Phase 3)
-- Simplified URL validation (Phase 3 will improve)
-- No HTTPS enforcement (Phase 5)
-- No certificate validation (Phase 5)
-- No malware scanning (Phase 7)
+- Web content is embedded in Electron webviews and has not had a full automated security review.
+- Local history/bookmarks are not encrypted at rest.
+- Private tabs isolate webview cookies/history but do not provide anonymity or malware scanning.
+- The filter engine supports a documented subset of filter-list syntax.
+- Fingerprinting resistance, Tor/VPN integration, wallet security, and encrypted credential storage are not implemented.
 
 ## Roadmap
 
-- **Phase 3**: Content security policy for websites
-- **Phase 4**: Go backend with verified code review
-- **Phase 5**: HTTPS enforcement, certificate validation
-- **Phase 6**: Encrypted storage with secure key management
-- **Phase 7**: Tracker blocking, privacy dashboard
-- **Phase 8**: Private browsing isolation
+- Encrypted storage with secure key management
+- Stronger fingerprinting resistance
+- Tor/VPN integration
+- Wallet security and privacy tools
 - **Phase 10**: Security engine (phishing, malware)
 - **Phase 12**: Web3 security audit before wallet release
 

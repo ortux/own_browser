@@ -92,10 +92,7 @@ export async function initDb(): Promise<void> {
     data = fs.readFileSync(_dbPath);
   }
 
-  _db = new SQL.Database(data ? new Uint8Array(data) : null);
-
-  // Schema
-  _db.run(`
+  const createSchema = (database: SqlDatabase) => database.run(`
     CREATE TABLE IF NOT EXISTS history (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       url        TEXT    NOT NULL,
@@ -113,6 +110,25 @@ export async function initDb(): Promise<void> {
     );
   `);
 
+  try {
+    _db = new SQL.Database(data ? new Uint8Array(data) : null);
+    createSchema(_db);
+  } catch (error) {
+    // A truncated/corrupt sql.js file should not prevent the browser shell from
+    // opening. Preserve it for diagnosis and start with a clean database.
+    console.error('[db] database restore failed; creating a fresh database:', error);
+    try { _db?.close(); } catch { /* best effort */ }
+    _db = null;
+    if (fs.existsSync(_dbPath)) {
+      const backupPath = `${_dbPath}.corrupt-${Date.now()}`;
+      try { fs.renameSync(_dbPath, backupPath); } catch (renameError) {
+        console.error('[db] could not preserve corrupt database:', renameError);
+      }
+    }
+    _db = new SQL.Database(null);
+    createSchema(_db);
+  }
+
   persist();
 }
 
@@ -120,7 +136,14 @@ export async function initDb(): Promise<void> {
 function persist() {
   if (!_db || !_dbPath) return;
   const data = _db.export();
-  fs.writeFileSync(_dbPath, Buffer.from(data));
+  const tempPath = `${_dbPath}.tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(tempPath, Buffer.from(data));
+    fs.renameSync(tempPath, _dbPath);
+  } catch (error) {
+    try { fs.rmSync(tempPath, { force: true }); } catch { /* best effort */ }
+    console.error('[db] could not persist local data; continuing in memory:', error);
+  }
 }
 
 function db(): SqlDatabase {
@@ -130,20 +153,29 @@ function db(): SqlDatabase {
 
 // ── Helpers: rows → typed objects ────────────────────────────────────────────
 
-function rowsToHistory(results: QueryExecResult[]): HistoryEntry[] {
-  if (!results.length) return [];
-  const { columns, values } = results[0];
-  return values.map((row) =>
-    Object.fromEntries(columns.map((c, i) => [c, row[i]])) as unknown as HistoryEntry
-  );
-}
-
 function rowsToBookmarks(results: QueryExecResult[]): Bookmark[] {
   if (!results.length) return [];
   const { columns, values } = results[0];
   return values.map((row) =>
     Object.fromEntries(columns.map((c, i) => [c, row[i]])) as unknown as Bookmark
   );
+}
+
+function queryObjects(sql: string, params: BindParams = []): Record<string, unknown>[] {
+  const statement = db().prepare(sql);
+  statement.bind(params);
+  const rows: Record<string, unknown>[] = [];
+  while (statement.step()) rows.push(statement.getAsObject());
+  statement.free();
+  return rows;
+}
+
+function safeLimit(value: number, fallback: number, maximum: number): number {
+  return Number.isInteger(value) && value > 0 ? Math.min(value, maximum) : fallback;
+}
+
+function escapedLikePattern(query: string): string {
+  return `%${query.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
@@ -178,19 +210,35 @@ export function addHistory(url: string, title: string, favicon?: string) {
   persist();
 }
 
-export function getHistory(limit = 200): HistoryEntry[] {
-  return rowsToHistory(
-    db().exec(`SELECT * FROM history ORDER BY visited_at DESC LIMIT ${Number(limit)}`)
+export function updateHistoryMetadata(url: string, title: string, favicon?: string): void {
+  if (!url || !title || title === 'Loading...') return;
+  db().run(
+    `UPDATE history SET title = ?, favicon = ?
+     WHERE id = (
+       SELECT id FROM history WHERE url = ? ORDER BY visited_at DESC LIMIT 1
+     )`,
+    [title, favicon ?? null, url]
   );
+  persist();
+}
+
+export function getHistory(limit = 200): HistoryEntry[] {
+  const safe = safeLimit(limit, 200, 500);
+  return queryObjects(
+    'SELECT * FROM history ORDER BY visited_at DESC LIMIT ?',
+    [safe]
+  ) as unknown as HistoryEntry[];
 }
 
 export function searchHistory(query: string, limit = 100): HistoryEntry[] {
-  const q = `%${query}%`;
-  return rowsToHistory(
-    db().exec(
-      `SELECT * FROM history WHERE url LIKE '${q.replace(/'/g, "''")}' OR title LIKE '${q.replace(/'/g, "''")}' ORDER BY visited_at DESC LIMIT ${Number(limit)}`
-    )
-  );
+  const safe = safeLimit(limit, 100, 500);
+  const pattern = escapedLikePattern(query);
+  return queryObjects(
+    `SELECT * FROM history
+     WHERE url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\'
+     ORDER BY visited_at DESC LIMIT ?`,
+    [pattern, pattern, safe]
+  ) as unknown as HistoryEntry[];
 }
 
 export function deleteHistoryEntry(id: number) {
@@ -212,9 +260,10 @@ export function addBookmark(url: string, title: string, favicon?: string): Bookm
     [url, title || url, favicon ?? null, Date.now()]
   );
   persist();
-  return rowsToBookmarks(
-    db().exec(`SELECT * FROM bookmarks WHERE url = '${url.replace(/'/g, "''")}'`)
-  )[0];
+  return queryObjects(
+    'SELECT * FROM bookmarks WHERE url = ? LIMIT 1',
+    [url]
+  )[0] as unknown as Bookmark;
 }
 
 export function removeBookmark(url: string) {
@@ -237,12 +286,13 @@ export function getBookmarks(): Bookmark[] {
 }
 
 export function searchBookmarks(query: string): Bookmark[] {
-  const q = `%${query}%`;
-  return rowsToBookmarks(
-    db().exec(
-      `SELECT * FROM bookmarks WHERE url LIKE '${q.replace(/'/g, "''")}' OR title LIKE '${q.replace(/'/g, "''")}' ORDER BY created_at DESC`
-    )
-  );
+  const pattern = escapedLikePattern(query);
+  return queryObjects(
+    `SELECT * FROM bookmarks
+     WHERE url LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\'
+     ORDER BY created_at DESC LIMIT 500`,
+    [pattern, pattern]
+  ) as unknown as Bookmark[];
 }
 
 export function closeDb() {

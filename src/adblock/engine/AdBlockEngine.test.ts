@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
 import { AdBlockEngine } from './AdBlockEngine';
-import { parseRule } from './RuleParser';
+import { parseRule, parseRules } from './RuleParser';
 import { isThirdParty } from '../matching/ThirdPartyMatcher';
 import { extractYouTubeVideoId } from '../../renderer/lib/sponsorBlock';
 import { isAllowedNavigationUrl, normalizeNavigationUrl } from '../../shared/navigation';
@@ -55,12 +55,33 @@ test('allowlist applies to subdomains', () => {
 test('third-party detection uses registrable domains', () => {
   assert.equal(isThirdParty('news.example.com', 'cdn.example.com'), false);
   assert.equal(isThirdParty('news.example.com', 'ads.other.test'), true);
+  assert.equal(isThirdParty('news.example.co.uk', 'cdn.other.co.uk'), true);
+  assert.equal(isThirdParty('news.example.co.uk', 'cdn.example.co.uk'), false);
+});
+
+test('regex flags and separator syntax are supported safely', () => {
+  const regex = parseRule('/ADSERVER/i');
+  assert.equal(regex?.regexFlags, 'i');
+  const regexEngine = new AdBlockEngine();
+  regexEngine.addRules([regex!]);
+  assert.equal(regexEngine.checkRequest(request({ url: 'https://cdn.test/adserver.js' })).action, 'BLOCK');
+
+  const separatorEngine = new AdBlockEngine();
+  separatorEngine.addRules([parseRule('ads^')!]);
+  assert.equal(separatorEngine.checkRequest(request({ url: 'https://cdn.test/ads.js' })).action, 'BLOCK');
+  assert.equal(separatorEngine.checkRequest(request({ url: 'https://cdn.test/adsx.js' })).action, 'ALLOW');
 });
 
 test('unsafe or malformed regex rules are ignored', () => {
   assert.equal(parseRule('/(a+)+/'), null);
   assert.equal(parseRule('/[invalid/'), null);
+  assert.equal(parseRule('/ads/z'), null);
   assert.ok(parseRule('/^139\\.45\\.197\\./'));
+});
+
+test('badfilter disables its matching rule', () => {
+  const rules = parseRules('||ads.example^\n||ads.example^$badfilter');
+  assert.equal(rules.length, 0);
 });
 
 test('loads the supplied local filter list', async () => {

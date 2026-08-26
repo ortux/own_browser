@@ -32,14 +32,16 @@ export const useBrowser = () => {
   const navigate = useCallback(
     (url: string) => {
       if (window.browserAPI && store.activeTabId) {
-        window.browserAPI.navigate(store.activeTabId, url);
+        void window.browserAPI.navigate(store.activeTabId, url).catch((error: unknown) => {
+          console.error('[navigation] failed to send navigation request:', error);
+        });
       }
     },
     [store.activeTabId]
   );
 
-  const createTab = useCallback(() => {
-    window.browserAPI?.createTab();
+  const createTab = useCallback((privateMode = false) => {
+    window.browserAPI?.sendMessage({ type: 'create-tab', privateMode });
   }, []);
 
   const createTabWithUrl = useCallback((url: string) => {

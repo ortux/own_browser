@@ -46,8 +46,9 @@ export function normalizeNavigationUrl(value: string): string | null {
 
 export function isHttpNavigationUrl(value: string): boolean {
   try {
-    const protocol = new URL(value).protocol;
-    return protocol === 'http:' || protocol === 'https:';
+    const parsed = new URL(value);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && Boolean(parsed.hostname);
   } catch {
     return false;
   }

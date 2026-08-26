@@ -29,21 +29,22 @@
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "@vitejs/plugin-react": "^4.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3",
-    "electron-vite": "^2.3.0",
+    "electron-vite": "^3.0.0",
     "eslint": "^8.50.0",
     "prettier": "^3.0.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.3.0",
-    "vite": "^5.0.0"
+    "vite": "^6.4.3"
   },
   "dependencies": {
     "lucide-react": "^0.372.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "sql.js": "^1.14.2",
+    "tldts": "^7.4.11",
     "zustand": "^4.5.0"
   },
   "build": {
@@ -57,9 +58,6 @@
       "package.json",
       "filter.txt",
       "!**/*.map"
-    ],
-    "extraResources": [
-      ".env*"
     ],
     "icon": "public/icon.png",
     "directories": {

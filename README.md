@@ -6,16 +6,16 @@ A modern, privacy-focused desktop web browser built from scratch with Electron, 
 
 Own Browser prioritizes:
 - **Privacy**: No telemetry, local-only data storage, tracker blocking
-- **Security**: Secure Electron configuration, validated IPC, encrypted storage
+- **Security**: Secure Electron configuration, validated IPC, and sandboxed web content
 - **Speed**: Minimal dependencies, optimized performance
-- **Low Resource Usage**: Tab sleeping, lazy loading, efficient filtering
-- **No Third-party Tracking**: Fully local operation with future Web3 support
+- **Low Resource Usage**: Lazy loading and efficient filtering (tab sleeping is planned)
+- **No Telemetry**: Browsing data stays local; explicitly enabled third-party services are documented
 
 ## Technology Stack
 
-### Current (Phase 1-2)
-- **Desktop**: Electron 43+
-- **UI**: React 18 + TypeScript 5 + Vite 5
+### Current
+- **Desktop**: Electron 44+
+- **UI**: React 18 + TypeScript 5 + Vite 6
 - **Styling**: Tailwind CSS 4
 - **Icons**: Lucide React
 - **State**: Zustand
@@ -114,7 +114,7 @@ npm run lint
 npm run format
 ```
 
-## Current Capabilities (Phase 2)
+## Current Capabilities
 
 ✓ Browser window with Electron
 ✓ Address bar with URL/search detection
@@ -122,7 +122,6 @@ npm run format
 ✓ Navigation controls (back, forward, reload, stop)
 ✓ New tab page with quick links
 ✓ Keyboard shortcuts (Ctrl+T, Ctrl+W, Ctrl+R, etc.)
-✓ Tab state persistence
 ✓ Loading indicators
 ✓ Favicon support (when web content loads)
 ✓ Embedded web content with link navigation and managed target=_blank tabs
@@ -219,11 +218,11 @@ Main process owns:
 
 ## Known Limitations
 
-- Private browsing and per-tab isolated sessions are not implemented yet.
-- The security settings for Force HTTPS, Do Not Track, and private-by-default are UI placeholders until their corresponding session policies are wired in.
+- Private browsing uses temporary per-tab sessions but is not anonymous and does not encrypt traffic.
+- Local history, bookmarks, and settings are not encrypted at rest.
 - The local filter engine supports a documented subset of filter-list syntax; see `docs/ADBLOCK.md`.
 - Proxy pools must be supplied through `ZYPHORA_PROXY_LIST`; unreliable proxies are rejected before they can interrupt browsing.
-- No encryption, Go integration, or Web3 support yet.
+- No Go integration, fingerprinting resistance, or Web3 support yet.
 
 ## Performance Targets
 

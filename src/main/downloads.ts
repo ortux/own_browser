@@ -18,8 +18,10 @@ let downloadPath = '';
 // We must keep a reference to each in-flight `item`, or Electron may
 // garbage-collect it and silently cancel the download. Items are released as
 // soon as the download reaches a terminal state.
+const MAX_DOWNLOAD_RECORDS = 500;
 const records = new Map<string, Download>();
 const items = new Map<string, Electron.DownloadItem>();
+const attachedSessions = new WeakSet<Electron.Session>();
 
 function ensurePath(): string {
   if (!downloadPath) downloadPath = app.getPath('downloads');
@@ -35,8 +37,20 @@ export function getDownloadPath(): string {
 }
 
 function notify(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   const list = Array.from(records.values()).sort((a, b) => b.startTime - a.startTime);
-  mainWindow?.webContents.send('download:updated', list);
+  mainWindow.webContents.send('download:updated', list);
+}
+
+function pruneCompletedRecords(): void {
+  if (records.size <= MAX_DOWNLOAD_RECORDS) return;
+  const removable = Array.from(records.values())
+    .filter((record) => record.state !== 'progressing')
+    .sort((a, b) => a.startTime - b.startTime);
+  while (records.size > MAX_DOWNLOAD_RECORDS && removable.length > 0) {
+    const record = removable.shift();
+    if (record) records.delete(record.id);
+  }
 }
 
 /**
@@ -65,10 +79,11 @@ function isActive(id: string): boolean {
  * Register the will-download handler on the default session. Must be called
  * once at startup, before any webview is created.
  */
-export function initDownloads(): void {
-  ensurePath();
+export function attachDownloadsToSession(ses: Electron.Session): void {
+  if (attachedSessions.has(ses)) return;
+  attachedSessions.add(ses);
 
-  session.defaultSession.on(
+  ses.on(
     'will-download',
     (_event: Electron.Event, item: Electron.DownloadItem) => {
       // NOTE: setting the save path synchronously inside this handler is what
@@ -104,6 +119,7 @@ export function initDownloads(): void {
         endTime: null,
       };
       records.set(id, rec);
+      pruneCompletedRecords();
       items.set(id, item); // retain to avoid GC-triggered cancellation
       notify();
       // Let the renderer optionally pop open the Downloads page on a new download.
@@ -116,6 +132,7 @@ export function initDownloads(): void {
         r.totalBytes = item.getTotalBytes();
         r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
         if (state === 'interrupted') r.state = 'interrupted';
+        else if (state === 'progressing') r.state = 'progressing';
         notify();
       });
 
@@ -145,12 +162,26 @@ export function initDownloads(): void {
   );
 }
 
+export function initDownloads(): void {
+  ensurePath();
+  attachDownloadsToSession(session.defaultSession);
+}
+
 export function getDownloads(): Download[] {
   return Array.from(records.values()).sort((a, b) => b.startTime - a.startTime);
 }
 
 export function setDownloadPath(p: string): void {
-  if (p && typeof p === 'string') downloadPath = p;
+  if (typeof p !== 'string' || !p.trim() || p.includes('\0') || !path.isAbsolute(p)) {
+    throw new Error('Download path must be an absolute directory path.');
+  }
+
+  const resolved = path.resolve(p);
+  fs.mkdirSync(resolved, { recursive: true });
+  if (!fs.statSync(resolved).isDirectory()) {
+    throw new Error('Download path is not a directory.');
+  }
+  downloadPath = resolved;
 }
 
 export function cancelDownload(id: string): void {

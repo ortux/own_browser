@@ -59,7 +59,19 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
 
     const onLoadStart = () => {
       setLoadError(null);
-      window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: true });
+      void window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: true });
+    };
+
+    const registerGuestContents = () => {
+      try {
+        void window.browserAPI.sendMessage({
+          type: 'webview-attached',
+          tabId: tab.id,
+          webContentsId: el.getWebContentsId(),
+        });
+      } catch {
+        // The guest may not have attached yet; did-attach will retry.
+      }
     };
 
     const reportNavigationState = () => {
@@ -144,8 +156,10 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: false });
     };
 
+    el.addEventListener('did-attach',          registerGuestContents);
     el.addEventListener('did-start-loading',   onLoadStart);
     el.addEventListener('did-stop-loading',    onLoadStop);
+    registerGuestContents();
     el.addEventListener('page-title-updated',  onTitleUpdated  as EventListener);
     el.addEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
     el.addEventListener('did-navigate',        onDidNavigate);
@@ -154,6 +168,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     el.addEventListener('render-process-gone', onRenderProcessGone);
 
     return () => {
+      el.removeEventListener('did-attach',          registerGuestContents);
       el.removeEventListener('did-start-loading',   onLoadStart);
       el.removeEventListener('did-stop-loading',    onLoadStop);
       el.removeEventListener('page-title-updated',  onTitleUpdated  as EventListener);
@@ -170,8 +185,9 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       <webview
         ref={webviewRef}
         src={initialSrc}
+        partition={tab.privateMode ? `temp:tab-${tab.id}` : undefined}
         className="w-full h-full border-none"
-        webpreferences="contextIsolation=yes"
+        webpreferences="contextIsolation=yes,sandbox=yes"
         // Required for target=_blank/window.open events to reach the main
         // process. The main process safely routes http(s) URLs into browser tabs
         // and still denies unmanaged native popup windows.

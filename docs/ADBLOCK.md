@@ -11,7 +11,7 @@ Zyphora uses two layers. Chromium uses AdGuard DNS over HTTPS as the primary dom
 5. `src/adblock/engine/AdBlockEngine.ts` indexes domain suffixes and URL tokens.
 6. `session.defaultSession.webRequest.onBeforeRequest` receives the local decision and cancels blocked requests.
 
-All current webviews use the default session. A future named or private session must be registered explicitly before it can be filtered.
+Normal webviews use the default session. Temporary private webview sessions are registered when created so the same network filtering and download policy applies to them.
 
 ## Supported syntax
 
@@ -54,7 +54,7 @@ SponsorBlock skips marked segments; it does not reliably remove YouTube in-strea
 - The renderer accesses only validated adblock IPC operations already exposed by preload.
 - Main-frame navigation is deliberately allowed so a filter-list match cannot prevent a user from opening a site; only webview subresources are cancelled.
 - Automatic DoH prefers the configured AdGuard endpoint and falls back to system DNS if it is unavailable, so a resolver outage does not make every tab blank. `ZYPHORA_DNS_MODE=secure` intentionally restores fail-closed behavior for deployments that require it.
-- Third-party classification currently uses a small registrable-domain approximation. It is not a complete Public Suffix List implementation and should be replaced with a maintained PSL-compatible library before relying on country-code edge cases.
+- Third-party classification uses the maintained `tldts` public-suffix-list implementation so country-code and private-suffix edge cases are handled consistently.
 
 ## Validation
 

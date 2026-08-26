@@ -44,8 +44,8 @@ const browserAPI = {
   /**
    * Create a new tab
    */
-  createTab: () => {
-    return browserAPI.sendMessage({ type: 'create-tab' });
+  createTab: (privateMode = false) => {
+    return browserAPI.sendMessage({ type: 'create-tab', privateMode });
   },
 
   /**
@@ -155,6 +155,12 @@ const browserAPI = {
       ipcRenderer.invoke('proxy:clear'),
     verify: (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<boolean> =>
       ipcRenderer.invoke('proxy:verify', proxy),
+  },
+
+  /** Network privacy policy */
+  security: {
+    set: (settings: { forceHttps: boolean; doNotTrack: boolean }): Promise<unknown> =>
+      ipcRenderer.invoke('browser:message', { type: 'security-settings', ...settings }),
   },
 
   /** Ad blocker */

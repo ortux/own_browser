@@ -10,6 +10,9 @@ export function useBookmarks() {
     setLoading(true);
     try {
       setBookmarks(await window.browserAPI.bookmarks.get());
+    } catch (error) {
+      console.error('[bookmarks] failed to load:', error);
+      setBookmarks([]);
     } finally {
       setLoading(false);
     }

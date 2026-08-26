@@ -16,17 +16,19 @@ function tokensFor(pattern: string): string[] {
     .slice(0, 4);
 }
 
-function parseRegex(value: string): string | null {
+function parseRegex(value: string): { source: string; flags: string } | null {
   if (!value.startsWith('/') || value.length < 3) return null;
   const end = value.lastIndexOf('/');
   if (end <= 0) return null;
   const source = value.slice(1, end);
+  const flags = value.slice(end + 1);
+  if (!/^[imsuy]*$/.test(flags) || new Set(flags).size !== flags.length) return null;
   if (source.length > 1024 || /\([^)]*[+*][^)]*\)[+*]/.test(source) || /\.\*.*\.\*/.test(source)) {
     return null;
   }
   try {
-    new RegExp(source);
-    return source;
+    new RegExp(source, flags);
+    return { source, flags };
   } catch {
     return null;
   }
@@ -73,8 +75,8 @@ export function parseRule(rawInput: string): FilterRule | null {
 
   const isAnchoredDomain = patternValue.startsWith('||') && patternValue.endsWith('^');
   const isPlainDomain = /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(patternValue);
-  const regexSource = !isAnchoredDomain && !isPlainDomain ? parseRegex(patternValue) : null;
-  if (patternValue.startsWith('/') && !regexSource) return null;
+  const regex = !isAnchoredDomain && !isPlainDomain ? parseRegex(patternValue) : null;
+  if (patternValue.startsWith('/') && !regex) return null;
   const domainPattern = isAnchoredDomain || isPlainDomain;
   const pattern = isAnchoredDomain
     ? patternValue.slice(2, -1).toLowerCase()
@@ -91,14 +93,29 @@ export function parseRule(rawInput: string): FilterRule | null {
     resourceTypes,
     thirdParty,
     firstParty,
-    tokens: tokensFor(regexSource ?? pattern),
-    regexSource: regexSource ?? undefined,
+    tokens: tokensFor(regex?.source ?? pattern),
+    regexSource: regex?.source,
+    regexFlags: regex?.flags,
   };
 }
 
+function withoutBadfilter(raw: string): string {
+  const index = raw.indexOf('$');
+  if (index === -1) return raw;
+  const options = raw.slice(index + 1).split(',').filter((option) => option !== 'badfilter');
+  return options.length > 0 ? `${raw.slice(0, index)}$${options.join(',')}` : raw.slice(0, index);
+}
+
 export function parseRules(text: string): FilterRule[] {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const disabled = new Set(
+    lines
+      .filter((line) => /(?:^|,)badfilter(?:,|$)/.test(line.slice(line.indexOf('$') + 1)))
+      .map((line) => withoutBadfilter(line))
+  );
   const rules: FilterRule[] = [];
-  for (const line of text.split(/\r?\n/)) {
+  for (const line of lines) {
+    if (disabled.has(line)) continue;
     const rule = parseRule(line);
     if (rule) rules.push(rule);
   }

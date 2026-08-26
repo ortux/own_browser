@@ -13,5 +13,6 @@ export interface FilterRule {
   firstParty?: boolean;
   tokens: string[];
   regexSource?: string;
+  regexFlags?: string;
   urlMatcher?: RegExp;
 }

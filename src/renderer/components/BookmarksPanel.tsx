@@ -87,7 +87,12 @@ export const BookmarksPanel: React.FC<BookmarksPanelProps> = ({ onNavigate, onCl
                 <ExternalLink size={12} />
               </button>
               <button
-                onClick={(e) => { e.stopPropagation(); remove(bm.url); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void remove(bm.url).catch((error: unknown) => {
+                    console.error('[bookmarks] failed to remove bookmark:', error);
+                  });
+                }}
                 className="p-0.5 rounded hover:text-red-400 transition-colors"
                 title="Remove bookmark"
               >

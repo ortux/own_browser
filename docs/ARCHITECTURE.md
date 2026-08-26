@@ -59,7 +59,7 @@ Own Browser is structured as a **multi-tier, security-focused architecture** des
 - `components/ControlBar.tsx` - Navigation controls
 - `components/AddressBar.tsx` - URL input
 - `components/NewTabPage.tsx` - Home page
-- `components/WebView.tsx` - Web content area (placeholder in Phase 2)
+- `components/WebView.tsx` - Sandboxed web content area with navigation/error handling
 
 **Constraints**:
 - ✗ Cannot directly access Node.js
@@ -202,7 +202,7 @@ type MainToRendererMessage =
    - Updates tab.url and tab.title = "Loading..."
    - Sends state update via mainWindow.webContents.send('state-updated', state)
 6. React re-renders with new URL and loading state
-7. (Phase 3+) Web content actually loads
+7. Sandboxed web content loads in the per-tab webview
 8. Main process updates tab.title from page title
 9. Sends updated state to renderer
 10. React reflects new title in tab bar
@@ -227,31 +227,19 @@ type MainToRendererMessage =
 
 ## URL Normalization
 
-The main process implements smart URL detection:
+The renderer detects search text and the shared navigation helper validates URLs before the main process accepts them:
 
-```javascript
-function normalizeUrl(input: string): string {
-  // Remove whitespace
-  const trimmed = input.trim();
-
-  // Detect search query (no dots, no protocol)
-  if (!trimmed.includes('.') && !trimmed.startsWith('http')) {
-    return `about:search?q=${encodeURIComponent(trimmed)}`;
-  }
-
-  // Add https:// if missing
-  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-    return `https://${trimmed}`;
-  }
-
-  return trimmed;
-}
+```typescript
+const destination = looksLikeUrl(input)
+  ? normalizeNavigationUrl(input)
+  : buildSearchUrl(input);
+// The main process accepts only http(s), file URLs, and approved internal URLs.
 ```
 
 Examples:
 - `google.com` → `https://google.com`
-- `localhost:3000` → `https://localhost:3000` (Note: Phase 3 will detect localhost)
-- `how does encryption work` → `about:search?q=how%20does%20encryption%20work`
+- `localhost:3000` → `https://localhost:3000`
+- `how does encryption work` → selected search engine URL with an encoded query
 - `https://github.com` → `https://github.com` (unchanged)
 
 ## Tab State Management

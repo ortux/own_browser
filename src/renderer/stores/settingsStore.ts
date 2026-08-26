@@ -19,8 +19,6 @@ export interface ProxyInfo {
   supportsHttps: boolean;
   speed: number;          // seconds
   fetchedAt: number;      // unix ms
-  username?: string;      // for authenticated proxies
-  password?: string;
 }
 
 export interface SecuritySettings {
@@ -82,6 +80,8 @@ interface SettingsStore {
   // Security / privacy
   security: SecuritySettings;
   setSecurityFlag: (flag: keyof SecuritySettings, value: boolean) => void;
+  adblockAllowlist: string[];
+  setAdblockAllowlist: (sites: string[]) => void;
 
   // Appearance / theme
   theme: 'light' | 'dark' | 'system';
@@ -109,6 +109,30 @@ interface SettingsStore {
   setOpenDownloadsOnStart: (value: boolean) => void;
 }
 
+function sanitizeProxy(value: unknown): ProxyInfo | null {
+  if (!value || typeof value !== 'object') return null;
+  const proxy = value as Partial<ProxyInfo>;
+  if (
+    typeof proxy.ip !== 'string'
+    || typeof proxy.port !== 'string'
+    || typeof proxy.ipPort !== 'string'
+    || proxy.ipPort !== `${proxy.ip}:${proxy.port}`
+  ) return null;
+  return {
+    ip: proxy.ip,
+    port: proxy.port,
+    ipPort: proxy.ipPort,
+    country: typeof proxy.country === 'string' ? proxy.country : 'Unknown',
+    type: typeof proxy.type === 'string' ? proxy.type : 'http',
+    proxyLevel: typeof proxy.proxyLevel === 'string' ? proxy.proxyLevel : 'unknown',
+    supportsHttps: proxy.supportsHttps === true,
+    speed: typeof proxy.speed === 'number' && Number.isFinite(proxy.speed) ? proxy.speed : 0,
+    fetchedAt: typeof proxy.fetchedAt === 'number' && Number.isFinite(proxy.fetchedAt)
+      ? proxy.fetchedAt
+      : 0,
+  };
+}
+
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set, get) => ({
@@ -128,17 +152,25 @@ export const useSettingsStore = create<SettingsStore>()(
 
       buildSearchUrl: (query: string) => {
         const engine = get().getSearchEngine();
-        return engine.url.replace('%s', encodeURIComponent(query));
+        return engine.url.replace(/%s/g, encodeURIComponent(query));
       },
 
       addCustomSearchEngine: (name: string, url: string) => {
         const trimmed = url.trim();
-        // Must contain the %s query placeholder and a valid-ish URL.
-        if (!trimmed.includes('%s')) return false;
-        if (!/^https?:\/\//i.test(trimmed)) return false;
+        // The URL is user input and is later loaded in a webview. Validate it
+        // with URL rather than accepting a string that merely starts with https.
+        const hasControlCharacter = [...trimmed].some((character) => character.charCodeAt(0) < 32);
+        if (trimmed.length > 2_048 || !trimmed.includes('%s') || hasControlCharacter) {
+          return false;
+        }
+        try {
+          const parsed = new URL(trimmed);
+          if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) return false;
+        } catch {
+          return false;
+        }
         const engine: SearchEngine = {
-          id: `custom-${Date.now()}`,
-          name: name.trim() || 'Custom',
+          id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,          name: name.trim() || 'Custom',
           url: trimmed,
           shortcut: '',
         };
@@ -160,9 +192,12 @@ export const useSettingsStore = create<SettingsStore>()(
         doNotTrack: false,
         privateByDefault: false,
       },
+      adblockAllowlist: [],
 
       setSecurityFlag: (flag, value) =>
         set((s) => ({ security: { ...s.security, [flag]: value } })),
+      setAdblockAllowlist: (sites) =>
+        set({ adblockAllowlist: [...new Set(sites.map((site) => site.toLowerCase().replace(/^www\./, '')))] }),
 
       theme: 'dark',
       setTheme: (theme) => set({ theme }),
@@ -186,6 +221,18 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'own-browser-settings',
+      partialize: (state) => ({ ...state, proxy: sanitizeProxy(state.proxy) }),
+      merge: (persisted, current) => {
+        const stored = persisted as Partial<SettingsStore>;
+        const proxy = sanitizeProxy(stored.proxy);
+        return {
+          ...current,
+          ...stored,
+          security: { ...current.security, ...stored.security },
+          proxy,
+          proxyEnabled: proxy !== null && stored.proxyEnabled === true,
+        };
+      },
     }
   )
 );

@@ -21,12 +21,20 @@ const browserAPI = {
    * Listen for state updates from the main process
    */
   onStateUpdated: (callback: (state: BrowserState) => void) => {
-    const handler = (_event: any, state: BrowserState) => callback(state);
+    const handler = (_event: Electron.IpcRendererEvent, state: BrowserState) => callback(state);
     ipcRenderer.on('state-updated', handler);
 
     // Return unsubscribe function
     return () => {
       ipcRenderer.removeListener('state-updated', handler);
+    };
+  },
+
+  onOpenFind: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('open-find', handler);
+    return () => {
+      ipcRenderer.removeListener('open-find', handler);
     };
   },
 
@@ -44,8 +52,8 @@ const browserAPI = {
   /**
    * Create a new tab
    */
-  createTab: () => {
-    return browserAPI.sendMessage({ type: 'create-tab' });
+  createTab: (privateMode = false) => {
+    return browserAPI.sendMessage({ type: 'create-tab', privateMode });
   },
 
   /**
@@ -157,6 +165,12 @@ const browserAPI = {
       ipcRenderer.invoke('proxy:verify', proxy),
   },
 
+  /** Network privacy policy */
+  security: {
+    set: (settings: { forceHttps: boolean; doNotTrack: boolean }): Promise<unknown> =>
+      ipcRenderer.invoke('browser:message', { type: 'security-settings', ...settings }),
+  },
+
   /** Ad blocker */
   adblock: {
     set:   (enabled: boolean): Promise<boolean> =>
@@ -165,11 +179,17 @@ const browserAPI = {
       ipcRenderer.invoke('adblock:get'),
     stats: (): Promise<{ enabled: boolean; blocked: number }> =>
       ipcRenderer.invoke('adblock:stats'),
+    setAllowlist: (sites: string[]): Promise<void> =>
+      ipcRenderer.invoke('adblock:set-allowlist', sites),
+    siteStatus: (site: string): Promise<{ allowed: boolean; blocked: number }> =>
+      ipcRenderer.invoke('adblock:site-status', site),
+    siteDetails: (site: string): Promise<import('../shared/types').BlockedRequest[]> =>
+      ipcRenderer.invoke('adblock:site-details', site),
   },
 
   /** Subscribe to live ad-blocker stats (blocked count + enabled state). */
   onAdblockStats: (callback: (stats: { enabled: boolean; blocked: number }) => void) => {
-    const handler = (_event: any, stats: { enabled: boolean; blocked: number }) => callback(stats);
+    const handler = (_event: Electron.IpcRendererEvent, stats: { enabled: boolean; blocked: number }) => callback(stats);
     ipcRenderer.on('adblock:stats', handler);
     return () => {
       ipcRenderer.removeListener('adblock:stats', handler);
@@ -189,6 +209,8 @@ const browserAPI = {
       ipcRenderer.invoke('download:pick-folder'),
     cancel: (id: string): Promise<void> =>
       ipcRenderer.invoke('download:cancel', id),
+    retry: (id: string): Promise<void> =>
+      ipcRenderer.invoke('download:retry', id),
     remove: (id: string): Promise<void> =>
       ipcRenderer.invoke('download:remove', id),
     clear: ():  Promise<void> =>
@@ -201,7 +223,7 @@ const browserAPI = {
       ipcRenderer.invoke('download:reveal-folder'),
     /** Live updates: receives the full download list on every change. */
     onUpdated: (callback: (list: import('../shared/types').Download[]) => void) => {
-      const handler = (_event: any, list: import('../shared/types').Download[]) => callback(list);
+      const handler = (_event: Electron.IpcRendererEvent, list: import('../shared/types').Download[]) => callback(list);
       ipcRenderer.on('download:updated', handler);
       return () => {
         ipcRenderer.removeListener('download:updated', handler);
@@ -209,12 +231,17 @@ const browserAPI = {
     },
     /** Fired once when a new download begins. */
     onStarted: (callback: (d: import('../shared/types').Download) => void) => {
-      const handler = (_event: any, d: import('../shared/types').Download) => callback(d);
+      const handler = (_event: Electron.IpcRendererEvent, d: import('../shared/types').Download) => callback(d);
       ipcRenderer.on('download:started', handler);
       return () => {
         ipcRenderer.removeListener('download:started', handler);
       };
     },
+  },
+
+  /** Clear local history and current-session site storage. */
+  privacy: {
+    clearData: (): Promise<void> => ipcRenderer.invoke('privacy:clear-data'),
   },
 
   /** Certificate information for a given hostname. */

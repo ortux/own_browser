@@ -11,78 +11,32 @@ Own Browser is built with privacy as a core principle:
 5. **Minimalism**: Only collect what's necessary
 6. **Open Source**: Auditable code, no black boxes
 
-## What We DON'T Collect (Phase 2)
+## Current data handling
 
-✓ **Never collected by default**:
-- Browsing history
-- Searches you perform
-- Pages you visit
-- Passwords
-- Login credentials
-- Cookie data
-- Form history
-- Download links
-- IP addresses (stay between you and websites)
-- User behavior analytics
-- Crash reports
+The current implementation stores the following locally:
 
-✓ **Never collected ever**:
-- Google Analytics
-- Facebook Pixel
-- Mixpanel or similar analytics
-- Advertising identifiers
-- Third-party tracking pixels
-- Demographic profiling
-- Location data
-- Device identifiers (beyond process scope)
+- Browsing history in `zyphora.db`: URL, title, timestamp, and favicon.
+- Bookmarks in `zyphora.db`.
+- Settings in renderer localStorage, including theme, search engines, download path, and proxy endpoint metadata.
+- In-memory download records for the current app session.
 
-## Data Stored Locally (Phase 5+)
+This data is not encrypted at rest yet. History can include sensitive query strings, so users should clear it when appropriate. There is no account sync or remote browsing-history database.
 
-When implemented, the following will be stored on your device only:
+The browser makes explicit third-party requests when enabled or configured:
 
-**Browsing History** (optional, you can disable)
-- URL visited
-- Page title
-- Timestamp
-- Favicon
-- Not shared with anyone
+- Search queries go directly to the selected search engine.
+- DNS is configured to prefer AdGuard DNS-over-HTTPS; automatic mode can fall back to system DNS.
+- A Pexels API key, when configured, is used to request new-tab images.
+- YouTube video IDs are reduced to a four-character SHA-256 prefix for optional SponsorBlock lookups.
+- Favicon URLs supplied by visited pages may be fetched by the shell; address-bar suggestions do not use a Google fallback request.
 
-**Bookmarks** (you control)
-- URL
-- Title
-- Tags
-- Created date
-- Local only
+## Data we do not collect
 
-**Settings** (encrypted in Phase 6)
-- Theme preference
-- Font size
-- Search engine
-- Homepage
-- Proxy settings
-- Not shared
+The application has no analytics SDK, ad identifier, crash-reporting backend, account sync, or remote browsing-history database. It does not intentionally submit passwords, form contents, or full browsing history to the project.
 
-**Downloads** (metadata only)
-- Filename
-- Date
-- Source URL
-- Status
-- Local only
+## Private browsing
 
-## Private Browsing (Phase 8)
-
-Private tabs/windows will NOT store:
-- Browsing history
-- Cookies (except session cookies from sites)
-- Cache
-- Form data
-- Search history
-
-**Important Disclaimers**:
-- Private mode does NOT make you anonymous to websites (they still see your IP)
-- Private mode does NOT hide activity from your ISP or employer
-- Private mode does NOT encrypt your traffic (use HTTPS + VPN)
-- Private mode does NOT prevent fingerprinting (coming Phase 11)
+New tabs can be configured as private. Private tabs use temporary webview partitions and do not write navigation history. They are not anonymous: websites, networks, proxies, and the operating system may still observe activity, and private tabs do not encrypt traffic.
 
 ## Tracker Blocking (Phase 7)
 
@@ -143,32 +97,11 @@ You can:
 - View tracking attempts over time (local only)
 - Export privacy report (never leaves device)
 
-## DNS Privacy (Phase 12+)
+## DNS privacy
 
-Future support (do not implement in Phase 2-7):
+The application configures Chromium to prefer AdGuard DNS-over-HTTPS. Automatic mode falls back to system DNS if the endpoint is unavailable so a resolver outage does not stop navigation. `ZYPHORA_DNS_MODE=secure` opts into fail-closed behavior.
 
-**Option 1: DNS over HTTPS (DoH)**
-- Your DNS queries encrypted from ISP
-- Use Cloudflare, Quad9, or custom
-
-**Option 2: DNS over TLS (DoT)**
-- Alternative to DoH
-- May have less app support
-
-**Whirlpool Approach**: 
-- We route DNS through safe provider
-- Provider cannot see your IP (via proxy)
-- Not enabled by default (it's optional)
-
-**What This Prevents**:
-- ISP learning which websites you visit
-- Certain censorship attempts
-- DNS hijacking
-
-**What This Does NOT Prevent**:
-- Your ISP seeing that you used a VPN/proxy
-- Websites learning your activity (they see requests)
-- Network administrators seeing something happened
+DoH can hide DNS contents from the local network, but the DoH provider can still observe DNS queries. It does not hide full page requests, cookies, search queries, or the user's IP address from websites. A proxy or VPN has separate trust and failure implications.
 
 ## Fingerprinting Resistance (Phase 11)
 
@@ -331,39 +264,18 @@ If you delete the app:
 
 ## Roadmap
 
-### Phase 1-2 (Current)
-- No data collected
+### Current implementation
+- Local browsing history and bookmarks
+- Renderer settings persistence
+- Temporary private webview partitions
+- DNS-over-HTTPS preference with automatic fallback
+- Local tracker blocking and blocked-request statistics
+- No telemetry or account sync
 
-### Phase 5
-- Local browsing history
-- Bookmarks storage
-- Settings persistence
-- No telemetry
-
-### Phase 6
-- Encrypted sensitive data
-- Secure key management
-- Password hashing (salted)
-
-### Phase 7
-- Tracker blocking
-- Privacy dashboard
-- Local tracking stats
-
-### Phase 8
-- Private browsing
-- Isolated sessions
-- No history writing
-
-### Phase 11
-- Fingerprinting resistance
-- Browser spoofing
-- Canvas protection
-
-### Phase 12
-- DNS over HTTPS
-- Tor integration (optional)
-- VPN support
+### Planned
+- Encrypted sensitive data and secure key management
+- Stronger fingerprinting resistance
+- Tor/VPN integration
 - Wallet privacy tools
 
 ## Questions?
@@ -384,5 +296,5 @@ This is enforced through code, not just promises.
 
 ---
 
-**Last Updated**: Phase 2 (2024)
-**Next Review**: Phase 5 (when storage implemented)
+**Last Updated**: 2026-08-26
+**Next Review**: After encrypted storage and complete private-session support are implemented

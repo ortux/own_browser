@@ -81,19 +81,24 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
   const greeting = getGreeting();
   const [quote, setQuote]         = useState(getDailyQuote);
   const [quoteVisible, setQuoteVisible] = useState(true);
+  const quoteTransition = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const cycle = setInterval(() => {
       setQuoteVisible(false);
-      setTimeout(() => {
+      quoteTransition.current = setTimeout(() => {
         setQuote((prev) => {
           const idx = QUOTES.indexOf(prev);
           return QUOTES[(idx + 1) % QUOTES.length];
         });
         setQuoteVisible(true);
+        quoteTransition.current = null;
       }, 400);
     }, 30_000);
-    return () => clearInterval(cycle);
+    return () => {
+      clearInterval(cycle);
+      if (quoteTransition.current) clearTimeout(quoteTransition.current);
+    };
   }, []);
 
   // ── Search bar ──

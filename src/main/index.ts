@@ -5,12 +5,26 @@ import {
   Menu,
   clipboard,
   globalShortcut,
+  session,
 } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Tab, BrowserState, RendererToMainMessage } from '../shared/types';
+import {
+  isAllowedNavigationUrl,
+  isHttpNavigationUrl,
+  normalizeNavigationUrl,
+} from '../shared/navigation';
 import { registerPexelsHandlers } from './pexels';
-import { fetchProxy, applyProxy, clearProxy, verifyProxy, initProxyAutoApply } from './proxy';
+import {
+  fetchProxy,
+  applyProxy,
+  clearProxy,
+  verifyProxy,
+  initProxyAutoApply,
+  forgetProxySession,
+} from './proxy';
+import type { ProxyInfo } from '../renderer/stores/settingsStore';
 import {
   addHistory,
   getHistory,
@@ -22,18 +36,36 @@ import {
   isBookmarked,
   getBookmarks,
   searchBookmarks,
+  updateHistoryMetadata,
   closeDb,
   initDb,
 } from './db';
-import { initAdblock, setAdblockEnabled, isAdblockEnabled, getBlockedCount } from './adblock';
+import {
+  initAdblock,
+  setAdblockEnabled,
+  isAdblockEnabled,
+  getBlockedCount,
+  resetBlockedStats,
+  setAllowedSites,
+  isSiteAllowed,
+  getSiteBlockedCount,
+  getSiteBlockedRequests,
+  setNetworkSecuritySettings,
+  isForceHttpsEnabled,
+  attachAdblockToSession,
+  detachAdblockFromSession,
+} from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
+import { configureSessionPermissions, clearPermissionDecisions } from './permissions';
 import { configureAdGuardDns } from './dns';
 import {
   initDownloads,
+  attachDownloadsToSession,
   setMainWindow,
   getDownloads,
   setDownloadPath,
   cancelDownload,
+  retryDownload,
   removeDownload,
   clearDownloads,
   openDownload,
@@ -44,6 +76,15 @@ import {
 } from './downloads';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Linux GPU/driver combinations can render the embedded webview as a solid
+// black surface even though the guest page loaded successfully. The browser
+// still works with software compositing, so prefer that stable path on Linux.
+// Developers can opt back in while diagnosing a specific GPU with
+// ZYPHORA_ENABLE_HARDWARE_ACCELERATION=1.
+if (process.platform === 'linux' && process.env.ZYPHORA_ENABLE_HARDWARE_ACCELERATION !== '1') {
+  app.disableHardwareAcceleration();
+}
 
 configureAdGuardDns();
 
@@ -64,17 +105,122 @@ function makeWebCompatibleUserAgent(userAgent: string): string {
 app.userAgentFallback = makeWebCompatibleUserAgent(app.userAgentFallback);
 
 function canOpenInTab(value: string): boolean {
+  return isHttpNavigationUrl(value);
+}
+
+function upgradeHttpUrl(value: string): string | null {
   try {
-    const { protocol } = new URL(value);
-    return protocol === 'http:' || protocol === 'https:';
+    const url = new URL(value);
+    if (url.protocol !== 'http:') return null;
+    url.protocol = 'https:';
+    return url.toString();
   } catch {
-    return false;
+    return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** Runtime validation is still required even though the renderer is typed. */
+function isRendererMessage(value: unknown): value is RendererToMainMessage {
+  if (!isRecord(value) || typeof value.type !== 'string') return false;
+
+  switch (value.type) {
+    case 'create-tab':
+      return value.privateMode === undefined || typeof value.privateMode === 'boolean';
+    case 'get-state':
+    case 'get-closed-tabs':
+      return true;
+    case 'restore-closed-tab':
+      return value.index === undefined
+        || (typeof value.index === 'number' && Number.isSafeInteger(value.index) && value.index >= 0 && value.index < 20);
+    case 'navigate':
+      return isBoundedString(value.tabId, 200)
+        && isBoundedString(value.url, 8_192);
+    case 'create-tab-url':
+      return isBoundedString(value.url, 8_192)
+        && (value.privateMode === undefined || typeof value.privateMode === 'boolean');
+    case 'close-tab':
+    case 'activate-tab':
+    case 'duplicate-tab':
+    case 'go-back':
+    case 'go-forward':
+    case 'reload':
+    case 'stop':
+      return isBoundedString(value.tabId, 200);
+    case 'webview-title-updated':
+      return isBoundedString(value.tabId, 200)
+        && isBoundedString(value.title, 1_000);
+    case 'webview-favicon-updated':
+      return isBoundedString(value.tabId, 200)
+        && isBoundedString(value.favicon, 8_192);
+    case 'webview-loading':
+      return isBoundedString(value.tabId, 200) && typeof value.loading === 'boolean';
+    case 'webview-nav-state':
+      return isBoundedString(value.tabId, 200)
+        && isBoundedString(value.url, 8_192)
+        && typeof value.canGoBack === 'boolean'
+        && typeof value.canGoForward === 'boolean';
+    case 'webview-attached':
+      return isBoundedString(value.tabId, 200)
+        && typeof value.webContentsId === 'number'
+        && Number.isSafeInteger(value.webContentsId)
+        && value.webContentsId > 0;
+    case 'security-settings':
+      return typeof value.forceHttps === 'boolean' && typeof value.doNotTrack === 'boolean';
+    case 'set-tab-private':
+      return isBoundedString(value.tabId, 200) && typeof value.privateMode === 'boolean';
+    default:
+      return false;
+  }
+}
+
+function isTrustedMainFrame(event: {
+  sender: Electron.WebContents;
+  senderFrame: Electron.WebFrameMain | null;
+}): boolean {
+  return event.sender === mainWindow?.webContents
+    && event.senderFrame === event.sender.mainFrame;
+}
+
+function assertTrustedMainFrame(event: {
+  sender: Electron.WebContents;
+  senderFrame: Electron.WebFrameMain | null;
+}): void {
+  if (!isTrustedMainFrame(event)) throw new Error('Unauthorized IPC sender.');
+}
+
+function isBoundedString(value: unknown, maximum: number): value is string {
+  return typeof value === 'string' && value.length <= maximum && !value.includes('\0');
+}
+
+function isProxyInfo(value: unknown): value is ProxyInfo {
+  if (!isRecord(value)) return false;
+  return isBoundedString(value.ip, 253)
+    && value.ip.length > 0
+    && /^[a-z\d.:[\]-]+$/i.test(value.ip)
+    && isBoundedString(value.port, 5)
+    && /^\d+$/.test(value.port)
+    && isBoundedString(value.ipPort, 259)
+    && isBoundedString(value.country, 32)
+    && isBoundedString(value.type, 16)
+    && isBoundedString(value.proxyLevel, 32)
+    && typeof value.supportsHttps === 'boolean'
+    && typeof value.speed === 'number'
+    && Number.isFinite(value.speed)
+    && typeof value.fetchedAt === 'number'
+    && Number.isFinite(value.fetchedAt)
+    && value.ipPort === `${value.ip}:${value.port}`;
 }
 
 // Store for browser state
 let mainWindow: BrowserWindow | null = null;
 const tabs: Map<string, Tab> = new Map();
+const closedTabs: Tab[] = [];
+const managedSessions = new Set<Electron.Session>();
+const tabByWebContentsId = new Map<number, string>();
 let activeTabId: string = '';
 let nextTabId = 1;
 
@@ -102,13 +248,28 @@ function createWindow() {
     },
     icon: path.join(__dirname, '../../public/icon.png'),
   });
+  setMainWindow(mainWindow);
 
   const isDev = process.env.NODE_ENV === 'development';
-  const url = isDev
-    ? 'http://localhost:5173'
-    : `file://${path.join(__dirname, '../renderer/index.html')}`;
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL
+    ?? (isDev ? 'http://localhost:5173' : '');
 
-  mainWindow.loadURL(url);
+  if (rendererUrl) {
+    void mainWindow.loadURL(rendererUrl).catch((error: unknown) => {
+      console.error('[renderer] failed to load dev server:', error);
+    });
+  } else {
+    void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html')).catch((error: unknown) => {
+      console.error('[renderer] failed to load bundled UI:', error);
+    });
+  }
+
+  // A shell renderer crash otherwise presents as an entirely black window with
+  // no explanation. Keep the event visible in the main-process log; guest
+  // webview crashes are handled by WebView.tsx and show a retry surface.
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[renderer] process exited:', details.reason, details.exitCode);
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -118,11 +279,17 @@ function createWindow() {
   createNewTab();
 }
 
-function createNewTab(url?: string): string {
+function createNewTab(rawUrl?: string, privateMode = false): string {
+  const url = rawUrl ? normalizeNavigationUrl(rawUrl) : null;
+  if (rawUrl && !url) {
+    console.warn('[navigation] refused unsupported new-tab URL:', rawUrl);
+    return '';
+  }
+
   const tabId = `tab-${nextTabId++}`;
   // Give internal pages a friendly title up-front so the tab strip reads well.
   const isInternal = !!url && url.startsWith('zyphora://');
-  const title = !url
+  const title = !url || url === 'about:blank'
     ? 'New Tab'
     : isInternal
       ? url === 'zyphora://downloads'
@@ -136,7 +303,7 @@ function createNewTab(url?: string): string {
     loading: false,
     canGoBack: false,
     canGoForward: false,
-    privateMode: false,
+    privateMode,
     muted: false,
     pinned: false,
   };
@@ -148,7 +315,41 @@ function createNewTab(url?: string): string {
   return tabId;
 }
 
+function routePopupToTab(popup: BrowserWindow, privateMode: boolean): void {
+  const tabId = createNewTab(undefined, privateMode);
+  if (!tabId) {
+    popup.close();
+    return;
+  }
+
+  const routeNavigation = (_event: Electron.Event, navigationUrl: string) => {
+    if (navigationUrl === 'about:blank' || !isAllowedNavigationUrl(navigationUrl)) return;
+    const tab = tabs.get(tabId);
+    if (!tab) {
+      popup.close();
+      return;
+    }
+    tab.url = navigationUrl;
+    tab.title = 'Loading...';
+    tab.loading = true;
+    updateRendererState();
+    popup.close();
+  };
+
+  popup.webContents.on('did-navigate', routeNavigation);
+  popup.webContents.on('did-navigate-in-page', routeNavigation);
+  popup.on('closed', () => {
+    popup.webContents.removeListener('did-navigate', routeNavigation);
+    popup.webContents.removeListener('did-navigate-in-page', routeNavigation);
+  });
+}
+
 function closeTab(tabId: string) {
+  const tab = tabs.get(tabId);
+  if (tab && !tab.privateMode) {
+    closedTabs.unshift({ ...tab });
+    closedTabs.splice(20);
+  }
   tabs.delete(tabId);
 
   if (tabs.size === 0) {
@@ -167,6 +368,16 @@ function closeTab(tabId: string) {
   updateRendererState();
 }
 
+function restoreClosedTab(index = 0): string {
+  const snapshot = closedTabs.splice(index, 1)[0];
+  if (!snapshot) return '';
+  return createNewTab(snapshot.url, false);
+}
+
+function getClosedTabs(): Tab[] {
+  return closedTabs.map((tab) => ({ ...tab }));
+}
+
 function getState(): BrowserState {
   return {
     tabs: Array.from(tabs.values()),
@@ -175,7 +386,7 @@ function getState(): BrowserState {
 }
 
 function updateRendererState() {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('state-updated', getState());
   }
 }
@@ -185,14 +396,22 @@ function updateRendererState() {
  * Only allow explicitly whitelisted message types.
  */
 ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) => {
-  // SECURITY: Verify sender is the main window
-  if (event.senderFrame?.parent === null) {
-    // This is a top-level frame
-    switch (message.type) {
+  // SECURITY: Verify both the payload and its origin. TypeScript types do not
+  // survive IPC, and a webview/child frame must never control the tab model.
+  if (!isRendererMessage(message)) {
+    return { success: false, error: 'invalid-message' };
+  }
+  if (!isTrustedMainFrame(event)) {
+    return { success: false, error: 'unauthorized-sender' };
+  }
+
+  switch (message.type) {
       case 'navigate': {
+        const url = normalizeNavigationUrl(message.url);
+        if (!url) return { success: false, error: 'unsupported-url' };
         const tab = tabs.get(message.tabId);
         if (tab) {
-          tab.url = normalizeUrl(message.url);
+          tab.url = url;
           if (tab.url === 'about:blank') {
             tab.title = 'New Tab';
             tab.loading = false;
@@ -209,22 +428,49 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         break;
       }
       case 'create-tab':
-        createNewTab();
+        createNewTab(undefined, message.privateMode ?? false);
         break;
       case 'create-tab-url':
-        createNewTab(message.url);
+        createNewTab(message.url, message.privateMode ?? false);
         break;
       case 'close-tab':
         closeTab(message.tabId);
         break;
       case 'activate-tab':
-        activeTabId = message.tabId;
-        updateRendererState();
+        if (tabs.has(message.tabId)) {
+          activeTabId = message.tabId;
+          updateRendererState();
+        }
         break;
       case 'duplicate-tab': {
         const tab = tabs.get(message.tabId);
         if (tab) {
-          createNewTab(tab.url);
+          createNewTab(tab.url, tab.privateMode);
+        }
+        break;
+      }
+      case 'restore-closed-tab':
+        restoreClosedTab(message.index ?? 0);
+        break;
+      case 'get-closed-tabs':
+        return getClosedTabs();
+      case 'webview-attached': {
+        if (tabs.has(message.tabId)) {
+          tabByWebContentsId.set(message.webContentsId, message.tabId);
+        }
+        break;
+      }
+      case 'security-settings':
+        setNetworkSecuritySettings({
+          forceHttps: message.forceHttps,
+          doNotTrack: message.doNotTrack,
+        });
+        break;
+      case 'set-tab-private': {
+        const tab = tabs.get(message.tabId);
+        if (tab && tab.url === 'about:blank' && !tab.privateMode) {
+          tab.privateMode = message.privateMode;
+          updateRendererState();
         }
         break;
       }
@@ -266,6 +512,7 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         const tab = tabs.get(message.tabId);
         if (tab) {
           tab.title = message.title || tab.title;
+          if (!tab.privateMode) updateHistoryMetadata(tab.url, tab.title, tab.favicon);
           updateRendererState();
         }
         break;
@@ -274,6 +521,7 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         const tab = tabs.get(message.tabId);
         if (tab) {
           tab.favicon = message.favicon;
+          if (!tab.privateMode) updateHistoryMetadata(tab.url, tab.title, tab.favicon);
           updateRendererState();
         }
         break;
@@ -289,64 +537,59 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       case 'webview-nav-state': {
         const tab = tabs.get(message.tabId);
         if (tab) {
+          // Chromium reports chrome-error://chromewebdata/ after DNS, TLS, or
+          // connection failures. Never copy that internal URL into our tab
+          // model; doing so makes the next render try to load the error page
+          // itself and can leave a black/empty webview.
+          if (!isAllowedNavigationUrl(message.url)) {
+            tab.loading = false;
+            tab.canGoBack = message.canGoBack;
+            tab.canGoForward = message.canGoForward;
+            updateRendererState();
+            break;
+          }
+
           const urlChanged = tab.url !== message.url;
           tab.url = message.url;
           tab.canGoBack = message.canGoBack;
           tab.canGoForward = message.canGoForward;
           tab.loading = false;
-          // Only record a history entry when navigating to a new page
-          if (urlChanged) {
+          // Only record a history entry when navigating to a new page.
+          if (urlChanged && message.url !== 'about:blank' && !tab.privateMode) {
             addHistory(message.url, tab.title, tab.favicon);
           }
           updateRendererState();
         }
         break;
       }
-    }
   }
 
   return { success: true };
 });
 
-/**
- * URL normalization: Convert user input to valid URL.
- * The renderer now sends pre-built search URLs, so this function
- * only needs to handle bare domain inputs.
- * "google.com" → "https://google.com"
- * "https://example.com" → unchanged
- */
-function normalizeUrl(input: string): string {
-  const trimmed = input.trim();
-
-  // Already a full URL (http/https/file/about/zyphora)
-  if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('file://') ||
-    trimmed.startsWith('about:') ||
-    trimmed.startsWith('zyphora://')
-  ) {
-    return trimmed;
-  }
-
-  // Bare domain — add https://
-  return `https://${trimmed}`;
-}
-
 app.on('ready', async () => {
   initProxyAutoApply(); // must be before createWindow so session-created fires
   initCertificateMonitor();
+  managedSessions.add(session.defaultSession);
   initAdblock(() => mainWindow?.webContents ?? null);
+  configureSessionPermissions(session.defaultSession, () => mainWindow);
   initDownloads(); // session will-download handler — before any webview exists
-  await initDb();
-  registerPexelsHandlers();
+  try {
+    await initDb();
+  } catch (error) {
+    // The UI can still browse if local persistence is unavailable. Individual
+    // database IPC calls will reject and the renderer displays empty state
+    // instead of losing the entire browser window at startup.
+    console.error('[db] initialization failed; continuing without persistence:', error);
+  }
+  registerPexelsHandlers(isTrustedMainFrame);
   registerDbHandlers();
+  registerPrivacyHandlers();
   registerProxyHandlers();
   registerAdblockHandlers();
   registerCertHandlers();
   registerDownloadHandlers();
   createWindow();
-  setMainWindow(mainWindow);
 
   // Global shortcut — opens the Downloads page as a new tab (zyphora://downloads).
   // Registered at the OS level so it fires even when a webview has keyboard focus.
@@ -357,75 +600,225 @@ app.on('ready', async () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  closeDb();
 });
 
 // ── DB IPC handlers ──────────────────────────────────────────────────────────
 
 function registerDbHandlers() {
-  ipcMain.handle('db:history:get',    () => getHistory());
-  ipcMain.handle('db:history:search', (_e, query: string) => searchHistory(query));
-  ipcMain.handle('db:history:delete', (_e, id: number)    => deleteHistoryEntry(id));
-  ipcMain.handle('db:history:clear',  ()                  => clearHistory());
+  ipcMain.handle('db:history:get', (event) => {
+    assertTrustedMainFrame(event);
+    return getHistory();
+  });
+  ipcMain.handle('db:history:search', (event, query: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(query, 500)) throw new Error('Invalid history query.');
+    return searchHistory(query);
+  });
+  ipcMain.handle('db:history:delete', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) {
+      throw new Error('Invalid history ID.');
+    }
+    return deleteHistoryEntry(id);
+  });
+  ipcMain.handle('db:history:clear', (event) => {
+    assertTrustedMainFrame(event);
+    return clearHistory();
+  });
 
-  ipcMain.handle('db:bookmarks:get',    ()                                    => getBookmarks());
-  ipcMain.handle('db:bookmarks:search', (_e, query: string)                   => searchBookmarks(query));
-  ipcMain.handle('db:bookmarks:add',    (_e, url: string, title: string, favicon?: string) => addBookmark(url, title, favicon));
-  ipcMain.handle('db:bookmarks:remove', (_e, url: string)                     => removeBookmark(url));
-  ipcMain.handle('db:bookmarks:is',     (_e, url: string)                     => isBookmarked(url));
+  ipcMain.handle('db:bookmarks:get', (event) => {
+    assertTrustedMainFrame(event);
+    return getBookmarks();
+  });
+  ipcMain.handle('db:bookmarks:search', (event, query: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(query, 500)) throw new Error('Invalid bookmark query.');
+    return searchBookmarks(query);
+  });
+  ipcMain.handle('db:bookmarks:add', (event, url: unknown, title: unknown, favicon?: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(url, 8_192) || !isAllowedNavigationUrl(url) || url.startsWith('zyphora://')) {
+      throw new Error('Invalid bookmark URL.');
+    }
+    if (!isBoundedString(title, 1_000)) throw new Error('Invalid bookmark title.');
+    if (favicon !== undefined && !isBoundedString(favicon, 8_192)) {
+      throw new Error('Invalid bookmark favicon.');
+    }
+    return addBookmark(url, title, favicon as string | undefined);
+  });
+  ipcMain.handle('db:bookmarks:remove', (event, url: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(url, 8_192)) throw new Error('Invalid bookmark URL.');
+    return removeBookmark(url);
+  });
+  ipcMain.handle('db:bookmarks:is', (event, url: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(url, 8_192)) throw new Error('Invalid bookmark URL.');
+    return isBookmarked(url);
+  });
 }
 
 // ── Proxy IPC handlers ───────────────────────────────────────────────────────
 
+function registerPrivacyHandlers() {
+  ipcMain.handle('privacy:clear-data', async (event) => {
+    assertTrustedMainFrame(event);
+    clearHistory();
+    resetBlockedStats();
+    clearPermissionDecisions();
+    for (const ses of managedSessions) {
+      await ses.clearStorageData({
+        storages: ['cookies', 'filesystem', 'indexdb', 'localstorage', 'shadercache', 'serviceworkers', 'cachestorage'],
+      });
+      await ses.clearCache();
+    }
+  });
+}
+
 function registerProxyHandlers() {
   // fetchProxy is synchronous — no async needed
-  ipcMain.handle('proxy:fetch',  () => fetchProxy());
-  ipcMain.handle('proxy:apply',  async (_e, proxy) => applyProxy(proxy));
-  ipcMain.handle('proxy:clear',  async () => clearProxy());
-  ipcMain.handle('proxy:verify', async (_e, proxy) => verifyProxy(proxy));
+  ipcMain.handle('proxy:fetch', (event) => {
+    assertTrustedMainFrame(event);
+    return fetchProxy();
+  });
+  ipcMain.handle('proxy:apply', async (event, proxy: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isProxyInfo(proxy)) throw new Error('Invalid proxy configuration.');
+    return applyProxy(proxy);
+  });
+  ipcMain.handle('proxy:clear', async (event) => {
+    assertTrustedMainFrame(event);
+    return clearProxy();
+  });
+  ipcMain.handle('proxy:verify', async (event, proxy: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isProxyInfo(proxy)) throw new Error('Invalid proxy configuration.');
+    return verifyProxy(proxy);
+  });
 }
 
 // ── Ad blocker IPC handlers ──────────────────────────────────────────────────
 
 function registerAdblockHandlers() {
-  ipcMain.handle('adblock:set',  (_e, value: boolean) => {
-    setAdblockEnabled(Boolean(value));
+  ipcMain.handle('adblock:set', (event, value: unknown) => {
+    assertTrustedMainFrame(event);
+    if (typeof value !== 'boolean') throw new Error('Invalid ad-blocker setting.');
+    setAdblockEnabled(value);
     return isAdblockEnabled();
   });
-  ipcMain.handle('adblock:get',  () => isAdblockEnabled());
-  ipcMain.handle('adblock:stats', () => ({ enabled: isAdblockEnabled(), blocked: getBlockedCount() }));
+  ipcMain.handle('adblock:get', (event) => {
+    assertTrustedMainFrame(event);
+    return isAdblockEnabled();
+  });
+  ipcMain.handle('adblock:stats', (event) => {
+    assertTrustedMainFrame(event);
+    return { enabled: isAdblockEnabled(), blocked: getBlockedCount() };
+  });
+  ipcMain.handle('adblock:set-allowlist', (event, sites: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!Array.isArray(sites) || sites.length > 500 || !sites.every((site) => isBoundedString(site, 253))) {
+      throw new Error('Invalid ad-blocker allowlist.');
+    }
+    setAllowedSites(sites);
+  });
+  ipcMain.handle('adblock:site-status', (event, site: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(site, 253)) throw new Error('Invalid site hostname.');
+    return { allowed: isSiteAllowed(site), blocked: getSiteBlockedCount(site) };
+  });
+  ipcMain.handle('adblock:site-details', (event, site: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(site, 253)) throw new Error('Invalid site hostname.');
+    return getSiteBlockedRequests(site);
+  });
 }
 
 // ── Certificate IPC handlers ─────────────────────────────────────────────────
 
 function registerCertHandlers() {
-  ipcMain.handle('cert:get', (_e, hostname: string) => getCertInfo(hostname));
+  ipcMain.handle('cert:get', (event, hostname: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(hostname, 253) || !/^[a-z\d.-]+$/i.test(hostname)) {
+      throw new Error('Invalid certificate hostname.');
+    }
+    return getCertInfo(hostname);
+  });
 }
 
 // ── Downloads IPC handlers ────────────────────────────────────────────────────
 
 function registerDownloadHandlers() {
-  ipcMain.handle('download:list',         () => getDownloads());
-  ipcMain.handle('download:set-path',     (_e, p: string) => setDownloadPath(p));
-  ipcMain.handle('download:default-path', () => getDownloadPath());
-  ipcMain.handle('download:pick-folder',  async () => pickFolder());
-  ipcMain.handle('download:cancel',       (_e, id: string) => cancelDownload(id));
-  ipcMain.handle('download:remove',       (_e, id: string) => removeDownload(id));
-  ipcMain.handle('download:clear',        () => clearDownloads());
-  ipcMain.handle('download:open',         (_e, id: string) => openDownload(id));
-  ipcMain.handle('download:show',         (_e, id: string) => showDownload(id));
-  ipcMain.handle('download:reveal-folder', () => revealFolder());
+  function assertDownloadId(id: unknown): asserts id is string {
+    if (!isBoundedString(id, 200) || !id) throw new Error('Invalid download ID.');
+  }
+
+  ipcMain.handle('download:list', (event) => {
+    assertTrustedMainFrame(event);
+    return getDownloads();
+  });
+  ipcMain.handle('download:set-path', (event, p: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(p, 4_096)) throw new Error('Invalid download path.');
+    return setDownloadPath(p);
+  });
+  ipcMain.handle('download:default-path', (event) => {
+    assertTrustedMainFrame(event);
+    return getDownloadPath();
+  });
+  ipcMain.handle('download:pick-folder', async (event) => {
+    assertTrustedMainFrame(event);
+    return pickFolder();
+  });
+  ipcMain.handle('download:cancel', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return cancelDownload(id);
+  });
+  ipcMain.handle('download:retry', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return retryDownload(id);
+  });
+  ipcMain.handle('download:remove', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return removeDownload(id);
+  });
+  ipcMain.handle('download:clear', (event) => {
+    assertTrustedMainFrame(event);
+    return clearDownloads();
+  });
+  ipcMain.handle('download:open', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return openDownload(id);
+  });
+  ipcMain.handle('download:show', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return showDownload(id);
+  });
+  ipcMain.handle('download:reveal-folder', (event) => {
+    assertTrustedMainFrame(event);
+    return revealFolder();
+  });
 }
 
 // Window control IPC (used by custom title bar buttons)
-ipcMain.on('window:minimize', () => mainWindow?.minimize());
-ipcMain.on('window:maximize', () => {
+ipcMain.on('window:minimize', (event) => {
+  if (isTrustedMainFrame(event)) mainWindow?.minimize();
+});
+ipcMain.on('window:maximize', (event) => {
+  if (!isTrustedMainFrame(event)) return;
   if (mainWindow?.isMaximized()) mainWindow.unmaximize();
   else mainWindow?.maximize();
 });
-ipcMain.on('window:close', () => mainWindow?.close());
+ipcMain.on('window:close', (event) => {
+  if (isTrustedMainFrame(event)) mainWindow?.close();
+});
 
 app.on('window-all-closed', () => {
-  closeDb();
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -442,16 +835,17 @@ app.on('activate', () => {
 app.on('web-contents-created', (_event, contents) => {
   const contentsType = contents.getType();
 
-  // Only restrict the top-level renderer (not embedded webviews).
+  // Restrict the application shell. A hidden managed popup is allowed to reach
+  // normal web URLs so OAuth/payment flows can be routed into a tab.
   if (contentsType === 'window') {
     contents.on('will-navigate', (event, navigationUrl) => {
-      const allowed =
-        navigationUrl.startsWith('http://localhost') ||
-        navigationUrl.startsWith('https://localhost') ||
-        navigationUrl.startsWith('file://');
-      if (!allowed) {
-        event.preventDefault();
-      }
+      const isShell = contents === mainWindow?.webContents;
+      const allowed = isShell
+        ? navigationUrl.startsWith('http://localhost')
+          || navigationUrl.startsWith('https://localhost')
+          || navigationUrl.startsWith('file://')
+        : isHttpNavigationUrl(navigationUrl) || navigationUrl === 'about:blank';
+      if (!allowed) event.preventDefault();
     });
   }
 
@@ -460,6 +854,48 @@ app.on('web-contents-created', (_event, contents) => {
     // Some Google/YouTube clients detect the Electron token and return a page
     // shell whose player and interactive API calls are restricted.
     contents.setUserAgent(app.userAgentFallback);
+    managedSessions.add(contents.session);
+    attachAdblockToSession(contents.session);
+    configureSessionPermissions(contents.session, () => mainWindow);
+    attachDownloadsToSession(contents.session);
+    contents.once('destroyed', () => {
+      forgetProxySession(contents.session);
+      if (contents.session !== session.defaultSession) {
+        detachAdblockFromSession(contents.session);
+        managedSessions.delete(contents.session);
+      }
+      tabByWebContentsId.delete(contents.id);
+    });
+
+    // A remote page must not be able to navigate a guest into an internal or
+    // local-file URL. Address-bar navigation is performed programmatically by
+    // the trusted shell and is not affected by this event.
+    contents.on('will-navigate', (event, navigationUrl) => {
+      if (isForceHttpsEnabled()) {
+        const upgraded = upgradeHttpUrl(navigationUrl);
+        if (upgraded) {
+          event.preventDefault();
+          void contents.loadURL(upgraded).catch((error: unknown) => {
+            console.warn('[navigation] HTTPS upgrade failed:', error);
+          });
+          return;
+        }
+      }
+      if (!isHttpNavigationUrl(navigationUrl) && navigationUrl !== 'about:blank') {
+        event.preventDefault();
+      }
+    });
+
+    contents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || !input.control) return;
+      if (input.shift && input.key.toLowerCase() === 'i') {
+        event.preventDefault();
+        if (!contents.isDevToolsOpened()) contents.openDevTools({ mode: 'detach' });
+      } else if (!input.shift && input.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        mainWindow?.webContents.send('open-find');
+      }
+    });
   }
 
   // A browser must support target=_blank/window.open, but untrusted pages must
@@ -469,9 +905,34 @@ app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
     if (contentsType === 'webview' && canOpenInTab(url)) {
       createNewTab(url);
+      return { action: 'deny' };
+    }
+    if (contentsType === 'webview' && url === 'about:blank') {
+      // OAuth/payment flows often open a blank window and navigate it later.
+      // Keep it hidden and route its first safe navigation into a managed tab.
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          show: false,
+          width: 900,
+          height: 700,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+          },
+        },
+      };
     }
     return { action: 'deny' };
   });
+
+  if (contentsType === 'webview') {
+    contents.on('did-create-window', (popup) => {
+      const openerTabId = tabByWebContentsId.get(contents.id);
+      routePopupToTab(popup, openerTabId ? tabs.get(openerTabId)?.privateMode === true : false);
+    });
+  }
 
   // Build a context menu for right-click (Electron shows none by default)
   contents.on('context-menu', (_event, params) => {
@@ -517,6 +978,30 @@ app.on('web-contents-created', (_event, contents) => {
 
     if (!isEditable) {
       items.push({ role: 'selectAll' });
+    }
+
+    if (contentsType === 'webview') {
+      items.push(
+        { type: 'separator' },
+        {
+          label: 'Inspect element',
+          click: () => {
+            if (contents.isDestroyed()) return;
+            if (!contents.isDevToolsOpened()) {
+              contents.openDevTools({ mode: 'detach' });
+            }
+            contents.inspectElement(x, y);
+          },
+        },
+        {
+          label: contents.isDevToolsOpened() ? 'Close developer tools' : 'Open developer tools',
+          click: () => {
+            if (contents.isDestroyed()) return;
+            if (contents.isDevToolsOpened()) contents.closeDevTools();
+            else contents.openDevTools({ mode: 'detach' });
+          },
+        },
+      );
     }
 
     if (items.length === 0) {

@@ -44,18 +44,44 @@ const CATEGORY_QUERIES: Record<string, string[]> = {
 
 const FALLBACK_QUERIES = ['nature', 'technology', 'space'];
 
+type PexelsPhoto = {
+  src?: {
+    large2x?: string;
+    original?: string;
+  };
+  photographer?: string;
+  url?: string;
+};
+
+type PexelsSearchResponse = {
+  photos?: unknown;
+};
+
+function isPexelsPhoto(value: unknown): value is PexelsPhoto {
+  if (!value || typeof value !== 'object') return false;
+  const photo = value as PexelsPhoto;
+  return !!photo.src && typeof photo.src === 'object';
+}
+
 /**
  * Build a sized, cropped image URL so the file is small enough to appear
  * instantly rather than loading progressively line-by-line.
  */
-function buildImageUrl(photo: any): string {
-  const base = String(photo?.src?.large2x || photo?.src?.original || '').split('?')[0];
+function buildImageUrl(photo: PexelsPhoto): string {
+  const base = (photo.src?.large2x || photo.src?.original || '').split('?')[0];
   if (!base) return '';
   return `${base}?auto=compress&cs=tinysrgb&w=1920&h=1080&fit=crop`;
 }
 
-export function registerPexelsHandlers() {
-  ipcMain.handle('pexels:image', async (_event, category?: string) => {
+export function registerPexelsHandlers(
+  isTrustedSender: (event: Electron.IpcMainInvokeEvent) => boolean
+) {
+  ipcMain.handle('pexels:image', async (event, category?: unknown) => {
+    if (!isTrustedSender(event)) throw new Error('Unauthorized IPC sender.');
+    if (category !== undefined && (typeof category !== 'string' || !CATEGORY_QUERIES[category])) {
+      throw new Error('Invalid background category.');
+    }
+
     const key = getApiKey();
     if (!key) {
       console.warn('[Pexels] No API key configured (set PEXELS_API_KEY).');
@@ -69,20 +95,22 @@ export function registerPexelsHandlers() {
 
     const query = pool[Math.floor(Math.random() * pool.length)];
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
     try {
       const res = await fetch(
         `https://api.pexels.com/v1/search?query=${encodeURIComponent(
           query
         )}&per_page=40&orientation=landscape`,
-        { headers: { Authorization: key } }
+        { headers: { Authorization: key }, signal: controller.signal }
       );
       if (!res.ok) {
         console.warn(`[Pexels] API responded ${res.status}`);
         return null;
       }
-      const data = await res.json();
-      const photos: any[] = data?.photos;
-      if (!photos || photos.length === 0) return null;
+      const data = await res.json() as PexelsSearchResponse;
+      const photos = Array.isArray(data.photos) ? data.photos.filter(isPexelsPhoto) : [];
+      if (photos.length === 0) return null;
 
       const photo = photos[Math.floor(Math.random() * photos.length)];
       const url = buildImageUrl(photo);
@@ -97,6 +125,8 @@ export function registerPexelsHandlers() {
     } catch (err) {
       console.warn('[Pexels] Request failed:', err);
       return null;
+    } finally {
+      clearTimeout(timeout);
     }
   });
 }

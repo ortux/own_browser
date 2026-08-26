@@ -6,16 +6,16 @@ A modern, privacy-focused desktop web browser built from scratch with Electron, 
 
 Own Browser prioritizes:
 - **Privacy**: No telemetry, local-only data storage, tracker blocking
-- **Security**: Secure Electron configuration, validated IPC, encrypted storage
+- **Security**: Secure Electron configuration, validated IPC, and sandboxed web content
 - **Speed**: Minimal dependencies, optimized performance
-- **Low Resource Usage**: Tab sleeping, lazy loading, efficient filtering
-- **No Third-party Tracking**: Fully local operation with future Web3 support
+- **Low Resource Usage**: Lazy loading and efficient filtering (tab sleeping is planned)
+- **No Telemetry**: Browsing data stays local; explicitly enabled third-party services are documented
 
 ## Technology Stack
 
-### Current (Phase 1-2)
-- **Desktop**: Electron 43+
-- **UI**: React 18 + TypeScript 5 + Vite 5
+### Current
+- **Desktop**: Electron 44+
+- **UI**: React 18 + TypeScript 5 + Vite 6
 - **Styling**: Tailwind CSS 4
 - **Icons**: Lucide React
 - **State**: Zustand
@@ -114,7 +114,7 @@ npm run lint
 npm run format
 ```
 
-## Current Capabilities (Phase 2)
+## Current Capabilities
 
 ✓ Browser window with Electron
 ✓ Address bar with URL/search detection
@@ -122,9 +122,13 @@ npm run format
 ✓ Navigation controls (back, forward, reload, stop)
 ✓ New tab page with quick links
 ✓ Keyboard shortcuts (Ctrl+T, Ctrl+W, Ctrl+R, etc.)
-✓ Tab state persistence
 ✓ Loading indicators
 ✓ Favicon support (when web content loads)
+✓ Embedded web content with link navigation and managed target=_blank tabs
+✓ Page-load and renderer-crash error surfaces instead of silent blank tabs
+✓ Find in page, zoom, print, recently closed tabs, and download retry
+✓ Per-site ad-blocker controls, blocked-request diagnostics, private sessions, and permissions
+✓ Inspect element and detached developer tools
 ✓ Secure IPC communication
 ✓ TypeScript throughout
 
@@ -135,7 +139,8 @@ npm run format
 | Ctrl+T | New tab |
 | Ctrl+W | Close tab |
 | Ctrl+R, F5 | Reload |
-| Ctrl+Shift+T | Duplicate tab |
+| Ctrl+F | Find in page |
+| Ctrl+Shift+T | Reopen recently closed tab |
 | Alt+← | Go back |
 | Alt+→ | Go forward |
 | Ctrl+D | Bookmark (future) |
@@ -215,18 +220,13 @@ Main process owns:
 - Navigation logic
 - Tab creation/destruction
 
-## Known Limitations (Phase 2)
+## Known Limitations
 
-- Web content not rendering yet (Phase 3)
-- No actual navigation or page loading
-- No history storage (Phase 5)
-- No bookmarks (Phase 5)
-- No downloads (Phase 5)
-- No private browsing (Phase 8)
-- No tracker blocking (Phase 7)
-- No encryption (Phase 6)
-- No Go integration (Phase 4+)
-- No Web3 (Phase 11+)
+- Private browsing uses temporary per-tab sessions but is not anonymous and does not encrypt traffic.
+- Local history, bookmarks, and settings are not encrypted at rest.
+- Ad blocking starts with Ghostery's ads-only network lists; cosmetic/scriptlet filtering is intentionally disabled for compatibility. See `docs/ADBLOCK.md`.
+- Proxy pools must be supplied through `ZYPHORA_PROXY_LIST`; unreliable proxies are rejected before they can interrupt browsing.
+- No Go integration, fingerprinting resistance, or Web3 support yet.
 
 ## Performance Targets
 
@@ -268,6 +268,6 @@ For issues or questions, see the `/docs` folder for detailed architecture, secur
 
 ---
 
-**Status**: Phase 2 (Working browser core)
-**Next**: Phase 3 (Web content rendering)
+**Status**: Working browser core with embedded web content
+**Next**: Private browsing, complete session policies, and deeper privacy-engine coverage
 **Timeline**: Evolving with community input

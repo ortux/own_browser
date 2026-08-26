@@ -15,10 +15,19 @@ export type BackgroundCategory = 'random' | 'nature' | 'technology' | 'space' | 
 
 const POOL_SIZE = 6;
 
-const pool: PexelsImage[] = [];
+const pools = new Map<BackgroundCategory, PexelsImage[]>();
 const preloaded = new Map<string, HTMLImageElement>();
 let lastShownUrl: string | null = null;
-let warming = false;
+const warming = new Set<BackgroundCategory>();
+
+function poolFor(category: BackgroundCategory): PexelsImage[] {
+  let pool = pools.get(category);
+  if (!pool) {
+    pool = [];
+    pools.set(category, pool);
+  }
+  return pool;
+}
 
 function categoryForApi(category: BackgroundCategory): string | undefined {
   return category === 'random' ? undefined : category;
@@ -54,17 +63,24 @@ async function fetchFresh(category: BackgroundCategory): Promise<PexelsImage | n
   }
 }
 
-/** Top the pool back up to POOL_SIZE in the background. */
-async function topUp(category: BackgroundCategory) {
-  if (pool.length >= POOL_SIZE) return;
-  const img = await fetchFresh(category);
-  if (img) pool.push(img);
+/** Top the selected category pool back up to POOL_SIZE in the background. */
+async function topUp(category: BackgroundCategory): Promise<void> {
+  const pool = poolFor(category);
+  if (pool.length >= POOL_SIZE || warming.has(category)) return;
+  warming.add(category);
+  try {
+    const img = await fetchFresh(category);
+    if (img && pool.length < POOL_SIZE) pool.push(img);
+  } finally {
+    warming.delete(category);
+  }
 }
 
 /** Pre-fetch a batch of images so the very first new tab is also instant. */
 export async function warmCache(category: BackgroundCategory = 'random', count = POOL_SIZE) {
-  if (warming) return;
-  warming = true;
+  const pool = poolFor(category);
+  if (warming.has(category)) return;
+  warming.add(category);
   try {
     while (pool.length < count) {
       const img = await fetchFresh(category);
@@ -72,7 +88,7 @@ export async function warmCache(category: BackgroundCategory = 'random', count =
       pool.push(img);
     }
   } finally {
-    warming = false;
+    warming.delete(category);
   }
 }
 
@@ -83,6 +99,7 @@ export async function warmCache(category: BackgroundCategory = 'random', count =
  * consecutive tabs never repeat.
  */
 export function takeImage(category: BackgroundCategory = 'random'): PexelsImage | null {
+  const pool = poolFor(category);
   if (pool.length === 0) return null;
 
   let idx = pool.findIndex((p) => p.url !== lastShownUrl);

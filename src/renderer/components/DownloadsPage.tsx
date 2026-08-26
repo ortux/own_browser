@@ -10,6 +10,7 @@ import {
   AlertCircle,
   XCircle,
   Ban,
+  RotateCcw,
 } from 'lucide-react';
 import type { Download } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -156,6 +157,15 @@ export const DownloadsPage: React.FC = () => {
                         className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
                       >
                         <Ban size={16} />
+                      </button>
+                    )}
+                    {(d.state === 'interrupted' || d.state === 'canceled') && (
+                      <button
+                        onClick={() => window.browserAPI.downloads.retry(d.id).catch(() => {})}
+                        title="Retry download"
+                        className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                      >
+                        <RotateCcw size={16} />
                       </button>
                     )}
                     {d.state === 'completed' && (

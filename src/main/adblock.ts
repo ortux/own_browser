@@ -1,42 +1,47 @@
 import { app, session, type WebContents } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { AdBlockEngine, isThirdParty, parseRules } from '../adblock';
-import type { ResourceType, RequestContext } from '../adblock';
+import { ElectronBlocker, adsLists } from '@ghostery/adblocker-electron';
+import fetch from 'cross-fetch';
 
 let enabled = true;
 let blockedCount = 0;
-let engine: AdBlockEngine | null = null;
+let blocker: ElectronBlocker | null = null;
+let blockerLoading: Promise<ElectronBlocker> | null = null;
 let mainWindowGetter: (() => WebContents | null) | null = null;
 let statsTimer: ReturnType<typeof setTimeout> | null = null;
 let forceHttps = true;
 let doNotTrack = false;
 
-const attachedSessions = new WeakSet<Electron.Session>();
+const configuredSessions = new Set<Electron.Session>();
+const blockingContexts = new WeakMap<Electron.Session, ReturnType<ElectronBlocker['enableBlockingInSession']>>();
+type DntListener = (
+  details: Electron.OnBeforeSendHeadersListenerDetails,
+  callback: (response: Electron.BeforeSendResponse) => void
+) => void;
 
-type WebRequestDetails = {
-  webContents?: WebContents;
-  referrer: string;
-  url: string;
+const dntListeners = new WeakMap<Electron.Session, DntListener>();
+
+const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const CACHE_FILENAME = 'ghostery-ads-only.bin';
+const BLOCKER_CONFIG = {
+  // Start with network ads only. Cosmetic filters and scriptlets can hide real
+  // controls or interfere with video/auth flows, so they are intentionally off.
+  loadCosmeticFilters: false,
+  loadCSPFilters: false,
+  enableMutationObserver: false,
+  loadExtendedSelectors: false,
+  guessRequestTypeFromUrl: true,
 };
 
-const resourceTypeMap: Record<string, ResourceType> = {
-  mainFrame: 'main_frame',
-  subFrame: 'sub_frame',
-  script: 'script',
-  stylesheet: 'stylesheet',
-  image: 'image',
-  font: 'font',
-  media: 'media',
-  webSocket: 'websocket',
-  websocket: 'websocket',
-  xhr: 'xhr',
-  fetch: 'fetch',
-};
-
-function filterPath(): string {
-  return path.join(app.getAppPath(), 'filter.txt');
-}
+const YOUTUBE_HOSTS = [
+  'youtube.com',
+  'youtube-nocookie.com',
+  'youtu.be',
+  'googlevideo.com',
+  'ytimg.com',
+  'youtubei.googleapis.com',
+];
 
 function emitStats(): void {
   const win = mainWindowGetter?.();
@@ -53,132 +58,171 @@ function emitStatsThrottled(): void {
   }, 500);
 }
 
-function domainFromUrl(value: string): string {
+function isYouTubeHost(value: string): boolean {
   try {
-    return new URL(value).hostname.toLowerCase();
-  } catch {
-    return '';
-  }
-}
-
-function sourceUrlFor(details: WebRequestDetails): string {
-  try {
-    return details.webContents?.getURL() || details.referrer || details.url;
-  } catch {
-    // A request can finish while its guest webContents is being destroyed.
-    return details.referrer || details.url;
-  }
-}
-
-function requestContext(details: Electron.OnBeforeRequestListenerDetails): RequestContext {
-  const sourceUrl = sourceUrlFor(details);
-  const sourceDomain = domainFromUrl(sourceUrl);
-  const destinationDomain = domainFromUrl(details.url);
-  const resourceType = resourceTypeMap[details.resourceType] ?? 'other';
-  return {
-    url: details.url,
-    sourceUrl,
-    sourceDomain,
-    destinationDomain,
-    resourceType,
-    method: details.method,
-    isThirdParty: sourceDomain !== '' && destinationDomain !== ''
-      ? isThirdParty(sourceDomain, destinationDomain)
-      : false,
-    isMainFrame: resourceType === 'main_frame',
-  };
-}
-
-function isWebviewRequest(details: WebRequestDetails): boolean {
-  try {
-    // The application shell also uses the default session. Filtering it would
-    // allow a filter list to cancel the shell's own JS/CSS and make the whole
-    // window appear black. If Electron does not provide webContents for a
-    // request, fail open rather than guessing that it belongs to a webview.
-    return details.webContents?.getType() === 'webview';
+    const hostname = new URL(value).hostname.toLowerCase().replace(/\.$/, '');
+    return YOUTUBE_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`));
   } catch {
     return false;
   }
 }
 
-function upgradeHttpUrl(value: string): string | null {
+function isProtectedYouTubeRequest(details: Electron.OnBeforeRequestListenerDetails): boolean {
+  return isYouTubeHost(details.url)
+    || isYouTubeHost(details.referrer)
+    || (() => {
+      try { return isYouTubeHost(details.webContents?.getURL() ?? ''); } catch { return false; }
+    })();
+}
+
+function cachePath(): string {
+  return path.join(app.getPath('userData'), CACHE_FILENAME);
+}
+
+async function readCachedBlocker(): Promise<ElectronBlocker | null> {
   try {
-    const url = new URL(value);
-    if (url.protocol !== 'http:') return null;
-    url.protocol = 'https:';
-    return url.toString();
+    const buffer = await fs.promises.readFile(cachePath());
+    return ElectronBlocker.deserialize(new Uint8Array(buffer));
   } catch {
     return null;
   }
 }
 
-/** Attach filtering and network privacy policy to one Electron session. */
-export function attachAdblockToSession(ses: Electron.Session): void {
-  if (attachedSessions.has(ses)) return;
-  attachedSessions.add(ses);
+async function writeCachedBlocker(engine: ElectronBlocker): Promise<void> {
+  const target = cachePath();
+  const temporary = `${target}.tmp-${process.pid}`;
+  try {
+    await fs.promises.mkdir(path.dirname(target), { recursive: true });
+    await fs.promises.writeFile(temporary, Buffer.from(engine.serialize()));
+    await fs.promises.rename(temporary, target);
+  } catch (error) {
+    try { await fs.promises.rm(temporary, { force: true }); } catch { /* best effort */ }
+    console.warn('[adblock] could not cache Ghostery engine:', error);
+  }
+}
 
-  ses.webRequest.onBeforeRequest((details, callback) => {
-    if (!isWebviewRequest(details)) {
-      callback({ cancel: false });
+async function fetchFilter(url: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function buildBlocker(): Promise<ElectronBlocker> {
+  const cached = await readCachedBlocker();
+  let cacheIsFresh = false;
+  try {
+    cacheIsFresh = Date.now() - (await fs.promises.stat(cachePath())).mtimeMs < CACHE_MAX_AGE;
+  } catch { /* no cache */ }
+
+  if (cached && cacheIsFresh) return cached;
+
+  try {
+    // Use Ghostery's maintained EasyList/uBlock-compatible ad subscriptions.
+    // This avoids the incomplete hand-written filter parser and its false
+    // positives around normal site URLs.
+    const fresh = await ElectronBlocker.fromLists(
+      fetchFilter,
+      adsLists,
+      BLOCKER_CONFIG,
+    );
+    await writeCachedBlocker(fresh);
+    return fresh;
+  } catch (error) {
+    console.warn('[adblock] Ghostery list update failed:', error);
+    if (cached) {
+      console.warn('[adblock] using stale Ghostery cache');
+      return cached;
+    }
+    // Fail open if both the network and cache are unavailable. The browser
+    // must remain usable even when filter services are offline.
+    return ElectronBlocker.empty(BLOCKER_CONFIG);
+  }
+}
+
+function installYouTubeException(engine: ElectronBlocker): void {
+  const original = engine.onBeforeRequest.bind(engine);
+  engine.onBeforeRequest = (details, callback) => {
+    if (isProtectedYouTubeRequest(details)) {
+      callback({});
       return;
     }
+    original(details, callback);
+  };
+}
 
-    // Keep the top-level navigation alive. A DNS/list match should never turn
-    // an address-bar click into a blank tab. Force HTTPS is an explicit
-    // redirect, not an ad-block decision.
-    if (forceHttps) {
-      const upgraded = upgradeHttpUrl(details.url);
-      if (upgraded) {
-        callback({ redirectURL: upgraded });
-        return;
-      }
-    }
-    if (details.resourceType === 'mainFrame') {
-      callback({ cancel: false });
-      return;
-    }
-
-    const result = engine?.checkRequest(requestContext(details));
-    if (enabled && result?.action === 'BLOCK') {
-      blockedCount++;
-      emitStatsThrottled();
-      callback({ cancel: true });
-      return;
-    }
-    callback({ cancel: false });
-  });
-
-  ses.webRequest.onBeforeSendHeaders((details, callback) => {
-    if (doNotTrack && isWebviewRequest(details)) {
+function installDntListener(ses: Electron.Session): void {
+  if (dntListeners.has(ses)) return;
+  const listener: DntListener = (details, callback) => {
+    if (doNotTrack && details.webContents?.getType() === 'webview') {
       details.requestHeaders.DNT = '1';
     }
     callback({ requestHeaders: details.requestHeaders });
-  });
+  };
+  dntListeners.set(ses, listener);
+  ses.webRequest.onBeforeSendHeaders(listener);
 }
 
-async function loadLocalFilter(): Promise<void> {
-  try {
-    const text = await fs.promises.readFile(filterPath(), 'utf8');
-    const localEngine = new AdBlockEngine();
-    localEngine.addRules(parseRules(text));
-    localEngine.setEnabled(enabled);
-    engine = localEngine;
-    emitStats();
-  } catch (error) {
-    console.warn('[adblock] local filter list unavailable, running unfiltered:', error);
+function enableBlockingForSession(ses: Electron.Session): void {
+  if (!blocker || blockingContexts.has(ses)) return;
+  blockingContexts.set(ses, blocker.enableBlockingInSession(ses));
+}
+
+function disableBlockingForSession(ses: Electron.Session): void {
+  if (!blocker || !blockingContexts.has(ses)) return;
+  try { blocker.disableBlockingInSession(ses); } catch { /* already disabled */ }
+  blockingContexts.delete(ses);
+}
+
+/** Attach Ghostery network filtering and DNT policy to one Electron session. */
+export function attachAdblockToSession(ses: Electron.Session): void {
+  if (configuredSessions.has(ses)) return;
+  configuredSessions.add(ses);
+  installDntListener(ses);
+  if (enabled) enableBlockingForSession(ses);
+}
+
+export function detachAdblockFromSession(ses: Electron.Session): void {
+  disableBlockingForSession(ses);
+  configuredSessions.delete(ses);
+  // This removes only our listener in the current session architecture. The
+  // Ghostery context uses different webRequest events.
+  const listener = dntListeners.get(ses);
+  if (listener) {
+    ses.webRequest.onBeforeSendHeaders(null);
+    dntListeners.delete(ses);
   }
 }
 
 export function initAdblock(getMainWindow: () => WebContents | null): void {
   mainWindowGetter = getMainWindow;
   attachAdblockToSession(session.defaultSession);
-  emitStats();
-  void loadLocalFilter();
+  blockerLoading = buildBlocker();
+  void blockerLoading.then((engine) => {
+    blocker = engine;
+    installYouTubeException(engine);
+    engine.on('request-blocked', () => {
+      blockedCount++;
+      emitStatsThrottled();
+    });
+    for (const ses of configuredSessions) {
+      if (enabled) enableBlockingForSession(ses);
+    }
+    emitStats();
+  }).catch((error) => {
+    console.error('[adblock] unexpected Ghostery initialization failure:', error);
+  });
 }
 
 export function setAdblockEnabled(value: boolean): void {
   enabled = Boolean(value);
-  engine?.setEnabled(enabled);
+  for (const ses of configuredSessions) {
+    if (enabled) enableBlockingForSession(ses);
+    else disableBlockingForSession(ses);
+  }
   emitStats();
 }
 
@@ -188,6 +232,10 @@ export function setNetworkSecuritySettings(settings: {
 }): void {
   forceHttps = Boolean(settings.forceHttps);
   doNotTrack = Boolean(settings.doNotTrack);
+}
+
+export function isForceHttpsEnabled(): boolean {
+  return forceHttps;
 }
 
 export function isAdblockEnabled(): boolean {

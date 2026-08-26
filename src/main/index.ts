@@ -5,6 +5,7 @@ import {
   Menu,
   clipboard,
   globalShortcut,
+  session,
 } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -45,7 +46,9 @@ import {
   isAdblockEnabled,
   getBlockedCount,
   setNetworkSecuritySettings,
+  isForceHttpsEnabled,
   attachAdblockToSession,
+  detachAdblockFromSession,
 } from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
 import { configureAdGuardDns } from './dns';
@@ -96,6 +99,17 @@ app.userAgentFallback = makeWebCompatibleUserAgent(app.userAgentFallback);
 
 function canOpenInTab(value: string): boolean {
   return isHttpNavigationUrl(value);
+}
+
+function upgradeHttpUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:') return null;
+    url.protocol = 'https:';
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -771,6 +785,9 @@ app.on('web-contents-created', (_event, contents) => {
     attachDownloadsToSession(contents.session);
     contents.once('destroyed', () => {
       forgetProxySession(contents.session);
+      if (contents.session !== session.defaultSession) {
+        detachAdblockFromSession(contents.session);
+      }
       tabByWebContentsId.delete(contents.id);
     });
 
@@ -778,6 +795,16 @@ app.on('web-contents-created', (_event, contents) => {
     // local-file URL. Address-bar navigation is performed programmatically by
     // the trusted shell and is not affected by this event.
     contents.on('will-navigate', (event, navigationUrl) => {
+      if (isForceHttpsEnabled()) {
+        const upgraded = upgradeHttpUrl(navigationUrl);
+        if (upgraded) {
+          event.preventDefault();
+          void contents.loadURL(upgraded).catch((error: unknown) => {
+            console.warn('[navigation] HTTPS upgrade failed:', error);
+          });
+          return;
+        }
+      }
       if (!isHttpNavigationUrl(navigationUrl) && navigationUrl !== 'about:blank') {
         event.preventDefault();
       }

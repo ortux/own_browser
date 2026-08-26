@@ -220,7 +220,7 @@ Main process owns:
 
 - Private browsing uses temporary per-tab sessions but is not anonymous and does not encrypt traffic.
 - Local history, bookmarks, and settings are not encrypted at rest.
-- The local filter engine supports a documented subset of filter-list syntax; see `docs/ADBLOCK.md`.
+- Ad blocking starts with Ghostery's ads-only network lists; cosmetic/scriptlet filtering is intentionally disabled for compatibility. See `docs/ADBLOCK.md`.
 - Proxy pools must be supplied through `ZYPHORA_PROXY_LIST`; unreliable proxies are rejected before they can interrupt browsing.
 - No Go integration, fingerprinting resistance, or Web3 support yet.
 

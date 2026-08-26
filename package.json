@@ -15,7 +15,7 @@
     "preview": "electron-vite preview",
     "start": "electron dist/main/index.js",
     "test": "npm run test:adblock",
-    "test:adblock": "esbuild src/adblock/engine/AdBlockEngine.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
+    "test:adblock": "esbuild src/main/adblock.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
@@ -40,11 +40,12 @@
     "vite": "^6.4.3"
   },
   "dependencies": {
+    "@ghostery/adblocker-electron": "^2.18.2",
+    "cross-fetch": "^4.1.0",
     "lucide-react": "^0.372.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "sql.js": "^1.14.2",
-    "tldts": "^7.4.11",
     "zustand": "^4.5.0"
   },
   "build": {
@@ -56,7 +57,6 @@
     "files": [
       "dist/**/*",
       "package.json",
-      "filter.txt",
       "!**/*.map"
     ],
     "icon": "public/icon.png",

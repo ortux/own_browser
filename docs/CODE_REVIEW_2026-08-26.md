@@ -43,7 +43,7 @@ The follow-up changes in this branch now implement or harden the following basel
 - Failed proxy application rolls back, verification uses Electron's session network stack, and credentials are kept in the main process rather than renderer settings.
 - Search suggestions no longer fall back to Google's domain favicon service and are debounced/stale-response safe.
 - Pexels and SponsorBlock requests have timeouts; background image pools are separated by category.
-- Filter regex flags, separator syntax, badfilter handling, WebSocket mapping, and public-suffix third-party detection are covered.
+- The home-grown filter parser was removed in favor of Ghostery's maintained ads-only engine with serialized caching and YouTube compatibility exemptions.
 - Vite/electron-vite/esbuild dependencies were upgraded and a tracked `package-lock.json` was added.
 
 The remaining items are listed in the **Open items after remediation** section at the end of this document.
@@ -187,21 +187,13 @@ When a history entry has no favicon, the shell requests a Google favicon URL con
 
 #### M9. Ad-blocking is an incomplete filter-list implementation
 
-**References:** `src/adblock/engine/RuleParser.ts`, `src/adblock/engine/UrlMatcher.ts`, `src/main/adblock.ts:14-25`
+**References:** `src/main/adblock.ts`, `src/main/adblock.test.ts`
 
-Known limitations include:
+The previous custom parser has been removed from the application. The current implementation uses Ghostery's maintained EasyList/uBlock-compatible engine, ads-only lists, a seven-day serialized cache, fail-open startup behavior, and explicit YouTube host exemptions.
 
-- Regex flags after the final `/` are not parsed correctly.
-- ABP separator tokens such as `^` are treated as literal characters for non-domain URL rules.
-- `$badfilter` is ignored rather than disabling its paired rule.
-- Unsupported options are silently ignored, which can produce false positives or false negatives.
-- `webSocket`, `object`, `ping`, and `cspReport` resource types are not fully mapped.
-- Third-party classification is only a last-two-label approximation and is wrong for many public-suffix cases.
-- The static list is loaded only from the packaged file and has no update mechanism.
+The remaining trade-offs are intentional: network ads on YouTube may pass through for playback stability, cosmetic filters and scriptlets are disabled, and full Electron playback/popup behavior still requires a real runtime smoke test.
 
-The code now deliberately allows main-frame navigation, which avoids one class of black/blank tab failures but means the DNS and subresource layers are the actual blocking layers.
-
-**Recommendation:** use a maintained compatible engine or explicitly scope/document the supported syntax and build a corpus of allow/block regression cases.
+**Recommendation:** keep the staged rollout conservative and add narrow per-site diagnostics before enabling privacy, annoyance, cosmetic, or scriptlet lists.
 
 #### M10. Proxy session discovery is incomplete and creates sessions as a side effect
 

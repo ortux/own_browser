@@ -1,68 +1,75 @@
-# Local Ad Blocking
+# Ad blocking
 
-Zyphora uses two layers. Chromium uses AdGuard DNS over HTTPS as the primary domain-level blocker, and the local engine evaluates allowed requests for URL, resource-type, exception, and third-party rules. The renderer never reads filter lists.
+Zyphora uses `@ghostery/adblocker-electron` instead of a home-grown filter parser. Ghostery is compatible with EasyList/uBlock-style network filters and is attached to every normal and temporary private Electron session.
 
-## Runtime flow
+## Stability-first configuration
 
-1. `src/main/dns.ts` configures Chromium to prefer AdGuard DNS-over-HTTPS with `https://dns.adguard-dns.com/dns-query` before app readiness. It falls back to system DNS when the endpoint is unreachable; `ZYPHORA_DNS_MODE=secure` opts into fail-closed DNS.
-2. AdGuard DNS blocks domains before a connection is made.
-3. `src/main/adblock.ts` loads `filter.txt` from the packaged application.
-4. `src/adblock/engine/RuleParser.ts` parses supported rules.
-5. `src/adblock/engine/AdBlockEngine.ts` indexes domain suffixes and URL tokens.
-6. `session.defaultSession.webRequest.onBeforeRequest` receives the local decision and cancels blocked requests.
+The current configuration intentionally:
 
-Normal webviews use the default session. Temporary private webview sessions are registered when created so the same network filtering and download policy applies to them.
+- Loads the maintained ads-only subscriptions through `ElectronBlocker.fromLists`.
+- Enables network filtering only.
+- Disables cosmetic filters, scriptlets, extended selectors, and filter-provided CSP changes.
+- Always allows main-frame navigation.
+- Allows all requests associated with YouTube and its video/API/CDN hosts.
+- Fails open if the cache and list update are unavailable.
+- Keeps blocked-request statistics in memory only.
 
-## Supported syntax
+This avoids broad custom selectors and prevents an ad rule from stopping a whole page, login flow, or video player.
 
-| Syntax | Support |
-| --- | --- |
-| `||example.com^` | Supported |
-| `example.com` | Supported as a hostname rule |
-| URL substring and `*` wildcard rules | Supported |
-| `@@` exceptions | Supported |
-| `$script`, `$image`, `$stylesheet`, and other normalized resource types | Supported |
-| `$third-party` and `~third-party` | Supported |
-| `$domain=example.com|~excluded.com` | Supported |
-| `$important` | Supported |
-| bounded regular-expression rules | Supported with safety limits |
-| `##` cosmetic rules | Not implemented |
-| redirects | Not implemented |
-| scriptlets | Not implemented |
-| platform directives | Ignored |
-| `$badfilter` rule disabling | Ignored safely; it does not disable another rule |
+## YouTube compatibility
 
-This is a deliberately limited compatible subset, not a claim of complete uBlock Origin or AdGuard compatibility.
+The following hosts are exempt from network filtering:
 
-## Filter source
+- `youtube.com`
+- `youtube-nocookie.com`
+- `youtu.be`
+- `googlevideo.com`
+- `ytimg.com`
+- `youtubei.googleapis.com`
 
-`filter.txt` is treated as untrusted input. Its header identifies the AdGuard DNS filter and its license. Before redistributing a production build, verify that the selected version and packaging method comply with that license and upstream update requirements.
+YouTube frequently uses first-party APIs, WebSockets, media requests, and Google video/CDN hosts for playback, comments, recommendations, and controls. Blocking those requests can make videos or page details disappear. The trade-off is that the current stable configuration does not aggressively block YouTube's own ad delivery.
 
-The application does not download a filter list during page requests. AdGuard DNS receives DNS queries needed for name resolution; it does not receive complete page URLs. Updating `filter.txt` requires replacing the local asset through a trusted release/update process, followed by a build and review.
+## Cache and updates
 
-## SponsorBlock
+The compiled engine is cached as `ghostery-ads-only.bin` under Electron's user-data directory. A cache newer than seven days is used immediately. A stale cache triggers a background refresh; if refresh fails, the stale cache is retained. If no cache exists and the network is unavailable, the browser runs without blocking instead of making navigation fail.
 
-YouTube pages optionally use the public SponsorBlock API for community-submitted sponsor, intro, outro, and similar segment timestamps. Zyphora sends only a four-character SHA-256 prefix of the video ID, validates the response, and injects a fixed local time skipper. It does not submit segments, vote, send the video ID, or execute code from the API response.
+Cache writes use a temporary file followed by rename so an interrupted write does not replace a working cache.
 
-SponsorBlock skips marked segments; it does not reliably remove YouTube in-stream advertisements. YouTube ads are often delivered from the same first-party systems as the video and cannot be safely cancelled by DNS or `onBeforeRequest` without risking playback.
+## Session coverage
 
-## Security boundaries
+`attachAdblockToSession(session)` is called for the default session and for each temporary private webview session when its web contents is created. The same session also receives the download and Do Not Track policies.
 
-- No `eval`, `new Function`, native code, or filter-provided JavaScript is executed.
-- Regular expressions are length-limited, compiled once per rule, and reject common nested-quantifier forms.
-- Cosmetic selectors and scriptlets are not executed.
-- The renderer accesses only validated adblock IPC operations already exposed by preload.
-- Main-frame navigation is deliberately allowed so a filter-list match cannot prevent a user from opening a site; only webview subresources are cancelled.
-- Automatic DoH prefers the configured AdGuard endpoint and falls back to system DNS if it is unavailable, so a resolver outage does not make every tab blank. `ZYPHORA_DNS_MODE=secure` intentionally restores fail-closed behavior for deployments that require it.
-- Third-party classification uses the maintained `tldts` public-suffix-list implementation so country-code and private-suffix edge cases are handled consistently.
+Electron only supports one `webRequest` listener per event/session. Zyphora therefore lets Ghostery own `onBeforeRequest` and keeps other network behavior separate:
+
+- Force HTTPS is handled at the webview navigation boundary and for shell address-bar navigations.
+- Do Not Track uses `onBeforeSendHeaders`.
+- Download tracking uses the session `will-download` event.
+
+## Per-site breakage policy
+
+If a site breaks, the recommended debugging sequence is:
+
+1. Turn off the ad blocker from the shield menu.
+2. Reload the page.
+3. Compare with the blocker enabled.
+4. Add a narrow host exception only after confirming the filter decision.
+
+Do not reintroduce selectors such as `[class*="ad"]`, `[class*="banner"]`, `[class*="popup"]`, or `[class*="recommended"]`; those names are common in legitimate UI.
+
+## Privacy and trade-offs
+
+Filter list updates fetch maintained list assets from Ghostery's upstream sources. Normal page requests are evaluated locally after the lists are loaded. Ad blocking does not make the browser anonymous. DNS, the selected search engine, websites, and any configured proxy have separate privacy policies.
+
+Ghostery's Electron package is distributed under the MPL-2.0 license. Review the license and upstream list terms before redistributing a packaged application.
 
 ## Validation
 
 Run:
 
 ```text
-npm run test:adblock
+npm test
 npm run build
+npm run lint
 ```
 
-The tests cover domain rules, exceptions, resource types, third-party matching, allowlisting, regular-expression safety, and loading the supplied filter list.
+The automated tests cover Ghostery network matching, exceptions, ordinary content, navigation protocol handling, and YouTube-related stability rules. A real Electron smoke test is still required for playback, popups, downloads, private sessions, and GPU/driver combinations.

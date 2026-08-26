@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Tab } from '../../shared/types';
 import { webviewRegistry } from '../stores/webviewRegistry';
 import { applySponsorBlock } from '../lib/sponsorBlock';
+import { isAllowedNavigationUrl } from '../../shared/navigation';
 
 interface WebViewProps {
   tab: Tab;
@@ -50,23 +51,50 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     }
   }, [tab.url]);
 
-  // Wire webview events → IPC → main → Zustand
-  useEffect(() => {
+  // Wire webview events → IPC → main → Zustand. Layout effect attaches the
+  // listeners before the browser gets a chance to paint/start a fast load.
+  useLayoutEffect(() => {
     const el = webviewRef.current;
     if (!el || !window.browserAPI) return;
 
     const onLoadStart = () => {
       setLoadError(null);
-      window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: true });
+      void window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: true });
     };
 
-    const onLoadStop = () => {
+    const registerGuestContents = () => {
+      try {
+        void window.browserAPI.sendMessage({
+          type: 'webview-attached',
+          tabId: tab.id,
+          webContentsId: el.getWebContentsId(),
+        });
+      } catch {
+        // The guest may not have attached yet; did-attach will retry.
+      }
+    };
+
+    const reportNavigationState = () => {
       try {
         const url = el.getURL();
-        void applySponsorBlock(el, url);
         const canGoBack = el.canGoBack();
         const canGoForward = el.canGoForward();
-        window.browserAPI.sendMessage({
+
+        // Failed Chromium loads can expose chrome-error://chromewebdata/ from
+        // getURL(). It is an implementation detail, not a page URL. Keep the
+        // requested URL in the tab model and let did-fail-load show the useful
+        // error message instead.
+        if (!isAllowedNavigationUrl(url)) {
+          void window.browserAPI.sendMessage({
+            type: 'webview-loading',
+            tabId: tab.id,
+            loading: false,
+          });
+          return;
+        }
+
+        void applySponsorBlock(el, url);
+        void window.browserAPI.sendMessage({
           type: 'webview-nav-state',
           tabId: tab.id,
           url,
@@ -74,9 +102,15 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
           canGoForward,
         });
       } catch {
-        window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: false });
+        void window.browserAPI.sendMessage({
+          type: 'webview-loading',
+          tabId: tab.id,
+          loading: false,
+        });
       }
     };
+
+    const onLoadStop = reportNavigationState;
 
     const onTitleUpdated = (e: Electron.PageTitleUpdatedEvent) => {
       window.browserAPI.sendMessage({
@@ -96,20 +130,23 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       }
     };
 
-    const onDidNavigate = () => {
-      try {
-        const url = el.getURL();
-        void applySponsorBlock(el, url);
-        const canGoBack = el.canGoBack();
-        const canGoForward = el.canGoForward();
-        window.browserAPI.sendMessage({
-          type: 'webview-nav-state',
-          tabId: tab.id,
-          url,
-          canGoBack,
-          canGoForward,
-        });
-      } catch { /* ignore */ }
+    const onFoundInPage = (e: Electron.FoundInPageEvent) => {
+      webviewRegistry.emitFind(tab.id, e);
+    };
+
+    const onDidNavigate = reportNavigationState;
+
+    const onRenderProcessGone = (event: Electron.RenderProcessGoneEvent) => {
+      const reason = event.details?.reason || 'unknown reason';
+      setLoadError({
+        code: -1000,
+        desc: `The embedded page renderer stopped (${reason}). Try reloading the page.`,
+      });
+      void window.browserAPI.sendMessage({
+        type: 'webview-loading',
+        tabId: tab.id,
+        loading: false,
+      });
     };
 
     const onDidFailLoad = (e: Electron.DidFailLoadEvent) => {
@@ -123,22 +160,29 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: false });
     };
 
+    el.addEventListener('did-attach',          registerGuestContents);
     el.addEventListener('did-start-loading',   onLoadStart);
     el.addEventListener('did-stop-loading',    onLoadStop);
+    registerGuestContents();
     el.addEventListener('page-title-updated',  onTitleUpdated  as EventListener);
     el.addEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
+    el.addEventListener('found-in-page',        onFoundInPage);
     el.addEventListener('did-navigate',        onDidNavigate);
     el.addEventListener('did-navigate-in-page',onDidNavigate);
     el.addEventListener('did-fail-load',       onDidFailLoad   as EventListener);
+    el.addEventListener('render-process-gone', onRenderProcessGone);
 
     return () => {
+      el.removeEventListener('did-attach',          registerGuestContents);
       el.removeEventListener('did-start-loading',   onLoadStart);
       el.removeEventListener('did-stop-loading',    onLoadStop);
       el.removeEventListener('page-title-updated',  onTitleUpdated  as EventListener);
       el.removeEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
+      el.removeEventListener('found-in-page',        onFoundInPage);
       el.removeEventListener('did-navigate',        onDidNavigate);
       el.removeEventListener('did-navigate-in-page',onDidNavigate);
       el.removeEventListener('did-fail-load',       onDidFailLoad   as EventListener);
+      el.removeEventListener('render-process-gone', onRenderProcessGone);
     };
   }, [tab.id]);
 
@@ -147,8 +191,9 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       <webview
         ref={webviewRef}
         src={initialSrc}
+        partition={tab.privateMode ? `temp:tab-${tab.id}` : undefined}
         className="w-full h-full border-none"
-        webpreferences="contextIsolation=yes"
+        webpreferences="contextIsolation=yes,sandbox=yes"
         // Required for target=_blank/window.open events to reach the main
         // process. The main process safely routes http(s) URLs into browser tabs
         // and still denies unmanaged native popup windows.
@@ -157,7 +202,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
 
       {/* Error overlay — shown when the page fails to load */}
       {loadError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--bg)] text-[var(--text)] gap-4">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[var(--bg)] text-[var(--text)] gap-4">
           <div className="text-5xl">⚠</div>
           <h2 className="text-xl font-semibold">Page failed to load</h2>
           <p className="text-sm text-[var(--text-muted)] max-w-sm text-center">

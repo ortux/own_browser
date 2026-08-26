@@ -35,12 +35,13 @@ export const DownloadToast: React.FC<DownloadToastProps> = ({ onOpenDownloads })
         if (prev.length === 0) return prev;
         const map = new Map(list.map((d) => [d.id, d]));
         let changed = false;
-        const next = prev.map((t) => {
+        const next = prev.filter((toast) => map.has(toast.id)).map((t) => {
           const d = map.get(t.id);
           if (!d) return t;
           if (d.percent !== t.percent || d.state !== t.state) changed = true;
           return { ...t, percent: d.percent, state: d.state };
         });
+        if (next.length !== prev.length) changed = true;
         return changed ? next : prev;
       });
     });
@@ -68,7 +69,7 @@ export const DownloadToast: React.FC<DownloadToastProps> = ({ onOpenDownloads })
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-72 pointer-events-none">
       {toasts.map((t) => {
         const finished = t.state !== 'progressing';
-        const failed = t.state === 'interrupted' || t.state === 'canceled';
+        const failed = t.state === 'interrupted';
         const pct = Math.round(t.percent * 100);
 
         return (

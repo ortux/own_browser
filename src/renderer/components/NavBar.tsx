@@ -14,8 +14,9 @@ import {
   History as HistoryIcon,
   CornerDownLeft,
   Download as DownloadIcon,
+  Globe,
 } from 'lucide-react';
-import type { Tab, HistoryEntry, Download } from '../../shared/types';
+import type { Tab, HistoryEntry, Download, BlockedRequest } from '../../shared/types';
 import type { CertInfo } from '../../main/certificate';
 import { useSettingsStore } from '../stores/settingsStore';
 
@@ -59,10 +60,6 @@ function domainOf(url: string): string {
   try { return new URL(url).hostname; } catch { return url; }
 }
 
-function faviconFor(url: string): string {
-  return `https://www.google.com/s2/favicons?domain=${domainOf(url)}&sz=32`;
-}
-
 export const NavBar: React.FC<NavBarProps> = ({
   activeTab,
   onBack,
@@ -83,7 +80,9 @@ export const NavBar: React.FC<NavBarProps> = ({
 
   // ── Ad blocker state (mirrors SecuritySettings.blockTrackers) ──
   const blockTrackers = useSettingsStore((s) => s.security.blockTrackers);
+  const adblockAllowlist = useSettingsStore((s) => s.adblockAllowlist);
   const setSecurityFlag = useSettingsStore((s) => s.setSecurityFlag);
+  const setAdblockAllowlist = useSettingsStore((s) => s.setAdblockAllowlist);
   const [showAdblock, setShowAdblock] = useState(false);
   const [adblockStats, setAdblockStats] = useState<{ enabled: boolean; blocked: number }>({
     enabled: blockTrackers,
@@ -97,9 +96,9 @@ export const NavBar: React.FC<NavBarProps> = ({
     () => setSecurityFlag('blockTrackers', !blockTrackers),
     [blockTrackers, setSecurityFlag]
   );
-
   // ── History suggestions ──
   const [history, setHistory]           = useState<HistoryEntry[]>([]);
+  const suggestionRequest = useRef(0);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIdx, setActiveIdx]       = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -117,20 +116,24 @@ export const NavBar: React.FC<NavBarProps> = ({
 
   const loadSuggestions = useCallback(async (q: string) => {
     if (!window.browserAPI) return;
+    const request = ++suggestionRequest.current;
     try {
       const data = q.trim()
         ? await window.browserAPI.history.search(q.trim())
         : await window.browserAPI.history.get();
-      setHistory(data);
+      if (request === suggestionRequest.current) setHistory(data);
     } catch {
-      setHistory([]);
+      if (request === suggestionRequest.current) setHistory([]);
     }
   }, []);
 
   // Fetch (de-duplicated by domain) suggestions whenever the typed query changes.
+  // Debouncing prevents an IPC/database round-trip for every keystroke.
   useEffect(() => {
-    if (isFocused) loadSuggestions(input);
     setActiveIdx(-1);
+    if (!isFocused) return;
+    const timer = setTimeout(() => { void loadSuggestions(input); }, 120);
+    return () => clearTimeout(timer);
   }, [input, isFocused, loadSuggestions]);
 
   // De-duplicate history entries by domain, keeping the most recent visit.
@@ -175,6 +178,45 @@ export const NavBar: React.FC<NavBarProps> = ({
       return '';
     }
   })();
+  const [siteBlockedCount, setSiteBlockedCount] = useState(0);
+  const [blockedRequests, setBlockedRequests] = useState<BlockedRequest[]>([]);
+  const siteKey = tabHost.toLowerCase().replace(/^www\./, '');
+  const siteAllowed = !!siteKey && adblockAllowlist.includes(siteKey);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!siteKey || !window.browserAPI?.adblock?.siteStatus) {
+      setSiteBlockedCount(0);
+      setBlockedRequests([]);
+      return;
+    }
+    Promise.all([
+      window.browserAPI.adblock.siteStatus(siteKey),
+      window.browserAPI.adblock.siteDetails(siteKey),
+    ]).then(([status, details]) => {
+      if (!cancelled) {
+        setSiteBlockedCount(status.blocked);
+        setBlockedRequests(details);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setSiteBlockedCount(0);
+        setBlockedRequests([]);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [siteKey, activeTab?.id, blockTrackers]);
+
+  const toggleSiteProtection = () => {
+    if (!siteKey) return;
+    const next = siteAllowed
+      ? adblockAllowlist.filter((site) => site !== siteKey)
+      : [...adblockAllowlist, siteKey];
+    setAdblockAllowlist(next);
+    void window.browserAPI.adblock.setAllowlist(next).catch(() => {});
+    setShowAdblock(false);
+    onReload();
+  };
 
   useEffect(() => {
     setShowCert(false);
@@ -206,22 +248,28 @@ export const NavBar: React.FC<NavBarProps> = ({
     };
   }, [tabHost, isHttps, activeTab?.id, activeTab?.loading]);
 
-  const certStatus: 'insecure' | 'pending' | 'secure' | 'invalid' = !isHttps
+  const certStatus: 'insecure' | 'pending' | 'secure' | 'invalid' | 'unknown' = !isHttps
     ? 'insecure'
     : certPending
       ? 'pending'
       : cert?.present && cert.valid
         ? 'secure'
-        : 'invalid';
+        : cert?.present
+          ? 'invalid'
+          : 'unknown';
 
   const shieldColor =
     certStatus === 'secure'
       ? 'text-green-400 hover:text-green-300'
-      : certStatus === 'pending'
+      : certStatus === 'pending' || certStatus === 'unknown'
         ? 'text-[var(--text-faint)]'
         : 'text-red-400 hover:text-red-300';
   const ShieldIcon =
-    certStatus === 'secure' ? ShieldCheck : certStatus === 'pending' ? Shield : ShieldAlert;
+    certStatus === 'secure'
+      ? ShieldCheck
+      : certStatus === 'pending' || certStatus === 'unknown'
+        ? Shield
+        : ShieldAlert;
   const shieldTitle =
     certStatus === 'secure'
       ? 'Secure connection'
@@ -229,7 +277,9 @@ export const NavBar: React.FC<NavBarProps> = ({
         ? 'Checking connection…'
         : certStatus === 'insecure'
           ? 'Not secure (no HTTPS)'
-          : 'Invalid certificate';
+          : certStatus === 'unknown'
+            ? 'Certificate details unavailable'
+            : 'Invalid certificate';
 
   // The left affordance shows the search icon on the home page (and while
   // typing); on any real site it becomes the shield that reveals cert details.
@@ -471,14 +521,18 @@ export const NavBar: React.FC<NavBarProps> = ({
                 i === activeIdx ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
               }`}
             >
-              <img
-                src={s.favicon || faviconFor(s.url)}
-                alt=""
-                className="h-5 w-5 shrink-0 rounded-sm"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = faviconFor(s.url);
-                }}
-              />
+              {s.favicon ? (
+                <img
+                  src={s.favicon}
+                  alt=""
+                  className="h-5 w-5 shrink-0 rounded-sm"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ) : (
+                <Globe size={18} className="shrink-0 text-[var(--text-faint)]" />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-[var(--text)]">
                   {domainOf(s.url)}
@@ -567,10 +621,43 @@ export const NavBar: React.FC<NavBarProps> = ({
               </button>
             </div>
 
+            <div className="mt-3 rounded-xl bg-[var(--surface-2)] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate text-xs text-[var(--text-muted)]">
+                  {siteKey || 'Current site'}
+                </span>
+                <button
+                  type="button"
+                  onClick={toggleSiteProtection}
+                  disabled={!siteKey}
+                  className="shrink-0 text-xs font-medium text-[var(--accent)] hover:underline disabled:opacity-40"
+                >
+                  {siteAllowed ? 'Enable here' : 'Disable on site'}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-[var(--text-faint)]">
+                {siteAllowed
+                  ? 'Protection is disabled for this site.'
+                  : siteBlockedCount > 0
+                    ? `${siteBlockedCount} requests blocked on this site`
+                    : 'No blocked requests recorded for this site'}
+              </p>
+              {blockedRequests.length > 0 && (
+                <div className="mt-2 max-h-24 space-y-1 overflow-y-auto border-t border-[var(--border)] pt-2">
+                  {blockedRequests.slice(0, 8).map((request, index) => (
+                    <div key={`${request.timestamp}-${index}`} className="truncate text-[10px] text-[var(--text-faint)]" title={request.url}>
+                      <span className="mr-1 rounded bg-[var(--surface)] px-1">{request.type}</span>
+                      {request.url}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <p className="mt-3 text-xs text-[var(--text-faint)]">
               {adblockStats.blocked > 0
-                ? `${adblockStats.blocked} trackers blocked this session`
-                : 'No trackers blocked yet'}
+                ? `${adblockStats.blocked} requests blocked this session`
+                : 'No requests blocked yet'}
             </p>
           </div>
         )}

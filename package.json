@@ -14,7 +14,8 @@
     "build": "tsc && electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron dist/main/index.js",
-    "test:adblock": "esbuild src/adblock/engine/AdBlockEngine.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
+    "test": "npm run test:adblock",
+    "test:adblock": "esbuild src/main/adblock.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
@@ -28,17 +29,19 @@
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
-    "@vitejs/plugin-react": "^4.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3",
-    "electron-vite": "^2.3.0",
+    "electron-vite": "^3.0.0",
     "eslint": "^8.50.0",
     "prettier": "^3.0.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.3.0",
-    "vite": "^5.0.0"
+    "vite": "^6.4.3"
   },
   "dependencies": {
+    "@ghostery/adblocker-electron": "^2.18.2",
+    "cross-fetch": "^4.1.0",
     "lucide-react": "^0.372.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
@@ -54,11 +57,7 @@
     "files": [
       "dist/**/*",
       "package.json",
-      "filter.txt",
       "!**/*.map"
-    ],
-    "extraResources": [
-      ".env*"
     ],
     "icon": "public/icon.png",
     "directories": {

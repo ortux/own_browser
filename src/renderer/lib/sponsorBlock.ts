@@ -50,7 +50,16 @@ export async function fetchSponsorSegments(videoId: string): Promise<SponsorSegm
     categories: JSON.stringify(CATEGORIES),
     actionTypes: JSON.stringify(['skip']),
   });
-  const response = await fetch(`${SPONSORBLOCK_API}/${prefix}?${query}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  let response: Response;
+  try {
+    response = await fetch(`${SPONSORBLOCK_API}/${prefix}?${query}`, {
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) return [];
   return validSegments(await response.json());
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useBrowserStore } from '../stores/tabStore';
 import { webviewRegistry } from '../stores/webviewRegistry';
+import type { BrowserState } from '../../shared/types';
 
 export const useBrowser = () => {
   const updateState = useBrowserStore((state) => state.updateState);
@@ -21,7 +22,7 @@ export const useBrowser = () => {
     window.browserAPI
       .getState()
       .then((state) => {
-        if (state) updateState(state as any);
+        if (state && typeof state === 'object') updateState(state as BrowserState);
       })
       .catch(console.error);
 
@@ -31,14 +32,16 @@ export const useBrowser = () => {
   const navigate = useCallback(
     (url: string) => {
       if (window.browserAPI && store.activeTabId) {
-        window.browserAPI.navigate(store.activeTabId, url);
+        void window.browserAPI.navigate(store.activeTabId, url).catch((error: unknown) => {
+          console.error('[navigation] failed to send navigation request:', error);
+        });
       }
     },
     [store.activeTabId]
   );
 
-  const createTab = useCallback(() => {
-    window.browserAPI?.createTab();
+  const createTab = useCallback((privateMode = false) => {
+    window.browserAPI?.sendMessage({ type: 'create-tab', privateMode });
   }, []);
 
   const createTabWithUrl = useCallback((url: string) => {
@@ -58,6 +61,10 @@ export const useBrowser = () => {
       window.browserAPI?.duplicateTab(store.activeTabId);
     }
   }, [store.activeTabId]);
+
+  const restoreClosedTab = useCallback((index = 0) => {
+    return window.browserAPI?.sendMessage({ type: 'restore-closed-tab', index });
+  }, []);
 
   // These drive the webview directly — no round-trip to main needed
   const goBack = useCallback(() => {
@@ -80,6 +87,22 @@ export const useBrowser = () => {
     if (wv) wv.stop();
   }, [store.activeTabId]);
 
+  const zoom = useCallback((delta: number) => {
+    const wv = webviewRegistry.get(store.activeTabId);
+    if (!wv) return;
+    wv.setZoomFactor(Math.min(3, Math.max(0.5, wv.getZoomFactor() + delta)));
+  }, [store.activeTabId]);
+
+  const resetZoom = useCallback(() => {
+    const wv = webviewRegistry.get(store.activeTabId);
+    if (wv) wv.setZoomFactor(1);
+  }, [store.activeTabId]);
+
+  const printPage = useCallback(() => {
+    const wv = webviewRegistry.get(store.activeTabId);
+    if (wv) void wv.print();
+  }, [store.activeTabId]);
+
   return {
     navigate,
     createTab,
@@ -91,5 +114,9 @@ export const useBrowser = () => {
     reload,
     stop,
     duplicateTab,
+    restoreClosedTab,
+    zoom,
+    resetZoom,
+    printPage,
   };
 };

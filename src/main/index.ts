@@ -45,12 +45,18 @@ import {
   setAdblockEnabled,
   isAdblockEnabled,
   getBlockedCount,
+  resetBlockedStats,
+  setAllowedSites,
+  isSiteAllowed,
+  getSiteBlockedCount,
+  getSiteBlockedRequests,
   setNetworkSecuritySettings,
   isForceHttpsEnabled,
   attachAdblockToSession,
   detachAdblockFromSession,
 } from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
+import { configureSessionPermissions, clearPermissionDecisions } from './permissions';
 import { configureAdGuardDns } from './dns';
 import {
   initDownloads,
@@ -59,6 +65,7 @@ import {
   getDownloads,
   setDownloadPath,
   cancelDownload,
+  retryDownload,
   removeDownload,
   clearDownloads,
   openDownload,
@@ -124,7 +131,11 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
     case 'create-tab':
       return value.privateMode === undefined || typeof value.privateMode === 'boolean';
     case 'get-state':
+    case 'get-closed-tabs':
       return true;
+    case 'restore-closed-tab':
+      return value.index === undefined
+        || (typeof value.index === 'number' && Number.isSafeInteger(value.index) && value.index >= 0 && value.index < 20);
     case 'navigate':
       return isBoundedString(value.tabId, 200)
         && isBoundedString(value.url, 8_192);
@@ -207,6 +218,8 @@ function isProxyInfo(value: unknown): value is ProxyInfo {
 // Store for browser state
 let mainWindow: BrowserWindow | null = null;
 const tabs: Map<string, Tab> = new Map();
+const closedTabs: Tab[] = [];
+const managedSessions = new Set<Electron.Session>();
 const tabByWebContentsId = new Map<number, string>();
 let activeTabId: string = '';
 let nextTabId = 1;
@@ -332,6 +345,11 @@ function routePopupToTab(popup: BrowserWindow, privateMode: boolean): void {
 }
 
 function closeTab(tabId: string) {
+  const tab = tabs.get(tabId);
+  if (tab && !tab.privateMode) {
+    closedTabs.unshift({ ...tab });
+    closedTabs.splice(20);
+  }
   tabs.delete(tabId);
 
   if (tabs.size === 0) {
@@ -348,6 +366,16 @@ function closeTab(tabId: string) {
   }
 
   updateRendererState();
+}
+
+function restoreClosedTab(index = 0): string {
+  const snapshot = closedTabs.splice(index, 1)[0];
+  if (!snapshot) return '';
+  return createNewTab(snapshot.url, false);
+}
+
+function getClosedTabs(): Tab[] {
+  return closedTabs.map((tab) => ({ ...tab }));
 }
 
 function getState(): BrowserState {
@@ -421,6 +449,11 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         }
         break;
       }
+      case 'restore-closed-tab':
+        restoreClosedTab(message.index ?? 0);
+        break;
+      case 'get-closed-tabs':
+        return getClosedTabs();
       case 'webview-attached': {
         if (tabs.has(message.tabId)) {
           tabByWebContentsId.set(message.webContentsId, message.tabId);
@@ -537,7 +570,9 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
 app.on('ready', async () => {
   initProxyAutoApply(); // must be before createWindow so session-created fires
   initCertificateMonitor();
+  managedSessions.add(session.defaultSession);
   initAdblock(() => mainWindow?.webContents ?? null);
+  configureSessionPermissions(session.defaultSession, () => mainWindow);
   initDownloads(); // session will-download handler — before any webview exists
   try {
     await initDb();
@@ -549,6 +584,7 @@ app.on('ready', async () => {
   }
   registerPexelsHandlers(isTrustedMainFrame);
   registerDbHandlers();
+  registerPrivacyHandlers();
   registerProxyHandlers();
   registerAdblockHandlers();
   registerCertHandlers();
@@ -625,6 +661,21 @@ function registerDbHandlers() {
 
 // ── Proxy IPC handlers ───────────────────────────────────────────────────────
 
+function registerPrivacyHandlers() {
+  ipcMain.handle('privacy:clear-data', async (event) => {
+    assertTrustedMainFrame(event);
+    clearHistory();
+    resetBlockedStats();
+    clearPermissionDecisions();
+    for (const ses of managedSessions) {
+      await ses.clearStorageData({
+        storages: ['cookies', 'filesystem', 'indexdb', 'localstorage', 'shadercache', 'serviceworkers', 'cachestorage'],
+      });
+      await ses.clearCache();
+    }
+  });
+}
+
 function registerProxyHandlers() {
   // fetchProxy is synchronous — no async needed
   ipcMain.handle('proxy:fetch', (event) => {
@@ -663,6 +714,23 @@ function registerAdblockHandlers() {
   ipcMain.handle('adblock:stats', (event) => {
     assertTrustedMainFrame(event);
     return { enabled: isAdblockEnabled(), blocked: getBlockedCount() };
+  });
+  ipcMain.handle('adblock:set-allowlist', (event, sites: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!Array.isArray(sites) || sites.length > 500 || !sites.every((site) => isBoundedString(site, 253))) {
+      throw new Error('Invalid ad-blocker allowlist.');
+    }
+    setAllowedSites(sites);
+  });
+  ipcMain.handle('adblock:site-status', (event, site: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(site, 253)) throw new Error('Invalid site hostname.');
+    return { allowed: isSiteAllowed(site), blocked: getSiteBlockedCount(site) };
+  });
+  ipcMain.handle('adblock:site-details', (event, site: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(site, 253)) throw new Error('Invalid site hostname.');
+    return getSiteBlockedRequests(site);
   });
 }
 
@@ -706,6 +774,11 @@ function registerDownloadHandlers() {
     assertTrustedMainFrame(event);
     assertDownloadId(id);
     return cancelDownload(id);
+  });
+  ipcMain.handle('download:retry', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return retryDownload(id);
   });
   ipcMain.handle('download:remove', (event, id: unknown) => {
     assertTrustedMainFrame(event);
@@ -781,12 +854,15 @@ app.on('web-contents-created', (_event, contents) => {
     // Some Google/YouTube clients detect the Electron token and return a page
     // shell whose player and interactive API calls are restricted.
     contents.setUserAgent(app.userAgentFallback);
+    managedSessions.add(contents.session);
     attachAdblockToSession(contents.session);
+    configureSessionPermissions(contents.session, () => mainWindow);
     attachDownloadsToSession(contents.session);
     contents.once('destroyed', () => {
       forgetProxySession(contents.session);
       if (contents.session !== session.defaultSession) {
         detachAdblockFromSession(contents.session);
+        managedSessions.delete(contents.session);
       }
       tabByWebContentsId.delete(contents.id);
     });
@@ -811,9 +887,13 @@ app.on('web-contents-created', (_event, contents) => {
     });
 
     contents.on('before-input-event', (event, input) => {
-      if (input.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'i') {
+      if (input.type !== 'keyDown' || !input.control) return;
+      if (input.shift && input.key.toLowerCase() === 'i') {
         event.preventDefault();
         if (!contents.isDevToolsOpened()) contents.openDevTools({ mode: 'detach' });
+      } else if (!input.shift && input.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        mainWindow?.webContents.send('open-find');
       }
     });
   }

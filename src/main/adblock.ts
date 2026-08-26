@@ -1,6 +1,7 @@
 import { app, session, type WebContents } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import type { BlockedRequest } from '../shared/types';
 import { ElectronBlocker, adsLists } from '@ghostery/adblocker-electron';
 import fetch from 'cross-fetch';
 
@@ -12,6 +13,9 @@ let mainWindowGetter: (() => WebContents | null) | null = null;
 let statsTimer: ReturnType<typeof setTimeout> | null = null;
 let forceHttps = true;
 let doNotTrack = false;
+const allowedSites = new Set<string>();
+const blockedBySite = new Map<string, number>();
+const blockedRequestsBySite = new Map<string, BlockedRequest[]>();
 
 const configuredSessions = new Set<Electron.Session>();
 const blockingContexts = new WeakMap<Electron.Session, ReturnType<ElectronBlocker['enableBlockingInSession']>>();
@@ -65,6 +69,27 @@ function isYouTubeHost(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function hostFromUrl(value: string): string {
+  try { return new URL(value).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; }
+}
+
+function isAllowedSiteHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^www\./, '');
+  return [...allowedSites].some((site) => host === site || host.endsWith(`.${site}`));
+}
+
+function sourceHost(details: Pick<Electron.OnBeforeRequestListenerDetails, 'webContents' | 'referrer'>): string {
+  try {
+    return hostFromUrl(details.webContents?.getURL() ?? '') || hostFromUrl(details.referrer);
+  } catch {
+    return hostFromUrl(details.referrer);
+  }
+}
+
+function isAllowedSiteRequest(details: Pick<Electron.OnBeforeRequestListenerDetails, 'webContents' | 'referrer'>): boolean {
+  return isAllowedSiteHost(sourceHost(details));
 }
 
 function isProtectedYouTubeRequest(details: Electron.OnBeforeRequestListenerDetails): boolean {
@@ -146,7 +171,7 @@ async function buildBlocker(): Promise<ElectronBlocker> {
 function installYouTubeException(engine: ElectronBlocker): void {
   const original = engine.onBeforeRequest.bind(engine);
   engine.onBeforeRequest = (details, callback) => {
-    if (isProtectedYouTubeRequest(details)) {
+    if (isProtectedYouTubeRequest(details) || isAllowedSiteRequest(details)) {
       callback({});
       return;
     }
@@ -204,8 +229,21 @@ export function initAdblock(getMainWindow: () => WebContents | null): void {
   void blockerLoading.then((engine) => {
     blocker = engine;
     installYouTubeException(engine);
-    engine.on('request-blocked', () => {
+    engine.on('request-blocked', (request) => {
       blockedCount++;
+      const details = request._originalRequestDetails as Electron.OnBeforeRequestListenerDetails | undefined;
+      const site = details?.webContents?.getURL()
+          ? (() => { try { return new URL(details.webContents.getURL()).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; } })()
+        : details?.referrer
+          ? (() => { try { return new URL(details.referrer).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; } })()
+          : '';
+      if (site) {
+        blockedBySite.set(site, (blockedBySite.get(site) ?? 0) + 1);
+        const requests = blockedRequestsBySite.get(site) ?? [];
+        requests.unshift({ url: request.url, type: String(request.type), timestamp: Date.now() });
+        requests.splice(50);
+        blockedRequestsBySite.set(site, requests);
+      }
       emitStatsThrottled();
     });
     for (const ses of configuredSessions) {
@@ -244,4 +282,35 @@ export function isAdblockEnabled(): boolean {
 
 export function getBlockedCount(): number {
   return blockedCount;
+}
+
+export function resetBlockedStats(): void {
+  blockedCount = 0;
+  blockedBySite.clear();
+  blockedRequestsBySite.clear();
+  emitStats();
+}
+
+export function setAllowedSites(sites: string[]): void {
+  allowedSites.clear();
+  for (const site of sites) {
+    const normalized = site.trim().toLowerCase().replace(/^www\./, '');
+    if (/^[a-z\d.-]+$/.test(normalized) && normalized.length <= 253) {
+      allowedSites.add(normalized);
+    }
+  }
+}
+
+export function isSiteAllowed(site: string): boolean {
+  return isAllowedSiteHost(hostFromUrl(site) || site);
+}
+
+export function getSiteBlockedCount(site: string): number {
+  const key = (hostFromUrl(site) || site.toLowerCase()).replace(/^www\./, '');
+  return blockedBySite.get(key) ?? 0;
+}
+
+export function getSiteBlockedRequests(site: string): BlockedRequest[] {
+  const key = (hostFromUrl(site) || site.toLowerCase()).replace(/^www\./, '');
+  return (blockedRequestsBySite.get(key) ?? []).map((request) => ({ ...request }));
 }

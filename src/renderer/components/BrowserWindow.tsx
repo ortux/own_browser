@@ -9,6 +9,8 @@ import { DownloadsPage } from './DownloadsPage';
 import { DownloadToast } from './DownloadToast';
 import { HistoryPanel } from './HistoryPanel';
 import { BookmarksPanel } from './BookmarksPanel';
+import { FindBar } from './FindBar';
+import { RecentlyClosedPanel } from './RecentlyClosedPanel';
 import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -28,7 +30,7 @@ function looksLikeUrl(input: string): boolean {
   return trimmed.includes('.') && !trimmed.includes(' ');
 }
 
-type Panel = 'history' | 'bookmarks' | null;
+type Panel = 'history' | 'bookmarks' | 'closed' | null;
 
 export const BrowserWindow: React.FC = () => {
   const tabs        = useBrowserStore((s) => s.tabs);
@@ -36,6 +38,7 @@ export const BrowserWindow: React.FC = () => {
   const activeTab   = tabs.find((t) => t.id === activeTabId);
   const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
   const blockTrackers = useSettingsStore((s) => s.security.blockTrackers);
+  const adblockAllowlist = useSettingsStore((s) => s.adblockAllowlist);
   const forceHttps = useSettingsStore((s) => s.security.forceHttps);
   const doNotTrack = useSettingsStore((s) => s.security.doNotTrack);
   const privateByDefault = useSettingsStore((s) => s.security.privateByDefault);
@@ -47,6 +50,7 @@ export const BrowserWindow: React.FC = () => {
 
   // ── UI state ──
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
   const [panel, setPanel]               = useState<Panel>(null);
   const togglePanel = (p: Panel) => setPanel((cur) => (cur === p ? null : p));
 
@@ -54,7 +58,7 @@ export const BrowserWindow: React.FC = () => {
 
   const {
     navigate, createTab, createTabWithUrl, closeTab, activateTab,
-    goBack, goForward, reload, stop, duplicateTab,
+    goBack, goForward, reload, stop, restoreClosedTab, zoom, resetZoom, printPage,
   } = useBrowser();
   const createNewBrowserTab = useCallback(
     () => createTab(privateByDefault),
@@ -82,34 +86,47 @@ export const BrowserWindow: React.FC = () => {
     });
   }, [activeTab, toggleBookmark]);
 
+  React.useEffect(() => window.browserAPI.onOpenFind(() => setFindOpen(true)), []);
+
   // ── Keyboard shortcuts ──
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 't') {
         e.preventDefault(); createNewBrowserTab();
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
         e.preventDefault(); if (activeTabId) closeTab(activeTabId);
       } else if (((e.ctrlKey || e.metaKey) && e.key === 'r') || e.key === 'F5') {
         e.preventDefault(); reload();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) {
+        e.preventDefault(); zoom(0.1);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+        e.preventDefault(); zoom(-0.1);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault(); resetZoom();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault(); printPage();
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'T') {
-        e.preventDefault(); duplicateTab();
+        e.preventDefault(); restoreClosedTab();
       } else if (e.altKey && e.key === 'ArrowLeft') {
         e.preventDefault(); goBack();
       } else if (e.altKey && e.key === 'ArrowRight') {
         e.preventDefault(); goForward();
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
         e.preventDefault(); handleBookmarkToggle();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault(); setFindOpen(true);
       } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault(); setSettingsOpen(true);
       } else if (e.key === 'Escape') {
+        if (findOpen) { setFindOpen(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (panel) { setPanel(null); return; }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTabId, panel, settingsOpen, createNewBrowserTab, createTabWithUrl, closeTab, reload,
-       duplicateTab, goBack, goForward, handleBookmarkToggle]);
+  }, [activeTabId, findOpen, panel, settingsOpen, createNewBrowserTab, createTabWithUrl, closeTab, reload,
+       restoreClosedTab, zoom, resetZoom, printPage, goBack, goForward, handleBookmarkToggle]);
 
   const isNewTab = !activeTab?.url || activeTab.url === 'about:blank';
   const isDownloads = activeTab?.url === 'zyphora://downloads';
@@ -145,10 +162,14 @@ export const BrowserWindow: React.FC = () => {
     }
   }, [activeTab?.id, activeTab?.url, activeTab?.privateMode, privateByDefault]);
 
-  // ── Keep the inbuilt ad blocker in sync with the security setting ──
+  // Keep the network blocker and its per-site exception list in sync with
+  // persisted renderer settings.
   React.useEffect(() => {
     window.browserAPI.adblock.set(blockTrackers).catch(() => {});
   }, [blockTrackers]);
+  React.useEffect(() => {
+    window.browserAPI.adblock.setAllowlist(adblockAllowlist).catch(() => {});
+  }, [adblockAllowlist]);
 
   React.useEffect(() => {
     if (!savedDownloadPath) return;
@@ -204,6 +225,7 @@ export const BrowserWindow: React.FC = () => {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenHistory={() => togglePanel('history')}
         onOpenBookmarks={() => togglePanel('bookmarks')}
+        onOpenRecentlyClosed={() => togglePanel('closed')}
       />
 
       {/* Main column */}
@@ -216,6 +238,9 @@ export const BrowserWindow: React.FC = () => {
           {/* Browser + navbar */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <div className="flex-1 overflow-hidden relative bg-[var(--bg)]">
+              {findOpen && !settingsOpen && (
+                <FindBar tabId={activeTabId || undefined} onClose={() => setFindOpen(false)} />
+              )}
 
               {/* Settings — full page, sits on top like chrome://settings */}
               {settingsOpen && (
@@ -277,6 +302,14 @@ export const BrowserWindow: React.FC = () => {
             <div className="w-72 shrink-0 flex flex-col border-l border-[var(--border)] overflow-hidden">
               <BookmarksPanel
                 onNavigate={(url) => { handleNavigate(url); setPanel(null); }}
+                onClose={() => setPanel(null)}
+              />
+            </div>
+          )}
+          {panel === 'closed' && (
+            <div className="w-72 shrink-0 flex flex-col border-l border-[var(--border)] overflow-hidden">
+              <RecentlyClosedPanel
+                onRestore={(index) => restoreClosedTab(index)}
                 onClose={() => setPanel(null)}
               />
             </div>

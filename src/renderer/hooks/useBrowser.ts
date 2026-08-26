@@ -62,6 +62,10 @@ export const useBrowser = () => {
     }
   }, [store.activeTabId]);
 
+  const restoreClosedTab = useCallback((index = 0) => {
+    return window.browserAPI?.sendMessage({ type: 'restore-closed-tab', index });
+  }, []);
+
   // These drive the webview directly — no round-trip to main needed
   const goBack = useCallback(() => {
     const wv = webviewRegistry.get(store.activeTabId);
@@ -83,6 +87,22 @@ export const useBrowser = () => {
     if (wv) wv.stop();
   }, [store.activeTabId]);
 
+  const zoom = useCallback((delta: number) => {
+    const wv = webviewRegistry.get(store.activeTabId);
+    if (!wv) return;
+    wv.setZoomFactor(Math.min(3, Math.max(0.5, wv.getZoomFactor() + delta)));
+  }, [store.activeTabId]);
+
+  const resetZoom = useCallback(() => {
+    const wv = webviewRegistry.get(store.activeTabId);
+    if (wv) wv.setZoomFactor(1);
+  }, [store.activeTabId]);
+
+  const printPage = useCallback(() => {
+    const wv = webviewRegistry.get(store.activeTabId);
+    if (wv) void wv.print();
+  }, [store.activeTabId]);
+
   return {
     navigate,
     createTab,
@@ -94,5 +114,9 @@ export const useBrowser = () => {
     reload,
     stop,
     duplicateTab,
+    restoreClosedTab,
+    zoom,
+    resetZoom,
+    printPage,
   };
 };

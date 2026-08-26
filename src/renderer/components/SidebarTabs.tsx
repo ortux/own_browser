@@ -9,6 +9,7 @@ import {
   Settings,
   User,
   ChevronDown,
+  RotateCcw,
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -24,6 +25,7 @@ interface SidebarTabsProps {
   onOpenSettings: () => void;
   onOpenHistory: () => void;
   onOpenBookmarks: () => void;
+  onOpenRecentlyClosed: () => void;
 }
 
 const COLLAPSED_W = 48;
@@ -71,6 +73,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onOpenSettings,
   onOpenHistory,
   onOpenBookmarks,
+  onOpenRecentlyClosed,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [tabSearch, setTabSearch] = useState('');
@@ -116,8 +119,9 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
         <div className="flex flex-col flex-1 px-1.5 py-2 gap-0.5 overflow-hidden">
           {iconBtn(<Plus size={16} />,     'New Tab',    onNewTab)}
           {iconBtn(<Layers size={15} />,   'Tab Groups')}
-          {iconBtn(<Bookmark size={15} />, 'Bookmarks',  onOpenBookmarks)}
-          {iconBtn(<History size={15} />,  'History',    onOpenHistory)}
+          {iconBtn(<Bookmark size={15} />,  'Bookmarks',        onOpenBookmarks)}
+          {iconBtn(<History size={15} />,    'History',           onOpenHistory)}
+          {iconBtn(<RotateCcw size={15} />,  'Recently closed',   onOpenRecentlyClosed)}
 
           <div className="my-1 h-px bg-[var(--border)] mx-1" />
 
@@ -168,8 +172,9 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
             </button>
             {([
               { icon: <Layers size={14} />,   label: 'Tab Groups',  onClick: undefined as (() => void) | undefined },
-              { icon: <Bookmark size={14} />, label: 'Bookmarks',   onClick: onOpenBookmarks as (() => void) | undefined },
-              { icon: <History size={14} />,  label: 'History',     onClick: onOpenHistory as (() => void) | undefined },
+              { icon: <Bookmark size={14} />, label: 'Bookmarks',       onClick: onOpenBookmarks as (() => void) | undefined },
+              { icon: <History size={14} />,  label: 'History',          onClick: onOpenHistory as (() => void) | undefined },
+              { icon: <RotateCcw size={14} />, label: 'Recently closed', onClick: onOpenRecentlyClosed as (() => void) | undefined },
             ]).map(({ icon, label, onClick }) => (
               <button
                 key={label}

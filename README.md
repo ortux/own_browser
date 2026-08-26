@@ -126,6 +126,9 @@ npm run format
 ✓ Favicon support (when web content loads)
 ✓ Embedded web content with link navigation and managed target=_blank tabs
 ✓ Page-load and renderer-crash error surfaces instead of silent blank tabs
+✓ Find in page, zoom, print, recently closed tabs, and download retry
+✓ Per-site ad-blocker controls, blocked-request diagnostics, private sessions, and permissions
+✓ Inspect element and detached developer tools
 ✓ Secure IPC communication
 ✓ TypeScript throughout
 
@@ -136,7 +139,8 @@ npm run format
 | Ctrl+T | New tab |
 | Ctrl+W | Close tab |
 | Ctrl+R, F5 | Reload |
-| Ctrl+Shift+T | Duplicate tab |
+| Ctrl+F | Find in page |
+| Ctrl+Shift+T | Reopen recently closed tab |
 | Alt+← | Go back |
 | Alt+→ | Go forward |
 | Ctrl+D | Bookmark (future) |

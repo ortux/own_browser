@@ -188,6 +188,18 @@ export function cancelDownload(id: string): void {
   items.get(id)?.cancel();
 }
 
+export function retryDownload(id: string): void {
+  const record = records.get(id);
+  if (!record || record.state === 'progressing') return;
+  try {
+    const url = new URL(record.url);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+    session.defaultSession.downloadURL(record.url);
+  } catch {
+    // Ignore malformed or unsupported download URLs.
+  }
+}
+
 export function removeDownload(id: string): void {
   // Cancelling first prevents an orphaned in-flight download that keeps
   // writing to disk (or dies to a GC-cancel) with no visible record.

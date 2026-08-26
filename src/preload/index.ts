@@ -30,6 +30,14 @@ const browserAPI = {
     };
   },
 
+  onOpenFind: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('open-find', handler);
+    return () => {
+      ipcRenderer.removeListener('open-find', handler);
+    };
+  },
+
   /**
    * Navigate to a URL
    */
@@ -171,6 +179,12 @@ const browserAPI = {
       ipcRenderer.invoke('adblock:get'),
     stats: (): Promise<{ enabled: boolean; blocked: number }> =>
       ipcRenderer.invoke('adblock:stats'),
+    setAllowlist: (sites: string[]): Promise<void> =>
+      ipcRenderer.invoke('adblock:set-allowlist', sites),
+    siteStatus: (site: string): Promise<{ allowed: boolean; blocked: number }> =>
+      ipcRenderer.invoke('adblock:site-status', site),
+    siteDetails: (site: string): Promise<import('../shared/types').BlockedRequest[]> =>
+      ipcRenderer.invoke('adblock:site-details', site),
   },
 
   /** Subscribe to live ad-blocker stats (blocked count + enabled state). */
@@ -195,6 +209,8 @@ const browserAPI = {
       ipcRenderer.invoke('download:pick-folder'),
     cancel: (id: string): Promise<void> =>
       ipcRenderer.invoke('download:cancel', id),
+    retry: (id: string): Promise<void> =>
+      ipcRenderer.invoke('download:retry', id),
     remove: (id: string): Promise<void> =>
       ipcRenderer.invoke('download:remove', id),
     clear: ():  Promise<void> =>
@@ -221,6 +237,11 @@ const browserAPI = {
         ipcRenderer.removeListener('download:started', handler);
       };
     },
+  },
+
+  /** Clear local history and current-session site storage. */
+  privacy: {
+    clearData: (): Promise<void> => ipcRenderer.invoke('privacy:clear-data'),
   },
 
   /** Certificate information for a given hostname. */

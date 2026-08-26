@@ -130,6 +130,10 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       }
     };
 
+    const onFoundInPage = (e: Electron.FoundInPageEvent) => {
+      webviewRegistry.emitFind(tab.id, e);
+    };
+
     const onDidNavigate = reportNavigationState;
 
     const onRenderProcessGone = (event: Electron.RenderProcessGoneEvent) => {
@@ -162,6 +166,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     registerGuestContents();
     el.addEventListener('page-title-updated',  onTitleUpdated  as EventListener);
     el.addEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
+    el.addEventListener('found-in-page',        onFoundInPage);
     el.addEventListener('did-navigate',        onDidNavigate);
     el.addEventListener('did-navigate-in-page',onDidNavigate);
     el.addEventListener('did-fail-load',       onDidFailLoad   as EventListener);
@@ -173,6 +178,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       el.removeEventListener('did-stop-loading',    onLoadStop);
       el.removeEventListener('page-title-updated',  onTitleUpdated  as EventListener);
       el.removeEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
+      el.removeEventListener('found-in-page',        onFoundInPage);
       el.removeEventListener('did-navigate',        onDidNavigate);
       el.removeEventListener('did-navigate-in-page',onDidNavigate);
       el.removeEventListener('did-fail-load',       onDidFailLoad   as EventListener);

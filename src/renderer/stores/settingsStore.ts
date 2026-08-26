@@ -80,6 +80,8 @@ interface SettingsStore {
   // Security / privacy
   security: SecuritySettings;
   setSecurityFlag: (flag: keyof SecuritySettings, value: boolean) => void;
+  adblockAllowlist: string[];
+  setAdblockAllowlist: (sites: string[]) => void;
 
   // Appearance / theme
   theme: 'light' | 'dark' | 'system';
@@ -190,9 +192,12 @@ export const useSettingsStore = create<SettingsStore>()(
         doNotTrack: false,
         privateByDefault: false,
       },
+      adblockAllowlist: [],
 
       setSecurityFlag: (flag, value) =>
         set((s) => ({ security: { ...s.security, [flag]: value } })),
+      setAdblockAllowlist: (sites) =>
+        set({ adblockAllowlist: [...new Set(sites.map((site) => site.toLowerCase().replace(/^www\./, '')))] }),
 
       theme: 'dark',
       setTheme: (theme) => set({ theme }),

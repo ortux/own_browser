@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen } from 'lucide-react';
+import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen, Trash2 } from 'lucide-react';
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useProxy } from '../hooks/useProxy';
 import type { SecuritySettings } from '../stores/settingsStore';
@@ -116,6 +116,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
   const [customName, setCustomName] = useState('');
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState('');
+  const [clearingData, setClearingData] = useState(false);
+  const [clearDataStatus, setClearDataStatus] = useState('');
 
   // Initialise the download path from the OS default if the user hasn't set one,
   // and keep the main process in sync whenever it changes.
@@ -215,12 +217,43 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
           </h1>
 
           {activeSection === 'general' && (
-            <MdCard>
-              <p className="text-sm leading-relaxed text-[var(--text-muted)]">
-                Account settings are not available yet. This section is reserved for
-                future profile and sync features.
-              </p>
-            </MdCard>
+            <div className="space-y-4">
+              <MdCard>
+                <p className="text-sm leading-relaxed text-[var(--text-muted)]">
+                  Account settings are not available yet. This section is reserved for
+                  future profile and sync features.
+                </p>
+              </MdCard>
+              <MdCard className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Clear browsing data</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Remove local history, cookies, cache, and site storage from the default session.
+                  </div>
+                  {clearDataStatus && <p className="mt-2 text-xs text-green-400">{clearDataStatus}</p>}
+                </div>
+                <button
+                  type="button"
+                  disabled={clearingData}
+                  onClick={async () => {
+                    if (!window.confirm('Clear history, cookies, cache, and site storage?')) return;
+                    setClearingData(true);
+                    setClearDataStatus('');
+                    try {
+                      await window.browserAPI.privacy.clearData();
+                      setClearDataStatus('Browsing data cleared.');
+                    } catch {
+                      setClearDataStatus('Could not clear all browsing data.');
+                    } finally {
+                      setClearingData(false);
+                    }
+                  }}
+                  className="flex shrink-0 items-center gap-2 rounded-full border border-red-400/40 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                >
+                  <Trash2 size={14} /> {clearingData ? 'Clearing…' : 'Clear data'}
+                </button>
+              </MdCard>
+            </div>
           )}
 
           {activeSection === 'search' && (

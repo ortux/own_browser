@@ -41,6 +41,8 @@ export type RendererToMainMessage =
   | { type: 'close-tab'; tabId: string }
   | { type: 'activate-tab'; tabId: string }
   | { type: 'duplicate-tab'; tabId: string }
+  | { type: 'restore-closed-tab'; index?: number }
+  | { type: 'get-closed-tabs' }
   | { type: 'get-state' }
   // Webview lifecycle events (sent by WebView.tsx)
   | { type: 'webview-title-updated'; tabId: string; title: string }
@@ -80,6 +82,12 @@ export interface Bookmark {
 }
 
 // A tracked download in the browser
+export interface BlockedRequest {
+  url: string;
+  type: string;
+  timestamp: number;
+}
+
 export interface Download {
   id: string;
   filename: string;
@@ -120,6 +128,7 @@ export type ProxyChannel = 'proxy:fetch' | 'proxy:apply' | 'proxy:clear' | 'prox
 // download:pick-folder — () => string | null   open a folder picker (main only)
 // download:default-path— () => string          default OS downloads dir
 // download:cancel      — (id: string) => void
+// download:retry       — (id: string) => void
 // download:remove      — (id: string) => void  remove from history list
 // download:clear       — () => void
 // download:open        — (id: string) => void  open the file
@@ -131,6 +140,7 @@ export type DownloadChannel =
   | 'download:pick-folder'
   | 'download:default-path'
   | 'download:cancel'
+  | 'download:retry'
   | 'download:remove'
   | 'download:clear'
   | 'download:open'

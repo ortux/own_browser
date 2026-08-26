@@ -9,6 +9,11 @@ import {
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Tab, BrowserState, RendererToMainMessage } from '../shared/types';
+import {
+  isAllowedNavigationUrl,
+  isHttpNavigationUrl,
+  normalizeNavigationUrl,
+} from '../shared/navigation';
 import { registerPexelsHandlers } from './pexels';
 import { fetchProxy, applyProxy, clearProxy, verifyProxy, initProxyAutoApply } from './proxy';
 import {
@@ -45,6 +50,15 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Linux GPU/driver combinations can render the embedded webview as a solid
+// black surface even though the guest page loaded successfully. The browser
+// still works with software compositing, so prefer that stable path on Linux.
+// Developers can opt back in while diagnosing a specific GPU with
+// ZYPHORA_ENABLE_HARDWARE_ACCELERATION=1.
+if (process.platform === 'linux' && process.env.ZYPHORA_ENABLE_HARDWARE_ACCELERATION !== '1') {
+  app.disableHardwareAcceleration();
+}
+
 configureAdGuardDns();
 
 /**
@@ -64,11 +78,46 @@ function makeWebCompatibleUserAgent(userAgent: string): string {
 app.userAgentFallback = makeWebCompatibleUserAgent(app.userAgentFallback);
 
 function canOpenInTab(value: string): boolean {
-  try {
-    const { protocol } = new URL(value);
-    return protocol === 'http:' || protocol === 'https:';
-  } catch {
-    return false;
+  return isHttpNavigationUrl(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** Runtime validation is still required even though the renderer is typed. */
+function isRendererMessage(value: unknown): value is RendererToMainMessage {
+  if (!isRecord(value) || typeof value.type !== 'string') return false;
+
+  switch (value.type) {
+    case 'create-tab':
+    case 'get-state':
+      return true;
+    case 'navigate':
+      return typeof value.tabId === 'string' && typeof value.url === 'string';
+    case 'create-tab-url':
+      return typeof value.url === 'string';
+    case 'close-tab':
+    case 'activate-tab':
+    case 'duplicate-tab':
+    case 'go-back':
+    case 'go-forward':
+    case 'reload':
+    case 'stop':
+      return typeof value.tabId === 'string';
+    case 'webview-title-updated':
+      return typeof value.tabId === 'string' && typeof value.title === 'string';
+    case 'webview-favicon-updated':
+      return typeof value.tabId === 'string' && typeof value.favicon === 'string';
+    case 'webview-loading':
+      return typeof value.tabId === 'string' && typeof value.loading === 'boolean';
+    case 'webview-nav-state':
+      return typeof value.tabId === 'string'
+        && typeof value.url === 'string'
+        && typeof value.canGoBack === 'boolean'
+        && typeof value.canGoForward === 'boolean';
+    default:
+      return false;
   }
 }
 
@@ -104,11 +153,25 @@ function createWindow() {
   });
 
   const isDev = process.env.NODE_ENV === 'development';
-  const url = isDev
-    ? 'http://localhost:5173'
-    : `file://${path.join(__dirname, '../renderer/index.html')}`;
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL
+    ?? (isDev ? 'http://localhost:5173' : '');
 
-  mainWindow.loadURL(url);
+  if (rendererUrl) {
+    void mainWindow.loadURL(rendererUrl).catch((error: unknown) => {
+      console.error('[renderer] failed to load dev server:', error);
+    });
+  } else {
+    void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html')).catch((error: unknown) => {
+      console.error('[renderer] failed to load bundled UI:', error);
+    });
+  }
+
+  // A shell renderer crash otherwise presents as an entirely black window with
+  // no explanation. Keep the event visible in the main-process log; guest
+  // webview crashes are handled by WebView.tsx and show a retry surface.
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[renderer] process exited:', details.reason, details.exitCode);
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -118,11 +181,17 @@ function createWindow() {
   createNewTab();
 }
 
-function createNewTab(url?: string): string {
+function createNewTab(rawUrl?: string): string {
+  const url = rawUrl ? normalizeNavigationUrl(rawUrl) : null;
+  if (rawUrl && !url) {
+    console.warn('[navigation] refused unsupported new-tab URL:', rawUrl);
+    return '';
+  }
+
   const tabId = `tab-${nextTabId++}`;
   // Give internal pages a friendly title up-front so the tab strip reads well.
   const isInternal = !!url && url.startsWith('zyphora://');
-  const title = !url
+  const title = !url || url === 'about:blank'
     ? 'New Tab'
     : isInternal
       ? url === 'zyphora://downloads'
@@ -185,14 +254,25 @@ function updateRendererState() {
  * Only allow explicitly whitelisted message types.
  */
 ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) => {
-  // SECURITY: Verify sender is the main window
-  if (event.senderFrame?.parent === null) {
-    // This is a top-level frame
-    switch (message.type) {
+  // SECURITY: Verify both the payload and its origin. TypeScript types do not
+  // survive IPC, and a webview/child frame must never control the tab model.
+  if (!isRendererMessage(message)) {
+    return { success: false, error: 'invalid-message' };
+  }
+  if (
+    event.sender !== mainWindow?.webContents
+    || event.senderFrame !== event.sender.mainFrame
+  ) {
+    return { success: false, error: 'unauthorized-sender' };
+  }
+
+  switch (message.type) {
       case 'navigate': {
+        const url = normalizeNavigationUrl(message.url);
+        if (!url) return { success: false, error: 'unsupported-url' };
         const tab = tabs.get(message.tabId);
         if (tab) {
-          tab.url = normalizeUrl(message.url);
+          tab.url = url;
           if (tab.url === 'about:blank') {
             tab.title = 'New Tab';
             tab.loading = false;
@@ -218,8 +298,10 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         closeTab(message.tabId);
         break;
       case 'activate-tab':
-        activeTabId = message.tabId;
-        updateRendererState();
+        if (tabs.has(message.tabId)) {
+          activeTabId = message.tabId;
+          updateRendererState();
+        }
         break;
       case 'duplicate-tab': {
         const tab = tabs.get(message.tabId);
@@ -289,49 +371,35 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       case 'webview-nav-state': {
         const tab = tabs.get(message.tabId);
         if (tab) {
+          // Chromium reports chrome-error://chromewebdata/ after DNS, TLS, or
+          // connection failures. Never copy that internal URL into our tab
+          // model; doing so makes the next render try to load the error page
+          // itself and can leave a black/empty webview.
+          if (!isAllowedNavigationUrl(message.url)) {
+            tab.loading = false;
+            tab.canGoBack = message.canGoBack;
+            tab.canGoForward = message.canGoForward;
+            updateRendererState();
+            break;
+          }
+
           const urlChanged = tab.url !== message.url;
           tab.url = message.url;
           tab.canGoBack = message.canGoBack;
           tab.canGoForward = message.canGoForward;
           tab.loading = false;
-          // Only record a history entry when navigating to a new page
-          if (urlChanged) {
+          // Only record a history entry when navigating to a new page.
+          if (urlChanged && message.url !== 'about:blank') {
             addHistory(message.url, tab.title, tab.favicon);
           }
           updateRendererState();
         }
         break;
       }
-    }
   }
 
   return { success: true };
 });
-
-/**
- * URL normalization: Convert user input to valid URL.
- * The renderer now sends pre-built search URLs, so this function
- * only needs to handle bare domain inputs.
- * "google.com" → "https://google.com"
- * "https://example.com" → unchanged
- */
-function normalizeUrl(input: string): string {
-  const trimmed = input.trim();
-
-  // Already a full URL (http/https/file/about/zyphora)
-  if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('file://') ||
-    trimmed.startsWith('about:') ||
-    trimmed.startsWith('zyphora://')
-  ) {
-    return trimmed;
-  }
-
-  // Bare domain — add https://
-  return `https://${trimmed}`;
-}
 
 app.on('ready', async () => {
   initProxyAutoApply(); // must be before createWindow so session-created fires

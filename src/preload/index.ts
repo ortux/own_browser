@@ -21,7 +21,7 @@ const browserAPI = {
    * Listen for state updates from the main process
    */
   onStateUpdated: (callback: (state: BrowserState) => void) => {
-    const handler = (_event: any, state: BrowserState) => callback(state);
+    const handler = (_event: Electron.IpcRendererEvent, state: BrowserState) => callback(state);
     ipcRenderer.on('state-updated', handler);
 
     // Return unsubscribe function
@@ -169,7 +169,7 @@ const browserAPI = {
 
   /** Subscribe to live ad-blocker stats (blocked count + enabled state). */
   onAdblockStats: (callback: (stats: { enabled: boolean; blocked: number }) => void) => {
-    const handler = (_event: any, stats: { enabled: boolean; blocked: number }) => callback(stats);
+    const handler = (_event: Electron.IpcRendererEvent, stats: { enabled: boolean; blocked: number }) => callback(stats);
     ipcRenderer.on('adblock:stats', handler);
     return () => {
       ipcRenderer.removeListener('adblock:stats', handler);
@@ -201,7 +201,7 @@ const browserAPI = {
       ipcRenderer.invoke('download:reveal-folder'),
     /** Live updates: receives the full download list on every change. */
     onUpdated: (callback: (list: import('../shared/types').Download[]) => void) => {
-      const handler = (_event: any, list: import('../shared/types').Download[]) => callback(list);
+      const handler = (_event: Electron.IpcRendererEvent, list: import('../shared/types').Download[]) => callback(list);
       ipcRenderer.on('download:updated', handler);
       return () => {
         ipcRenderer.removeListener('download:updated', handler);
@@ -209,7 +209,7 @@ const browserAPI = {
     },
     /** Fired once when a new download begins. */
     onStarted: (callback: (d: import('../shared/types').Download) => void) => {
-      const handler = (_event: any, d: import('../shared/types').Download) => callback(d);
+      const handler = (_event: Electron.IpcRendererEvent, d: import('../shared/types').Download) => callback(d);
       ipcRenderer.on('download:started', handler);
       return () => {
         ipcRenderer.removeListener('download:started', handler);

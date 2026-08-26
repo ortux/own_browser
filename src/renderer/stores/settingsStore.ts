@@ -19,8 +19,6 @@ export interface ProxyInfo {
   supportsHttps: boolean;
   speed: number;          // seconds
   fetchedAt: number;      // unix ms
-  username?: string;      // for authenticated proxies
-  password?: string;
 }
 
 export interface SecuritySettings {

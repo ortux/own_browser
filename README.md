@@ -125,6 +125,8 @@ npm run format
 ✓ Tab state persistence
 ✓ Loading indicators
 ✓ Favicon support (when web content loads)
+✓ Embedded web content with link navigation and managed target=_blank tabs
+✓ Page-load and renderer-crash error surfaces instead of silent blank tabs
 ✓ Secure IPC communication
 ✓ TypeScript throughout
 
@@ -215,18 +217,13 @@ Main process owns:
 - Navigation logic
 - Tab creation/destruction
 
-## Known Limitations (Phase 2)
+## Known Limitations
 
-- Web content not rendering yet (Phase 3)
-- No actual navigation or page loading
-- No history storage (Phase 5)
-- No bookmarks (Phase 5)
-- No downloads (Phase 5)
-- No private browsing (Phase 8)
-- No tracker blocking (Phase 7)
-- No encryption (Phase 6)
-- No Go integration (Phase 4+)
-- No Web3 (Phase 11+)
+- Private browsing and per-tab isolated sessions are not implemented yet.
+- The security settings for Force HTTPS, Do Not Track, and private-by-default are UI placeholders until their corresponding session policies are wired in.
+- The local filter engine supports a documented subset of filter-list syntax; see `docs/ADBLOCK.md`.
+- Proxy pools must be supplied through `ZYPHORA_PROXY_LIST`; unreliable proxies are rejected before they can interrupt browsing.
+- No encryption, Go integration, or Web3 support yet.
 
 ## Performance Targets
 
@@ -268,6 +265,6 @@ For issues or questions, see the `/docs` folder for detailed architecture, secur
 
 ---
 
-**Status**: Phase 2 (Working browser core)
-**Next**: Phase 3 (Web content rendering)
+**Status**: Working browser core with embedded web content
+**Next**: Private browsing, complete session policies, and deeper privacy-engine coverage
 **Timeline**: Evolving with community input

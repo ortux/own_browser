@@ -458,7 +458,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                 <div>
                   <div className="text-sm font-medium text-[var(--text)]">Enable proxy</div>
                   <div className="mt-0.5 text-xs text-[var(--text-faint)]">
-                    Route browser traffic through a free anonymous proxy. Google uses your direct connection.
+                    Route browser traffic through a configured anonymous proxy. Google uses your direct connection.
                   </div>
                 </div>
                 <MdSwitch
@@ -483,7 +483,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                   <AlertTriangle size={16} className="text-red-400 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-red-400">{proxyError}</p>
-                    <p className="mt-0.5 text-xs text-[var(--text-faint)]">Free proxies can be unreliable. Try fetching a new one.</p>
+                    <p className="mt-0.5 text-xs text-[var(--text-faint)]">Configured proxies can be unreliable. Check the proxy configuration and try again.</p>
                   </div>
                 </div>
               )}
@@ -534,8 +534,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
               )}
 
               <p className="px-1 text-xs leading-relaxed text-[var(--text-faint)]">
-                Proxies are sourced from{' '}
-                <span className="text-[var(--text-muted)]">pubproxy.com</span>. Free public proxies
+                Proxies come from the local ZYPHORA_PROXY_LIST configuration. Public proxies
                 may be slow, blocked by some sites, or go offline without notice. Use for
                 light anonymity only — not a substitute for a VPN.
               </p>

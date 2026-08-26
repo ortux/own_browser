@@ -52,7 +52,12 @@ function domainFromUrl(value: string): string {
 }
 
 function sourceUrlFor(details: Electron.OnBeforeRequestListenerDetails): string {
-  return details.webContents?.getURL() || details.referrer || details.url;
+  try {
+    return details.webContents?.getURL() || details.referrer || details.url;
+  } catch {
+    // A request can finish while its guest webContents is being destroyed.
+    return details.referrer || details.url;
+  }
 }
 
 function requestContext(details: Electron.OnBeforeRequestListenerDetails): RequestContext {
@@ -74,9 +79,26 @@ function requestContext(details: Electron.OnBeforeRequestListenerDetails): Reque
   };
 }
 
+function isWebviewRequest(details: Electron.OnBeforeRequestListenerDetails): boolean {
+  try {
+    // The application shell also uses the default session. Filtering it would
+    // allow a filter list to cancel the shell's own JS/CSS and make the whole
+    // window appear black. If Electron does not provide webContents for a
+    // request, fail open rather than guessing that it belongs to a webview.
+    return details.webContents?.getType() === 'webview';
+  } catch {
+    return false;
+  }
+}
+
 function attachRequestListener(): void {
   if (listenerAttached) return;
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+    if (!isWebviewRequest(details) || details.resourceType === 'mainFrame') {
+      callback({ cancel: false });
+      return;
+    }
+
     const result = engine?.checkRequest(requestContext(details));
     if (enabled && result?.action === 'BLOCK') {
       blockedCount++;

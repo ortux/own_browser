@@ -22,10 +22,16 @@ export function useProxy() {
       const p: ProxyInfo = await window.browserAPI.proxy.fetch();
       setStatus('verifying');
       await window.browserAPI.proxy.apply(p);
+      const working = await window.browserAPI.proxy.verify(p);
+      if (!working) {
+        await window.browserAPI.proxy.clear().catch(() => {});
+        throw new Error('The selected proxy did not respond. Browsing remains on the direct connection.');
+      }
       setProxy(p);
       setProxyEnabled(true);
       setStatus('active');
     } catch (e: unknown) {
+      setProxyEnabled(false);
       setError(e instanceof Error ? e.message : 'Failed to apply proxy');
       setStatus('failed');
     }

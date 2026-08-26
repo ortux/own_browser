@@ -11,19 +11,14 @@ import { session, app } from 'electron';
 import type { ProxyInfo } from '../renderer/stores/settingsStore';
 
 // ── Proxy list (ip:port:user:pass) ────────────────────────────────────────────
-
-const PROXY_LIST = [
-  '31.59.20.176:6754:jltrbfmt:xreeygxmp44q',
-  '31.56.127.193:7684:jltrbfmt:xreeygxmp44q',
-  '45.38.107.97:6014:jltrbfmt:xreeygxmp44q',
-  '198.105.121.200:6462:jltrbfmt:xreeygxmp44q',
-  '64.137.96.74:6641:jltrbfmt:xreeygxmp44q',
-  '198.23.243.226:6361:jltrbfmt:xreeygxmp44q',
-  '38.154.185.97:6370:jltrbfmt:xreeygxmp44q',
-  '84.247.60.125:6095:jltrbfmt:xreeygxmp44q',
-  '142.111.67.146:5611:jltrbfmt:xreeygxmp44q',
-  '191.96.254.138:6185:jltrbfmt:xreeygxmp44q',
-];
+// Proxy credentials must never be committed to the repository. Configure an
+// optional comma-separated list through ZYPHORA_PROXY_LIST instead.
+function configuredProxyList(): string[] {
+  return (process.env.ZYPHORA_PROXY_LIST ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
 
 function parseProxy(raw: string) {
   const [ip, port, user, pass] = raw.split(':');
@@ -34,6 +29,7 @@ function parseProxy(raw: string) {
 
 let currentAuth: { user: string; pass: string } | null = null;
 let lastProxyRules: string | null = null;
+const credentialsByProxy = new Map<string, { user: string; pass: string }>();
 
 /**
  * Apply proxy config to a single session instance.
@@ -54,32 +50,41 @@ async function applyToSession(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Pick a random proxy from the built-in list. */
+/** Pick a random proxy from the configured list. */
 export function fetchProxy(): ProxyInfo {
-  const raw = PROXY_LIST[Math.floor(Math.random() * PROXY_LIST.length)];
+  const proxies = configuredProxyList();
+  if (proxies.length === 0) {
+    throw new Error('No proxy configured. Set ZYPHORA_PROXY_LIST to ip:port:user:password entries.');
+  }
+  const raw = proxies[Math.floor(Math.random() * proxies.length)];
   const { ip, port, user, pass } = parseProxy(raw);
+  if (!ip || !port || !/^\d+$/.test(port)) {
+    throw new Error('Invalid proxy entry. Expected ip:port:user:password.');
+  }
+
+  const ipPort = `${ip}:${port}`;
+  // Keep credentials in the main process only. The renderer receives the
+  // endpoint metadata but never gets a password to persist in localStorage.
+  credentialsByProxy.set(ipPort, { user: user ?? '', pass: pass ?? '' });
 
   return {
     ip,
     port,
-    ipPort: `${ip}:${port}`,
+    ipPort,
     country: 'US',
     type: 'http',
     proxyLevel: 'anonymous',
     supportsHttps: true,
     speed: 1,
     fetchedAt: Date.now(),
-    username: user,
-    password: pass,
-  } as ProxyInfo;
+  };
 }
 
 /** Apply proxy to ALL active sessions (default session + any webview partitions). */
-export async function applyProxy(
-  proxy: ProxyInfo & { username?: string; password?: string }
-): Promise<void> {
-  const user = proxy.username ?? '';
-  const pass = proxy.password ?? '';
+export async function applyProxy(proxy: ProxyInfo): Promise<void> {
+  const credentials = credentialsByProxy.get(proxy.ipPort);
+  const user = credentials?.user ?? '';
+  const pass = credentials?.pass ?? '';
 
   // Store for login event handlers
   currentAuth = user ? { user, pass } : null;
@@ -126,12 +131,15 @@ function getAllSessions(): Electron.Session[] {
   return sessions;
 }
 
-/** Verify the proxy is working by fetching through the already-applied session. */
+/** Verify the proxy through Electron's session network stack. */
 export async function verifyProxy(_proxy: ProxyInfo): Promise<boolean> {
   try {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), 10_000);
-    const res = await fetch('http://ipv4.webshare.io/', {
+    // Node's global fetch bypasses Electron's session proxy. `Session.fetch`
+    // uses the same Chromium network stack as the webview, so this actually
+    // tests the proxy the user just enabled.
+    const res = await session.defaultSession.fetch('https://api.ipify.org?format=json', {
       signal: controller.signal,
     });
     clearTimeout(id);

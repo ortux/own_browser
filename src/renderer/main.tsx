@@ -44,10 +44,11 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 });
 
 // Preload a pool of background images at startup so the first new tab (and
-// every tab after) paints instantly instead of streaming in. Guarded so
-// React.StrictMode's double-invoke in dev doesn't fetch twice.
-if (!(window as any).__bgWarmed) {
-  (window as any).__bgWarmed = true;
+// every tab after) paints instantly instead of streaming in. A module-level
+// flag prevents duplicate requests if this module is evaluated more than once.
+let backgroundWarmed = false;
+if (!backgroundWarmed) {
+  backgroundWarmed = true;
   const category = useSettingsStore.getState().backgroundCategory;
   void warmCache(category);
 }

@@ -13,6 +13,7 @@ import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useBookmarks } from '../hooks/useBookmarks';
+import { normalizeNavigationUrl } from '../../shared/navigation';
 
 function looksLikeUrl(input: string): boolean {
   const trimmed = input.trim();
@@ -35,6 +36,9 @@ export const BrowserWindow: React.FC = () => {
   const activeTab   = tabs.find((t) => t.id === activeTabId);
   const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
   const blockTrackers = useSettingsStore((s) => s.security.blockTrackers);
+  const savedProxy = useSettingsStore((s) => s.proxy);
+  const proxyEnabled = useSettingsStore((s) => s.proxyEnabled);
+  const setProxyEnabled = useSettingsStore((s) => s.setProxyEnabled);
 
   // ── UI state ──
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -54,7 +58,8 @@ export const BrowserWindow: React.FC = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
     if (trimmed === 'about:blank') { navigate('about:blank'); return; }
-    navigate(looksLikeUrl(trimmed) ? trimmed : buildSearchUrl(trimmed));
+    const url = looksLikeUrl(trimmed) ? normalizeNavigationUrl(trimmed) : null;
+    navigate(url ?? buildSearchUrl(trimmed));
   }, [navigate, buildSearchUrl]);
 
   const handleBookmarkToggle = useCallback(() => {
@@ -110,6 +115,27 @@ export const BrowserWindow: React.FC = () => {
   React.useEffect(() => {
     window.browserAPI.adblock.set(blockTrackers).catch(() => {});
   }, [blockTrackers]);
+
+  // A persisted proxy must be restored before the first webview navigation.
+  // Otherwise the UI says it is active while the main process is still direct;
+  // worse, a dead saved proxy can make every new link look like a black tab.
+  const proxyRestoreAttempted = React.useRef(false);
+  React.useEffect(() => {
+    if (!proxyEnabled || !savedProxy || proxyRestoreAttempted.current) return;
+    proxyRestoreAttempted.current = true;
+
+    void (async () => {
+      try {
+        await window.browserAPI.proxy.apply(savedProxy);
+        if (!(await window.browserAPI.proxy.verify(savedProxy))) {
+          throw new Error('saved proxy did not respond');
+        }
+      } catch {
+        await window.browserAPI.proxy.clear().catch(() => {});
+        setProxyEnabled(false);
+      }
+    })();
+  }, [proxyEnabled, savedProxy, setProxyEnabled]);
 
   // ── Optionally open the Downloads page when a new download begins ──
   const openDownloadsOnStart = useSettingsStore((s) => s.openDownloadsOnStart);

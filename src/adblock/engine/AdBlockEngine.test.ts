@@ -5,6 +5,7 @@ import { AdBlockEngine } from './AdBlockEngine';
 import { parseRule } from './RuleParser';
 import { isThirdParty } from '../matching/ThirdPartyMatcher';
 import { extractYouTubeVideoId } from '../../renderer/lib/sponsorBlock';
+import { isAllowedNavigationUrl, normalizeNavigationUrl } from '../../shared/navigation';
 
 function request(overrides: Partial<Parameters<AdBlockEngine['checkRequest']>[0]> = {}) {
   return {
@@ -72,4 +73,13 @@ test('extracts YouTube video IDs without sending non-YouTube URLs', () => {
   assert.equal(extractYouTubeVideoId('https://www.youtube.com/watch?v=abc123'), 'abc123');
   assert.equal(extractYouTubeVideoId('https://youtu.be/xyz789?t=4'), 'xyz789');
   assert.equal(extractYouTubeVideoId('https://example.com/watch?v=abc123'), null);
+});
+
+test('does not persist Chromium error pages as tab URLs', () => {
+  assert.equal(isAllowedNavigationUrl('https://example.com/'), true);
+  assert.equal(isAllowedNavigationUrl('chrome-error://chromewebdata/'), false);
+  assert.equal(isAllowedNavigationUrl('javascript:alert(1)'), false);
+  assert.equal(normalizeNavigationUrl('example.com'), 'https://example.com');
+  assert.equal(normalizeNavigationUrl('localhost:3000'), 'https://localhost:3000');
+  assert.equal(normalizeNavigationUrl('data:text/html,broken'), null);
 });

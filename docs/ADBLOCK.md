@@ -4,7 +4,7 @@ Zyphora uses two layers. Chromium uses AdGuard DNS over HTTPS as the primary dom
 
 ## Runtime flow
 
-1. `src/main/dns.ts` configures Chromium secure DoH with `https://dns.adguard-dns.com/dns-query` before app readiness.
+1. `src/main/dns.ts` configures Chromium to prefer AdGuard DNS-over-HTTPS with `https://dns.adguard-dns.com/dns-query` before app readiness. It falls back to system DNS when the endpoint is unreachable; `ZYPHORA_DNS_MODE=secure` opts into fail-closed DNS.
 2. AdGuard DNS blocks domains before a connection is made.
 3. `src/main/adblock.ts` loads `filter.txt` from the packaged application.
 4. `src/adblock/engine/RuleParser.ts` parses supported rules.
@@ -52,8 +52,8 @@ SponsorBlock skips marked segments; it does not reliably remove YouTube in-strea
 - Regular expressions are length-limited, compiled once per rule, and reject common nested-quantifier forms.
 - Cosmetic selectors and scriptlets are not executed.
 - The renderer accesses only validated adblock IPC operations already exposed by preload.
-- Main-frame blocking remains possible for matching rules; allowlist support must be added before exposing per-site controls.
-- Secure DoH depends on the configured AdGuard endpoint being reachable. If it is unavailable, Chromium secure DNS can prevent name resolution; a production release should add a user-visible DNS mode and a carefully designed fallback policy.
+- Main-frame navigation is deliberately allowed so a filter-list match cannot prevent a user from opening a site; only webview subresources are cancelled.
+- Automatic DoH prefers the configured AdGuard endpoint and falls back to system DNS if it is unavailable, so a resolver outage does not make every tab blank. `ZYPHORA_DNS_MODE=secure` intentionally restores fail-closed behavior for deployments that require it.
 - Third-party classification currently uses a small registrable-domain approximation. It is not a complete Public Suffix List implementation and should be replaced with a maintained PSL-compatible library before relying on country-code edge cases.
 
 ## Validation

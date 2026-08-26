@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useBrowserStore } from '../stores/tabStore';
 import { webviewRegistry } from '../stores/webviewRegistry';
+import type { BrowserState } from '../../shared/types';
 
 export const useBrowser = () => {
   const updateState = useBrowserStore((state) => state.updateState);
@@ -21,7 +22,7 @@ export const useBrowser = () => {
     window.browserAPI
       .getState()
       .then((state) => {
-        if (state) updateState(state as any);
+        if (state && typeof state === 'object') updateState(state as BrowserState);
       })
       .catch(console.error);
 

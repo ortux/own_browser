@@ -44,12 +44,25 @@ const CATEGORY_QUERIES: Record<string, string[]> = {
 
 const FALLBACK_QUERIES = ['nature', 'technology', 'space'];
 
+type PexelsPhoto = {
+  src?: {
+    large2x?: string;
+    original?: string;
+  };
+  photographer?: string;
+  url?: string;
+};
+
+type PexelsSearchResponse = {
+  photos?: PexelsPhoto[];
+};
+
 /**
  * Build a sized, cropped image URL so the file is small enough to appear
  * instantly rather than loading progressively line-by-line.
  */
-function buildImageUrl(photo: any): string {
-  const base = String(photo?.src?.large2x || photo?.src?.original || '').split('?')[0];
+function buildImageUrl(photo: PexelsPhoto): string {
+  const base = (photo.src?.large2x || photo.src?.original || '').split('?')[0];
   if (!base) return '';
   return `${base}?auto=compress&cs=tinysrgb&w=1920&h=1080&fit=crop`;
 }
@@ -80,8 +93,8 @@ export function registerPexelsHandlers() {
         console.warn(`[Pexels] API responded ${res.status}`);
         return null;
       }
-      const data = await res.json();
-      const photos: any[] = data?.photos;
+      const data = await res.json() as PexelsSearchResponse;
+      const photos = data.photos;
       if (!photos || photos.length === 0) return null;
 
       const photo = photos[Math.floor(Math.random() * photos.length)];

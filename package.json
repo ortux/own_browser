@@ -14,6 +14,7 @@
     "build": "tsc && electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron dist/main/index.js",
+    "test": "npm run test:adblock",
     "test:adblock": "esbuild src/adblock/engine/AdBlockEngine.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",

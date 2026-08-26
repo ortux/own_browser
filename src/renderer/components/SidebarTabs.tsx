@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import {
   X,
   Plus,
-  Globe,
   Bookmark,
   History,
   Layers,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
+import { TabFavicon } from '../lib/fileIcon';
 
 interface SidebarTabsProps {
   tabs: Tab[];
@@ -132,14 +132,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                   tab.id === activeTabId ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
                 }`}
               >
-                {tab.loading ? (
-                  <div className="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
-                ) : tab.favicon ? (
-                  <img src={tab.favicon} alt="" className="w-4 h-4 rounded-sm"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                ) : (
-                  <Globe size={14} className="text-[var(--text-faint)]" />
-                )}
+                <TabFavicon tab={tab} size={14} />
               </button>
             ))}
           </div>
@@ -257,14 +250,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                   }`}
                 >
                   <div className="shrink-0 w-4 h-4 flex items-center justify-center">
-                    {tab.loading ? (
-                      <div className="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
-                    ) : tab.favicon ? (
-                      <img src={tab.favicon} alt="" className="w-4 h-4 rounded-sm"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    ) : (
-                      <Globe size={13} className="text-[var(--text-faint)]" />
-                    )}
+                    <TabFavicon tab={tab} size={14} />
                   </div>
                   <span className="flex-1 truncate text-sm leading-none">
                     {tab.title || 'New Tab'}

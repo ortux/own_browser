@@ -5,12 +5,12 @@ import {
   RotateCcw,
   X,
   Star,
-  Lock,
   Search,
   Home,
   Shield,
   ShieldCheck,
   ShieldAlert,
+  ShieldOff,
   History as HistoryIcon,
   CornerDownLeft,
   Download as DownloadIcon,
@@ -81,6 +81,23 @@ export const NavBar: React.FC<NavBarProps> = ({
   const getSearchEngine = useSettingsStore((s) => s.getSearchEngine);
   const engine = getSearchEngine();
 
+  // ── Ad blocker state (mirrors SecuritySettings.blockTrackers) ──
+  const blockTrackers = useSettingsStore((s) => s.security.blockTrackers);
+  const setSecurityFlag = useSettingsStore((s) => s.setSecurityFlag);
+  const [showAdblock, setShowAdblock] = useState(false);
+  const [adblockStats, setAdblockStats] = useState<{ enabled: boolean; blocked: number }>({
+    enabled: blockTrackers,
+    blocked: 0,
+  });
+  useEffect(() => {
+    const unsub = window.browserAPI.onAdblockStats(setAdblockStats);
+    return unsub;
+  }, []);
+  const toggleAdblock = useCallback(
+    () => setSecurityFlag('blockTrackers', !blockTrackers),
+    [blockTrackers, setSecurityFlag]
+  );
+
   // ── History suggestions ──
   const [history, setHistory]           = useState<HistoryEntry[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -142,7 +159,6 @@ export const NavBar: React.FC<NavBarProps> = ({
     searchRef.current?.blur();
   }, [onNavigate]);
 
-  const isSecure = activeTab?.url?.startsWith('https://');
   const isLoading = activeTab?.loading;
 
   // ── Certificate / security shield ──
@@ -214,6 +230,11 @@ export const NavBar: React.FC<NavBarProps> = ({
         : certStatus === 'insecure'
           ? 'Not secure (no HTTPS)'
           : 'Invalid certificate';
+
+  // The left affordance shows the search icon on the home page (and while
+  // typing); on any real site it becomes the shield that reveals cert details.
+  const isHome = !activeTab?.url || activeTab.url === 'about:blank';
+  const showSearchIcon = isFocused || isHome;
 
   useEffect(() => {
     if (!isFocused) {
@@ -341,14 +362,75 @@ export const NavBar: React.FC<NavBarProps> = ({
             : 'bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--hover)] hover:border-[var(--border-strong)]'
           }`}
       >
-        {/* Lock / search icon */}
-        {isFocused ? (
-          <Search size={14} className="text-[var(--text-faint)] shrink-0" />
-        ) : isSecure ? (
-          <Lock size={13} className="text-green-400 shrink-0" />
-        ) : (
-          <Search size={14} className="text-[var(--text-faint)] shrink-0" />
-        )}
+        {/* Lock / search / shield — merged security affordance.
+            Home (new tab): search icon. On a real site: shield that toggles
+            the certificate details. */}
+        <div className="relative shrink-0 flex items-center">
+          {showSearchIcon ? (
+            <Search size={14} className="text-[var(--text-faint)]" />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowCert((v) => !v)}
+              className={`flex items-center justify-center rounded-full p-1 transition-colors hover:bg-[var(--hover)] ${shieldColor}`}
+              title={shieldTitle}
+              aria-label="Connection security"
+            >
+              <ShieldIcon size={15} />
+            </button>
+          )}
+
+          {showCert && !showSearchIcon && (
+            <div
+              className="absolute bottom-full left-0 mb-2 w-80 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-4 text-sm z-50"
+              style={{ animation: 'popIn 160ms ease-out' }}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <span
+                  className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                    certStatus === 'secure' ? 'bg-[var(--accent-soft)]' : 'bg-[var(--surface-2)]'
+                  }`}
+                >
+                  <ShieldIcon size={20} className={shieldColor} />
+                </span>
+                <div>
+                  <div className="font-semibold leading-tight text-[var(--text)]">
+                    Connection security
+                  </div>
+                  <div className="text-xs text-[var(--text-faint)]">{shieldTitle}</div>
+                </div>
+              </div>
+
+              {certStatus === 'insecure' ? (
+                <p className="text-[var(--text-muted)] leading-relaxed">
+                  This site is not using HTTPS. Your connection is not encrypted and
+                  could be intercepted by third parties.
+                </p>
+              ) : cert && cert.present ? (
+                <dl className="space-y-3">
+                  <Row label="Issued to" value={cert.subject || '—'} />
+                  <Row label="Issuer" value={cert.issuer || '—'} />
+                  <Row
+                    label="Valid from"
+                    value={cert.validFrom ? new Date(cert.validFrom).toLocaleString() : '—'}
+                  />
+                  <Row
+                    label="Valid to"
+                    value={cert.validTo ? new Date(cert.validTo).toLocaleString() : '—'}
+                  />
+                  <Row label="Serial number" value={cert.serialNumber || '—'} mono />
+                  <Row label="Fingerprint" value={cert.fingerprint || '—'} mono />
+                  {certStatus === 'invalid' && cert.error && (
+                    <p className="text-xs text-red-400">Error: {cert.error}</p>
+                  )}
+                </dl>
+              ) : (
+                <p className="text-[var(--text-muted)]">Certificate details unavailable.</p>
+              )}
+            </div>
+          )}
+        </div>
 
         <input
           ref={searchRef}
@@ -373,7 +455,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       {/* History suggestions tooltip/dialog — opens upward (bar sits at the bottom) */}
       {showSuggestions && isFocused && suggestions.length > 0 && (
         <div
-          className="absolute bottom-full left-0 right-0 mb-2 max-h-80 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-1.5 z-50"
+          className="absolute bottom-full left-0 right-0 mb-2 max-h-80 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-1.5 z-50"
           onMouseDown={(e) => e.preventDefault()}
         >
           <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
@@ -415,7 +497,7 @@ export const NavBar: React.FC<NavBarProps> = ({
 
       {showSuggestions && isFocused && suggestions.length === 0 && (
         <div
-          className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-3 z-50"
+          className="absolute bottom-full left-0 right-0 mb-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-3 z-50"
           onMouseDown={(e) => e.preventDefault()}
         >
           <div className="flex items-center gap-2 px-2 text-sm text-[var(--text-muted)]">
@@ -426,50 +508,70 @@ export const NavBar: React.FC<NavBarProps> = ({
       )}
       </div>
 
-      {/* Security shield — reflects the site's TLS certificate */}
+      {/* Ad blocker toggle */}
       <div className="relative shrink-0">
         <button
-          onClick={() => setShowCert((v) => !v)}
-          className={`p-2 rounded-lg hover:bg-[var(--hover)] transition-colors ${shieldColor}`}
-          title={shieldTitle}
-          aria-label="Connection security"
+          onClick={() => setShowAdblock((v) => !v)}
+          className={`p-2 rounded-lg hover:bg-[var(--hover)] transition-colors ${
+            blockTrackers ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'
+          }`}
+          title={blockTrackers ? 'Ad blocker on' : 'Ad blocker off'}
+          aria-label="Ad blocker"
         >
-          <ShieldIcon size={16} />
+          {blockTrackers ? <ShieldCheck size={16} /> : <ShieldOff size={16} />}
         </button>
 
-        {showCert && (
-          <div className="absolute bottom-full right-0 mb-2 w-72 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl p-4 text-sm z-50">
-            <div className="flex items-center gap-2 mb-3">
-              <ShieldIcon size={16} className={shieldColor} />
-              <span className="font-semibold">{shieldTitle}</span>
+        {showAdblock && (
+          <div
+            className="absolute bottom-full right-0 mb-2 w-72 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-4 text-sm z-50"
+            style={{ animation: 'popIn 160ms ease-out' }}
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <span
+                className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                  blockTrackers ? 'bg-[var(--accent-soft)]' : 'bg-[var(--surface-2)]'
+                }`}
+              >
+                {blockTrackers ? (
+                  <ShieldCheck size={20} className="text-[var(--accent)]" />
+                ) : (
+                  <ShieldOff size={20} className="text-[var(--text-faint)]" />
+                )}
+              </span>
+              <div>
+                <div className="font-semibold leading-tight text-[var(--text)]">Ad blocker</div>
+                <div className="text-xs text-[var(--text-faint)]">
+                  {blockTrackers ? 'Protecting you' : 'Disabled'}
+                </div>
+              </div>
             </div>
 
-            {certStatus === 'insecure' ? (
-              <p className="text-[var(--text-muted)] leading-relaxed">
-                This site is not using HTTPS. Your connection is not encrypted and
-                could be intercepted by third parties.
-              </p>
-            ) : cert && cert.present ? (
-              <dl className="space-y-2">
-                <Row label="Issued to" value={cert.subject || '—'} />
-                <Row label="Issuer" value={cert.issuer || '—'} />
-                <Row
-                  label="Valid from"
-                  value={cert.validFrom ? new Date(cert.validFrom).toLocaleString() : '—'}
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-[var(--surface-2)] px-3 py-2.5">
+              <span className="text-[var(--text)]">Block trackers &amp; ads</span>
+              <button
+                type="button"
+                onClick={toggleAdblock}
+                className={`relative h-6 w-[44px] shrink-0 rounded-full border-2 transition-colors duration-200 ease-out ${
+                  blockTrackers
+                    ? 'border-[var(--accent)] bg-[var(--accent)]'
+                    : 'border-[var(--border-strong)] bg-[var(--surface-2)]'
+                }`}
+                aria-pressed={blockTrackers}
+              >
+                <span
+                  className={`absolute top-1/2 -translate-y-1/2 rounded-full shadow-sm transition-all duration-200 ease-out ${
+                    blockTrackers ? 'left-[22px] bg-white' : 'left-[3px] bg-[var(--text-faint)]'
+                  } h-4 w-4`}
                 />
-                <Row
-                  label="Valid to"
-                  value={cert.validTo ? new Date(cert.validTo).toLocaleString() : '—'}
-                />
-                <Row label="Serial number" value={cert.serialNumber || '—'} mono />
-                <Row label="Fingerprint" value={cert.fingerprint || '—'} mono />
-                {certStatus === 'invalid' && cert.error && (
-                  <p className="mt-1 text-xs text-red-400">Error: {cert.error}</p>
-                )}
-              </dl>
-            ) : (
-              <p className="text-[var(--text-muted)]">Certificate details unavailable.</p>
-            )}
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs text-[var(--text-faint)]">
+              {adblockStats.blocked > 0
+                ? `${adblockStats.blocked} trackers blocked this session`
+                : 'No trackers blocked yet'}
+            </p>
           </div>
         )}
       </div>

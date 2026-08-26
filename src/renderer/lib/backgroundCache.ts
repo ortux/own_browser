@@ -11,7 +11,7 @@ import type { PexelsImage } from '../../shared/types';
  *     from the main process, so the next new tab is instant too.
  */
 
-export type BackgroundCategory = 'random' | 'nature' | 'technology' | 'space';
+export type BackgroundCategory = 'random' | 'nature' | 'technology' | 'space' | 'arts';
 
 const POOL_SIZE = 6;
 

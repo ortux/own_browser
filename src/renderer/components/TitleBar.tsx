@@ -1,5 +1,6 @@
 import React from 'react';
 import { Minus, Square, X } from 'lucide-react';
+import appIcon from '../../../public/icon.png';
 
 export const TitleBar: React.FC = () => {
   const minimize = () => window.browserAPI?.minimizeWindow();
@@ -16,16 +17,15 @@ export const TitleBar: React.FC = () => {
         className="pl-4 flex items-center gap-2"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        {/* Z glyph */}
-        <svg
-          width="16" height="16" viewBox="0 0 24 24" fill="none"
-          className="text-[var(--accent)] shrink-0"
-        >
-          <polygon
-            points="3,4 21,4 21,8 9,18 21,18 21,22 3,22 3,18 15,8 3,8"
-            fill="currentColor"
-          />
-        </svg>
+        {/* App logo */}
+        <img
+          src={appIcon}
+          alt="Zyphora"
+          width={16}
+          height={16}
+          className="shrink-0 rounded"
+          draggable={false}
+        />
         <span
           className="text-[13px] font-semibold tracking-wide text-[var(--text)]"
           style={{ fontFamily: '"Poppins", sans-serif', letterSpacing: '0.06em' }}

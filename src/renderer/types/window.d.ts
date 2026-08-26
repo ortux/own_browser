@@ -21,3 +21,8 @@ declare namespace JSX {
 }
 
 export {};
+
+declare module '*.png' {
+  const src: string;
+  export default src;
+}

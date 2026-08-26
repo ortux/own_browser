@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Tab } from '../../shared/types';
 import { webviewRegistry } from '../stores/webviewRegistry';
+import { applySponsorBlock } from '../lib/sponsorBlock';
 
 interface WebViewProps {
   tab: Tab;
@@ -40,6 +41,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     const onLoadStop = () => {
       try {
         const url = el.getURL();
+        void applySponsorBlock(el, url);
         const canGoBack = el.canGoBack();
         const canGoForward = el.canGoForward();
         window.browserAPI.sendMessage({
@@ -75,6 +77,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     const onDidNavigate = () => {
       try {
         const url = el.getURL();
+        void applySponsorBlock(el, url);
         const canGoBack = el.canGoBack();
         const canGoForward = el.canGoForward();
         window.browserAPI.sendMessage({

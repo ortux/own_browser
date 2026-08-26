@@ -54,6 +54,34 @@ function engineFavicon(url: string): string | null {
   }
 }
 
+// Material-style switch. Kept as a local component since it is reused
+// across three sections and the pressed/track states are identical.
+const MdSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: boolean }> = ({
+  checked,
+  onChange,
+  disabled,
+}) => (
+  <button
+    role="switch"
+    aria-checked={checked}
+    onClick={onChange}
+    disabled={disabled}
+    className={`relative h-8 w-[52px] shrink-0 rounded-full border-2 transition-colors duration-200 ease-out disabled:opacity-40 ${
+      checked
+        ? 'border-[var(--accent)] bg-[var(--accent)]'
+        : 'border-[var(--border-strong)] bg-transparent'
+    }`}
+  >
+    <span
+      className={`absolute top-1/2 -translate-y-1/2 rounded-full shadow-sm transition-all duration-200 ease-out ${
+        checked
+          ? 'left-[26px] h-5 w-5 bg-white'
+          : 'left-[5px] h-4 w-4 bg-[var(--text-faint)]'
+      }`}
+    />
+  </button>
+);
+
 export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
   const {
     searchEngineId,
@@ -139,524 +167,532 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     setCustomError('');
   };
 
+  const NAV_ITEMS = [
+    { id: 'general', label: 'General', icon: User },
+    { id: 'search', label: 'Search engine', icon: SearchIcon },
+    { id: 'appearance', label: 'Appearance', icon: ImageIcon },
+    { id: 'security', label: 'Security', icon: Shield },
+    { id: 'downloads', label: 'Downloads', icon: Download },
+    { id: 'proxy', label: 'Proxy', icon: Wifi },
+  ] as const;
+
   return (
     <div className="flex w-full h-full bg-[var(--bg)] text-[var(--text)] overflow-hidden">
-      {/* Left nav sidebar */}
-      <aside className="flex w-56 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--surface)] h-full p-4">
+      {/* Navigation rail */}
+      <aside className="flex w-64 shrink-0 flex-col bg-[var(--surface)] h-full p-3">
         <button
           onClick={onBack}
-          className="mb-6 flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+          className="mb-4 flex items-center gap-3 rounded-full px-4 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
         >
-          <ArrowLeft size={16} /> Back
+          <ArrowLeft size={18} /> Back
         </button>
 
-        <nav className="flex flex-col gap-1">
-           {[
-             { id: 'general',    label: 'General',       icon: User },
-             { id: 'search',     label: 'Search Engine', icon: SearchIcon },
-             { id: 'appearance', label: 'Appearance',    icon: ImageIcon },
-             { id: 'security',   label: 'Security',      icon: Shield },
-             { id: 'downloads',  label: 'Downloads',      icon: Download },
-             { id: 'proxy',      label: 'Proxy',         icon: Wifi },
-           ].map((item) => {
+        <div className="px-4 pb-2 pt-3 text-xs font-medium tracking-[0.08em] text-[var(--text-faint)]">
+          SETTINGS
+        </div>
+
+        <nav className="flex flex-col gap-0.5 px-1">
+          {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const active = activeSection === item.id;
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveSection(item.id as typeof activeSection)}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+                onClick={() => setActiveSection(item.id)}
+                className={`group relative flex items-center gap-4 rounded-full px-4 py-2.5 text-sm transition-colors duration-150 ${
                   active
-                    ? 'bg-[var(--hover)] text-[var(--text)]'
+                    ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
                     : 'text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]'
                 }`}
               >
-                <Icon size={16} /> {item.label}
+                <Icon size={18} strokeWidth={active ? 2.4 : 2} />
+                {item.label}
               </button>
             );
           })}
         </nav>
 
-        <div className="mt-auto px-2 text-[11px] text-[var(--text-faint)]">
-          Zyphora · Settings
+        <div className="mt-auto px-4 py-2 text-[11px] tracking-wide text-[var(--text-faint)]">
+          Zyphora
         </div>
       </aside>
 
       {/* Scrollable content */}
-      <main className="flex-1 overflow-y-auto p-10 h-full">
-        <h1 className="mb-8 text-2xl font-semibold">Settings</h1>
+      <main className="flex-1 overflow-y-auto h-full">
+        <div className="mx-auto max-w-2xl px-10 py-12">
+          <h1 className="mb-10 text-[28px] font-normal leading-tight">
+            {NAV_ITEMS.find((n) => n.id === activeSection)?.label}
+          </h1>
 
-        {activeSection === 'general' && (
-          <div className="max-w-2xl space-y-8">
-            <Section title="Profile">
-              <p className="text-sm text-[var(--text-muted)]">
+          {activeSection === 'general' && (
+            <MdCard>
+              <p className="text-sm leading-relaxed text-[var(--text-muted)]">
                 Account settings are not available yet. This section is reserved for
                 future profile and sync features.
               </p>
-            </Section>
-          </div>
-        )}
+            </MdCard>
+          )}
 
-        {activeSection === 'search' && (
-          <div className="max-w-2xl space-y-4">
-            <h2 className="text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
-              Search Engine
-            </h2>
-            <div className="flex flex-col gap-2">
-              {allEngines.map((engine) => {
-                const isActive = searchEngineId === engine.id;
-                const isCustom = engine.id.startsWith('custom-');
-                const favicon = engineFavicon(engine.url);
-                return (
-                  <div
-                    key={engine.id}
-                    className={`flex items-center justify-between rounded-xl border px-4 py-3 transition-all ${
-                      isActive
-                        ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text)]'
-                        : 'border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--hover)] text-[var(--text-muted)]'
-                    }`}
-                  >
-                    <button
-                      onClick={() => setSearchEngine(engine.id)}
-                      className="flex flex-1 items-center gap-3 text-left"
-                    >
-                      {favicon ? (
-                        <img
-                          src={favicon}
-                          alt=""
-                          className="h-5 w-5 rounded"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <Globe size={18} className="shrink-0 text-[var(--text-faint)]" />
-                      )}
-                      <span className="font-medium">{engine.name}</span>
-                      <span className="truncate text-xs text-[var(--text-faint)]">
-                        {engine.url.split('?')[0]}
-                      </span>
-                    </button>
-                    <div className="flex items-center gap-2">
-                      {isActive && <Check size={16} className="shrink-0 text-[var(--accent)]" />}
-                      {isCustom && (
-                        <button
-                          onClick={() => removeCustomSearchEngine(engine.id)}
-                          aria-label={`Remove ${engine.name}`}
-                          className="rounded-lg p-1.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--hover)] hover:text-[#ef4444]"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Add custom search engine */}
-            {!showAdd ? (
-              <button
-                onClick={() => setShowAdd(true)}
-                className="flex items-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] px-4 py-3 text-sm text-[var(--text-muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-              >
-                <Plus size={16} /> Add your own search engine
-              </button>
-            ) : (
-              <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
-                <input
-                  value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="Name (e.g. My Search)"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:border-[var(--accent)]"
-                />
-                <input
-                  value={customUrl}
-                  onChange={(e) => setCustomUrl(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddCustom()}
-                  placeholder="https://example.com/search?q=%s"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:border-[var(--accent)]"
-                />
-                {customError && (
-                  <p className="text-xs text-[#ef4444]">{customError}</p>
-                )}
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    onClick={() => {
-                      setShowAdd(false);
-                      setCustomName('');
-                      setCustomUrl('');
-                      setCustomError('');
-                    }}
-                    className="rounded-lg px-3 py-1.5 text-xs uppercase tracking-wide text-[var(--text-muted)] hover:text-[var(--text)]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleAddCustom}
-                    className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs uppercase tracking-wide text-white transition-opacity hover:opacity-90"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeSection === 'appearance' && (
-          <div className="max-w-2xl space-y-6">
-            {/* Theme selection */}
-            <div>
-              <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
-                Theme
-              </h2>
-              <div className="grid grid-cols-3 gap-3">
-                {THEMES.map((t) => {
-                  const Icon = t.icon;
-                  const active = theme === t.id;
+          {activeSection === 'search' && (
+            <div className="space-y-3">
+              <MdCard padded={false}>
+                {allEngines.map((engine, i) => {
+                  const isActive = searchEngineId === engine.id;
+                  const isCustom = engine.id.startsWith('custom-');
+                  const favicon = engineFavicon(engine.url);
                   return (
-                    <button
-                      key={t.id}
-                      onClick={() => setTheme(t.id)}
-                      className={`flex flex-col items-center gap-2 rounded-xl border px-4 py-6 transition-all ${
-                        active
-                          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text)]'
-                          : 'border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--hover)] text-[var(--text-muted)]'
+                    <div
+                      key={engine.id}
+                      className={`flex items-center justify-between gap-3 px-4 py-3 ${
+                        i !== 0 ? 'border-t border-[var(--border)]' : ''
                       }`}
                     >
-                      <Icon size={22} />
-                      <span className="text-sm font-medium">{t.label}</span>
-                      {active && <Check size={14} className="text-[var(--accent)]" />}
-                    </button>
+                      <button
+                        onClick={() => setSearchEngine(engine.id)}
+                        className="flex flex-1 items-center gap-3.5 text-left min-w-0"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)]">
+                          {favicon ? (
+                            <img
+                              src={favicon}
+                              alt=""
+                              className="h-5 w-5 rounded"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <Globe size={16} className="text-[var(--text-faint)]" />
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium text-[var(--text)]">
+                            {engine.name}
+                          </span>
+                          <span className="block truncate text-xs text-[var(--text-faint)]">
+                            {engine.url.split('?')[0]}
+                          </span>
+                        </span>
+                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isActive && (
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent-soft)]">
+                            <Check size={14} className="text-[var(--accent)]" />
+                          </span>
+                        )}
+                        {isCustom && (
+                          <button
+                            onClick={() => removeCustomSearchEngine(engine.id)}
+                            aria-label={`Remove ${engine.name}`}
+                            className="rounded-full p-1.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--hover)] hover:text-[#ef4444]"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
-              </div>
+              </MdCard>
+
+              {/* Add custom search engine */}
+              {!showAdd ? (
+                <button
+                  onClick={() => setShowAdd(true)}
+                  className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-[var(--border-strong)] px-4 py-3.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]"
+                >
+                  <Plus size={16} /> Add search engine
+                </button>
+              ) : (
+                <MdCard className="space-y-3">
+                  <MdField
+                    value={customName}
+                    onChange={setCustomName}
+                    label="Name"
+                    placeholder="My Search"
+                  />
+                  <MdField
+                    value={customUrl}
+                    onChange={setCustomUrl}
+                    label="Search URL"
+                    placeholder="https://example.com/search?q=%s"
+                    onEnter={handleAddCustom}
+                  />
+                  {customError && (
+                    <p className="text-xs text-[#ef4444]">{customError}</p>
+                  )}
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      onClick={() => {
+                        setShowAdd(false);
+                        setCustomName('');
+                        setCustomUrl('');
+                        setCustomError('');
+                      }}
+                      className="rounded-full px-4 py-2 text-sm font-medium text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAddCustom}
+                      className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </MdCard>
+              )}
             </div>
+          )}
 
-            <h2 className="text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
-              New Tab Page
-            </h2>
-
-            <div className="grid grid-cols-2 gap-3">
-              {(
-                [
-                  {
-                    id: 'minimal' as const,
-                    label: 'Minimal',
-                    desc: 'A static background that follows your theme (dark in dark mode, light in light mode).',
-                  },
-                  {
-                    id: 'full' as const,
-                    label: 'Full',
-                    desc: 'Includes everything: a fresh Pexels background, clock, date, search and more.',
-                  },
-                ]
-              ).map((m) => {
-                const active = newTabMode === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => setNewTabMode(m.id)}
-                    className={`flex flex-col items-start gap-2 rounded-xl border px-4 py-5 text-left transition-all ${
-                      active
-                        ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text)]'
-                        : 'border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--hover)] text-[var(--text-muted)]'
-                    }`}
-                  >
-                    <span className="flex w-full items-center justify-between text-sm font-medium">
-                      {m.label}
-                      {active && <Check size={15} className="text-[var(--accent)]" />}
-                    </span>
-                    <span className="text-xs leading-snug text-[var(--text-faint)]">
-                      {m.desc}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {newTabMode === 'full' && (
-              <>
-                <h2 className="mt-6 text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
-                  Background Category
-                </h2>
-                <div className="flex flex-col gap-2">
-                  {CATEGORY_OPTIONS.map((opt) => {
-                    const isActive = backgroundCategory === opt.id;
+          {activeSection === 'appearance' && (
+            <div className="space-y-8">
+              {/* Theme selection */}
+              <div>
+                <SectionLabel>Theme</SectionLabel>
+                <div className="grid grid-cols-3 gap-3">
+                  {THEMES.map((t) => {
+                    const Icon = t.icon;
+                    const active = theme === t.id;
                     return (
                       <button
-                        key={opt.id}
-                        onClick={() => setBackgroundCategory(opt.id)}
-                        className={`flex items-center justify-between rounded-xl border px-4 py-2.5 text-left transition-all ${
-                          isActive
-                            ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text)]'
-                            : 'border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--hover)] text-[var(--text-muted)]'
+                        key={t.id}
+                        onClick={() => setTheme(t.id)}
+                        className={`flex flex-col items-center gap-2.5 rounded-2xl border px-4 py-6 transition-all duration-150 ${
+                          active
+                            ? 'border-transparent bg-[var(--accent-soft)] text-[var(--accent)]'
+                            : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--hover)]'
                         }`}
                       >
-                        <span className="text-sm font-medium">{opt.label}</span>
-                        {isActive && (
-                          <Check size={16} className="shrink-0 text-[var(--accent)]" />
-                        )}
+                        <Icon size={20} strokeWidth={active ? 2.4 : 2} />
+                        <span className="text-sm font-medium">{t.label}</span>
                       </button>
                     );
                   })}
                 </div>
-                <p className="mt-3 text-xs text-[var(--text-faint)]">
-                  Images are fetched from Pexels and preloaded so each new tab appears
-                  instantly.
-                </p>
-              </>
-            )}
-          </div>
-        )}
+              </div>
 
-        {activeSection === 'security' && (
-          <div className="max-w-2xl space-y-3">
-            <h2 className="text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
-              Security &amp; Privacy
-            </h2>
-            <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
-              {SECURITY_OPTIONS.map((opt) => {
-                const value = security[opt.key];
-                return (
-                  <div
-                    key={opt.key}
-                    className="flex items-center justify-between gap-4 px-4 py-3.5"
-                  >
-                    <div>
-                      <div className="text-sm text-[var(--text)]">{opt.label}</div>
-                      <div className="text-xs text-[var(--text-faint)]">{opt.desc}</div>
-                    </div>
-                    <button
-                      role="switch"
-                      aria-checked={value}
-                      onClick={() => setSecurityFlag(opt.key, !value)}
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                        value ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]'
+              <div>
+                <SectionLabel>New tab page</SectionLabel>
+                <div className="grid grid-cols-2 gap-3">
+                  {(
+                    [
+                      {
+                        id: 'minimal' as const,
+                        label: 'Minimal',
+                        desc: 'A static background that follows your theme (dark in dark mode, light in light mode).',
+                      },
+                      {
+                        id: 'full' as const,
+                        label: 'Full',
+                        desc: 'Includes everything: a fresh Pexels background, clock, date, search and more.',
+                      },
+                    ]
+                  ).map((m) => {
+                    const active = newTabMode === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setNewTabMode(m.id)}
+                        className={`flex flex-col items-start gap-2 rounded-2xl border px-4 py-4 text-left transition-all duration-150 ${
+                          active
+                            ? 'border-transparent bg-[var(--accent-soft)]'
+                            : 'border-[var(--border)] hover:bg-[var(--hover)]'
+                        }`}
+                      >
+                        <span className="flex w-full items-center justify-between text-sm font-medium">
+                          <span className={active ? 'text-[var(--accent)]' : 'text-[var(--text)]'}>{m.label}</span>
+                          {active && <Check size={15} className="text-[var(--accent)]" />}
+                        </span>
+                        <span className="text-xs leading-snug text-[var(--text-faint)]">
+                          {m.desc}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {newTabMode === 'full' && (
+                <div>
+                  <SectionLabel>Background category</SectionLabel>
+                  <MdCard padded={false}>
+                    {CATEGORY_OPTIONS.map((opt, i) => {
+                      const isActive = backgroundCategory === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          onClick={() => setBackgroundCategory(opt.id)}
+                          className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors ${
+                            i !== 0 ? 'border-t border-[var(--border)]' : ''
+                          } ${isActive ? 'text-[var(--accent)] font-medium' : 'text-[var(--text-muted)] hover:bg-[var(--hover)]'}`}
+                        >
+                          {opt.label}
+                          {isActive && <Check size={16} className="text-[var(--accent)]" />}
+                        </button>
+                      );
+                    })}
+                  </MdCard>
+                  <p className="mt-2.5 px-1 text-xs text-[var(--text-faint)]">
+                    Images are fetched from Pexels and preloaded so each new tab appears
+                    instantly.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeSection === 'security' && (
+            <div className="space-y-4">
+              <MdCard padded={false}>
+                {SECURITY_OPTIONS.map((opt, i) => {
+                  const value = security[opt.key];
+                  return (
+                    <div
+                      key={opt.key}
+                      className={`flex items-center justify-between gap-4 px-4 py-4 ${
+                        i !== 0 ? 'border-t border-[var(--border)]' : ''
                       }`}
                     >
-                      <span
-                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                          value ? 'translate-x-5' : 'translate-x-0.5'
-                        }`}
-                      />
+                      <div>
+                        <div className="text-sm font-medium text-[var(--text)]">{opt.label}</div>
+                        <div className="mt-0.5 text-xs text-[var(--text-faint)]">{opt.desc}</div>
+                      </div>
+                      <MdSwitch checked={value} onChange={() => setSecurityFlag(opt.key, !value)} />
+                    </div>
+                  );
+                })}
+              </MdCard>
+              <p className="px-1 text-xs text-[var(--text-faint)]">
+                These protections apply wherever supported by the browsing engine.
+              </p>
+
+              {/* Live ad-blocker summary */}
+              <MdCard className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className={`flex h-9 w-9 items-center justify-center rounded-full ${adblockStats.enabled ? 'bg-[var(--accent-soft)]' : 'bg-[var(--surface-2)]'}`}>
+                    <Shield size={16} className={adblockStats.enabled ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'} />
+                  </span>
+                  <span className="text-sm font-medium text-[var(--text)]">
+                    {adblockStats.enabled ? 'Ad blocker active' : 'Ad blocker off'}
+                  </span>
+                </div>
+                <span className="text-xs text-[var(--text-faint)]">
+                  {adblockStats.blocked.toLocaleString()} requests blocked
+                </span>
+              </MdCard>
+              <p className="px-1 text-xs leading-relaxed text-[var(--text-faint)]">
+                AdGuard DNS blocks known domains first. The local filter engine then blocks
+                matching URLs and resource requests that DNS cannot see.
+              </p>
+            </div>
+          )}
+
+          {activeSection === 'proxy' && (
+            <div className="space-y-4">
+              {/* Toggle row */}
+              <MdCard className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Enable proxy</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Route browser traffic through a free anonymous proxy. Google uses your direct connection.
+                  </div>
+                </div>
+                <MdSwitch
+                  checked={proxyEnabled}
+                  onChange={toggleProxy}
+                  disabled={proxyStatus === 'fetching' || proxyStatus === 'verifying'}
+                />
+              </MdCard>
+
+              {/* Status + info card */}
+              {(proxyStatus === 'fetching' || proxyStatus === 'verifying') && (
+                <MdCard className="flex items-center gap-3">
+                  <RefreshCw size={16} className="text-[var(--accent)] animate-spin shrink-0" />
+                  <span className="text-sm text-[var(--text-muted)]">
+                    {proxyStatus === 'fetching' ? 'Fetching proxy…' : 'Verifying connection…'}
+                  </span>
+                </MdCard>
+              )}
+
+              {proxyStatus === 'failed' && proxyError && (
+                <div className="flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-3.5">
+                  <AlertTriangle size={16} className="text-red-400 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-red-400">{proxyError}</p>
+                    <p className="mt-0.5 text-xs text-[var(--text-faint)]">Free proxies can be unreliable. Try fetching a new one.</p>
+                  </div>
+                </div>
+              )}
+
+              {proxyEnabled && proxy && proxyStatus === 'active' && (
+                <div className="rounded-2xl bg-[var(--accent-soft)] px-4 py-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Wifi size={15} className="text-[var(--accent)]" />
+                      <span className="text-sm font-medium text-[var(--text)]">Connected</span>
+                    </div>
+                    <button
+                      onClick={fetchAndApply}
+                      title="Get a new proxy"
+                      className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
+                    >
+                      <RefreshCw size={12} /> Rotate
                     </button>
                   </div>
-                );
-              })}
-            </div>
-            <p className="text-xs text-[var(--text-faint)]">
-              These protections apply wherever supported by the browsing engine.
-            </p>
-
-            {/* Live ad-blocker summary */}
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-              <div className="flex items-center gap-2">
-                <Shield size={15} className={adblockStats.enabled ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'} />
-                <span className="text-sm text-[var(--text)]">
-                  {adblockStats.enabled ? 'Ad blocker active' : 'Ad blocker off'}
-                </span>
-              </div>
-              <span className="text-xs text-[var(--text-faint)]">
-                {adblockStats.blocked.toLocaleString()} requests blocked
-              </span>
-            </div>
-          </div>
-        )}
-
-        {activeSection === 'proxy' && (
-          <div className="max-w-2xl space-y-5">
-            <h2 className="text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
-              Proxy
-            </h2>
-
-            {/* Toggle row */}
-            <div className="flex items-center justify-between rounded-xl border border-[var(--border)] px-4 py-3.5">
-              <div>
-                <div className="text-sm font-medium text-[var(--text)]">Enable proxy</div>
-                <div className="text-xs text-[var(--text-faint)] mt-0.5">
-                  Route browser traffic through a free anonymous proxy. Google uses your direct connection.
-                </div>
-              </div>
-              <button
-                role="switch"
-                aria-checked={proxyEnabled}
-                onClick={toggleProxy}
-                disabled={proxyStatus === 'fetching' || proxyStatus === 'verifying'}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-                  proxyEnabled ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]'
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                    proxyEnabled ? 'translate-x-5' : 'translate-x-0.5'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Status + info card */}
-            {(proxyStatus === 'fetching' || proxyStatus === 'verifying') && (
-              <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-                <RefreshCw size={16} className="text-[var(--accent)] animate-spin shrink-0" />
-                <span className="text-sm text-[var(--text-muted)]">
-                  {proxyStatus === 'fetching' ? 'Fetching proxy…' : 'Verifying connection…'}
-                </span>
-              </div>
-            )}
-
-            {proxyStatus === 'failed' && proxyError && (
-              <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-                <AlertTriangle size={16} className="text-red-400 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-red-400">{proxyError}</p>
-                  <p className="text-xs text-[var(--text-faint)] mt-0.5">Free proxies can be unreliable. Try fetching a new one.</p>
-                </div>
-              </div>
-            )}
-
-            {proxyEnabled && proxy && proxyStatus === 'active' && (
-              <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-4 py-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Wifi size={15} className="text-[var(--accent)]" />
-                    <span className="text-sm font-medium text-[var(--text)]">Connected</span>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {[
+                      { label: 'IP:Port', value: proxy.ipPort },
+                      { label: 'Country', value: proxy.country },
+                      { label: 'Type', value: proxy.type.toUpperCase() },
+                      { label: 'Level', value: proxy.proxyLevel },
+                      { label: 'HTTPS', value: proxy.supportsHttps ? 'Yes' : 'No' },
+                      { label: 'Speed', value: `${proxy.speed}s` },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex justify-between rounded-xl bg-[var(--surface)] px-3 py-2">
+                        <span className="text-[var(--text-faint)]">{label}</span>
+                        <span className="font-medium text-[var(--text)]">{value}</span>
+                      </div>
+                    ))}
                   </div>
+                  <p className="text-[10px] text-[var(--text-faint)]">
+                    Last fetched {new Date(proxy.fetchedAt).toLocaleTimeString()}
+                  </p>
+                </div>
+              )}
+
+              {!proxyEnabled && proxyStatus !== 'fetching' && proxyStatus !== 'verifying' && (
+                <MdCard className="flex items-center gap-3">
+                  <WifiOff size={15} className="text-[var(--text-faint)] shrink-0" />
+                  <span className="text-sm text-[var(--text-faint)]">
+                    No proxy — using direct connection
+                  </span>
+                </MdCard>
+              )}
+
+              <p className="px-1 text-xs leading-relaxed text-[var(--text-faint)]">
+                Proxies are sourced from{' '}
+                <span className="text-[var(--text-muted)]">pubproxy.com</span>. Free public proxies
+                may be slow, blocked by some sites, or go offline without notice. Use for
+                light anonymity only — not a substitute for a VPN.
+              </p>
+            </div>
+          )}
+
+          {activeSection === 'downloads' && (
+            <div className="space-y-4">
+              {/* Save location */}
+              <MdCard className="space-y-3.5">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Save location</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Files are saved here automatically — no save dialog is shown.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={downloadPath}
+                    onChange={(e) => setDownloadPath(e.target.value)}
+                    placeholder="Default downloads folder"
+                    className="flex-1 rounded-xl bg-[var(--surface-2)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-2 focus:ring-[var(--accent)]"
+                  />
                   <button
-                    onClick={fetchAndApply}
-                    title="Get a new proxy"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
+                    onClick={async () => {
+                      const picked = await window.browserAPI.downloads.pickFolder().catch(() => null);
+                      if (picked) setDownloadPath(picked);
+                    }}
+                    className="flex items-center gap-1.5 rounded-full bg-[var(--surface-2)] px-4 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
                   >
-                    <RefreshCw size={12} /> Rotate
+                    <FolderOpen size={15} /> Browse
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {[
-                    { label: 'IP:Port',  value: proxy.ipPort },
-                    { label: 'Country',  value: proxy.country },
-                    { label: 'Type',     value: proxy.type.toUpperCase() },
-                    { label: 'Level',    value: proxy.proxyLevel },
-                    { label: 'HTTPS',    value: proxy.supportsHttps ? 'Yes' : 'No' },
-                    { label: 'Speed',    value: `${proxy.speed}s` },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex justify-between rounded-lg bg-[var(--surface)] px-3 py-2">
-                      <span className="text-[var(--text-faint)]">{label}</span>
-                      <span className="font-medium text-[var(--text)]">{value}</span>
-                    </div>
-                  ))}
+                <div className="flex items-center justify-between pt-0.5">
+                  <span className="text-xs text-[var(--text-faint)]">
+                    Press{' '}
+                    <kbd className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] text-[var(--text-muted)]">
+                      Ctrl + J
+                    </kbd>{' '}
+                    to open the Downloads page.
+                  </span>
+                  <button
+                    onClick={() => window.browserAPI.downloads.revealFolder().catch(() => {})}
+                    className="text-xs font-medium text-[var(--accent)] hover:underline"
+                  >
+                    Open folder
+                  </button>
                 </div>
-                <p className="text-[10px] text-[var(--text-faint)]">
-                  Last fetched {new Date(proxy.fetchedAt).toLocaleTimeString()}
-                </p>
-              </div>
-            )}
+              </MdCard>
 
-            {!proxyEnabled && proxyStatus !== 'fetching' && proxyStatus !== 'verifying' && (
-              <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] px-4 py-3">
-                <WifiOff size={15} className="text-[var(--text-faint)] shrink-0" />
-                <span className="text-sm text-[var(--text-faint)]">
-                  No proxy — using direct connection
-                </span>
-              </div>
-            )}
-
-            <p className="text-xs text-[var(--text-faint)] leading-relaxed">
-              Proxies are sourced from{' '}
-              <span className="text-[var(--text-muted)]">pubproxy.com</span>. Free public proxies
-              may be slow, blocked by some sites, or go offline without notice. Use for
-              light anonymity only — not a substitute for a VPN.
-            </p>
-          </div>
-        )}
-
-        {activeSection === 'downloads' && (
-          <div className="max-w-2xl space-y-5">
-            <h2 className="text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
-              Downloads
-            </h2>
-
-            {/* Save location */}
-            <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
-              <div>
-                <div className="text-sm font-medium text-[var(--text)]">Save location</div>
-                <div className="text-xs text-[var(--text-faint)] mt-0.5">
-                  Files are saved here automatically — no save dialog is shown.
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  value={downloadPath}
-                  onChange={(e) => setDownloadPath(e.target.value)}
-                  placeholder="Default downloads folder"
-                  className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:border-[var(--accent)]"
-                />
-                <button
-                  onClick={async () => {
-                    const picked = await window.browserAPI.downloads.pickFolder().catch(() => null);
-                    if (picked) setDownloadPath(picked);
-                  }}
-                  className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
-                >
-                  <FolderOpen size={15} /> Browse
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[var(--text-faint)]">
-                  Press{' '}
-                  <kbd className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] text-[var(--text-muted)]">
-                    Ctrl + J
-                  </kbd>{' '}
-                  to open the Downloads page.
-                </span>
-                <button
-                  onClick={() => window.browserAPI.downloads.revealFolder().catch(() => {})}
-                  className="text-xs text-[var(--accent)] hover:underline"
-                >
-                  Open folder
-                </button>
-              </div>
-            </div>
-
-            {/* Behaviour */}
-            <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
-              <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+              {/* Behaviour */}
+              <MdCard className="flex items-center justify-between gap-4">
                 <div>
-                  <div className="text-sm text-[var(--text)]">Open Downloads page on new download</div>
-                  <div className="text-xs text-[var(--text-faint)]">
+                  <div className="text-sm font-medium text-[var(--text)]">Open Downloads page on new download</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
                     Automatically switch to the Downloads page whenever a download starts.
                   </div>
                 </div>
-                <button
-                  role="switch"
-                  aria-checked={openDownloadsOnStart}
-                  onClick={() => setOpenDownloadsOnStart(!openDownloadsOnStart)}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                    openDownloadsOnStart ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                      openDownloadsOnStart ? 'translate-x-5' : 'translate-x-0.5'
-                    }`}
-                  />
-                </button>
-              </div>
+                <MdSwitch checked={openDownloadsOnStart} onChange={() => setOpenDownloadsOnStart(!openDownloadsOnStart)} />
+              </MdCard>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </main>
     </div>
   );
 };
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// Material-style elevated surface: flat by default, subtle shadow, 16px radius.
+// `padded={false}` is used for lists whose rows carry their own padding.
+function MdCard({
+  children,
+  className = '',
+  padded = true,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  padded?: boolean;
+}) {
   return (
-    <div>
-      <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-[var(--text-faint)]">
-        {title}
-      </h2>
+    <div
+      className={`rounded-2xl bg-[var(--surface)] shadow-sm ${padded ? 'p-4' : ''} ${className}`}
+    >
       {children}
     </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="mb-3 px-1 text-xs font-medium tracking-[0.08em] text-[var(--text-faint)]">
+      {children}
+    </h2>
+  );
+}
+
+// Material-style outlined text field with a floating label.
+function MdField({
+  value,
+  onChange,
+  label,
+  placeholder,
+  onEnter,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label: string;
+  placeholder?: string;
+  onEnter?: () => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-medium text-[var(--text-faint)]">{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && onEnter?.()}
+        placeholder={placeholder}
+        className="w-full rounded-xl bg-[var(--surface-2)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-2 focus:ring-[var(--accent)]"
+      />
+    </label>
   );
 }

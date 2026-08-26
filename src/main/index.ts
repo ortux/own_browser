@@ -27,6 +27,7 @@ import {
 } from './db';
 import { initAdblock, setAdblockEnabled, isAdblockEnabled, getBlockedCount } from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
+import { configureAdGuardDns } from './dns';
 import {
   initDownloads,
   setMainWindow,
@@ -43,6 +44,8 @@ import {
 } from './downloads';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+configureAdGuardDns();
 
 /**
  * Present web content as the Chromium version it actually runs on, without the

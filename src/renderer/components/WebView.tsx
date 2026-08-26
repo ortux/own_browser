@@ -10,6 +10,12 @@ interface WebViewProps {
 export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   const webviewRef = useRef<Electron.WebviewTag>(null);
   const [loadError, setLoadError] = useState<{ code: number; desc: string } | null>(null);
+  // Capture the URL only once, on first mount. The webview must NOT have its
+  // `src` bound reactively to `tab.url`, or every store update (including
+  // client-side SPA navigations like ChatGPT's pushState) would force a full
+  // reload and reset the session.
+  const initialSrc = useRef(tab.url === 'about:blank' ? '' : tab.url).current;
+  const mounted = useRef(false);
 
   // Register / unregister with the registry so nav controls work
   useEffect(() => {
@@ -19,9 +25,25 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     return () => webviewRegistry.unregister(tab.id);
   }, [tab.id]);
 
-  // Drive the webview to the new URL when it changes externally.
-  // The `src` prop below already performs the navigation; we only clear the
-  // error overlay here so we don't double-navigate (which aborts with -3).
+  // Imperatively navigate only when the store URL changes to something the
+  // webview is NOT already on. Internal SPA navigations report their new URL
+  // back to the store, but since the webview is already there we skip — no
+  // reload. This is what keeps ChatGPT (and similar SPAs) sessions intact.
+  useEffect(() => {
+    const el = webviewRef.current;
+    if (!el) return;
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    if (!tab.url || tab.url === 'about:blank') return;
+    const current = el.getURL?.() ?? '';
+    if (current !== tab.url) {
+      el.src = tab.url;
+    }
+  }, [tab.url, tab.id]);
+
+  // Clear the error overlay when a real navigation is in progress.
   useEffect(() => {
     if (tab.url && tab.url !== 'about:blank') {
       setLoadError(null);
@@ -93,6 +115,10 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     const onDidFailLoad = (e: Electron.DidFailLoadEvent) => {
       // -3 = ABORTED (user navigated away), ignore it
       if (e.errorCode === -3) return;
+      // Only surface main-frame failures. Electron also fires did-fail-load for
+      // every failing subresource (a blocked ad, a 404 image, etc.); showing the
+      // full-screen error overlay for those would black out the whole page.
+      if (!e.isMainFrame) return;
       setLoadError({ code: e.errorCode, desc: e.errorDescription });
       window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: false });
     };
@@ -120,7 +146,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     <div className="relative w-full h-full">
       <webview
         ref={webviewRef}
-        src={tab.url}
+        src={initialSrc}
         className="w-full h-full border-none"
         webpreferences="contextIsolation=yes"
         // Required for target=_blank/window.open events to reach the main

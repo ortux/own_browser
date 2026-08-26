@@ -6,6 +6,7 @@ import { WebView } from './WebView';
 import { NewTabPage } from './NewTabPage';
 import { SettingsPage } from './SettingsPage';
 import { DownloadsPage } from './DownloadsPage';
+import { DownloadToast } from './DownloadToast';
 import { HistoryPanel } from './HistoryPanel';
 import { BookmarksPanel } from './BookmarksPanel';
 import { useBrowserStore } from '../stores/tabStore';
@@ -213,6 +214,9 @@ export const BrowserWindow: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Download-start notifications */}
+      <DownloadToast onOpenDownloads={() => createTabWithUrl('zyphora://downloads')} />
 
     </div>
   );

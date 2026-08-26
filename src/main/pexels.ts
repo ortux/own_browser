@@ -39,6 +39,7 @@ const CATEGORY_QUERIES: Record<string, string[]> = {
   nature: ['nature', 'forest', 'mountain', 'ocean', 'landscape', 'aurora'],
   technology: ['technology', 'computer', 'circuit', 'robotics', 'code', 'futuristic'],
   space: ['space', 'galaxy', 'nebula', 'stars', 'astronaut', 'milky way'],
+  arts: ['art', 'painting', 'abstract', 'sculpture', 'gallery', 'modern art'],
 };
 
 const FALLBACK_QUERIES = ['nature', 'technology', 'space'];

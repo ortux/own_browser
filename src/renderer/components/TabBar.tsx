@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Plus } from 'lucide-react';
 import type { Tab } from '../../shared/types';
+import { TabFavicon } from '../lib/fileIcon';
 
 interface TabBarProps {
   tabs: Tab[];
@@ -29,16 +30,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
           }`}
         >
-          {tab.favicon && (
-            <img
-              src={tab.favicon}
-              alt=""
-              className="w-4 h-4 rounded"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          )}
+          <TabFavicon tab={tab} size={16} />
           <span className="truncate text-sm font-medium max-w-[120px]">
             {tab.title || 'New Tab'}
           </span>

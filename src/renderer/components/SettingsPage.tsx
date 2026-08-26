@@ -2,19 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen } from 'lucide-react';
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useProxy } from '../hooks/useProxy';
-import type { BackgroundCategory } from '../lib/backgroundCache';
 import type { SecuritySettings } from '../stores/settingsStore';
 
 interface SettingsPageProps {
   onBack: () => void;
 }
-
-const CATEGORY_OPTIONS: { id: BackgroundCategory; label: string }[] = [
-  { id: 'random', label: 'Random (Nature / Tech / Space)' },
-  { id: 'nature', label: 'Nature' },
-  { id: 'technology', label: 'Technology' },
-  { id: 'space', label: 'Space' },
-];
 
 const THEMES: { id: 'light' | 'dark' | 'system'; label: string; icon: React.ElementType }[] = [
   { id: 'light', label: 'Light', icon: Sun },
@@ -94,9 +86,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     theme,
     setTheme,
     newTabMode,
-    backgroundCategory,
     setNewTabMode,
-    setBackgroundCategory,
     downloadPath,
     setDownloadPath,
     openDownloadsOnStart,
@@ -412,33 +402,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                   })}
                 </div>
               </div>
-
-              {newTabMode === 'full' && (
-                <div>
-                  <SectionLabel>Background category</SectionLabel>
-                  <MdCard padded={false}>
-                    {CATEGORY_OPTIONS.map((opt, i) => {
-                      const isActive = backgroundCategory === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          onClick={() => setBackgroundCategory(opt.id)}
-                          className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors ${
-                            i !== 0 ? 'border-t border-[var(--border)]' : ''
-                          } ${isActive ? 'text-[var(--accent)] font-medium' : 'text-[var(--text-muted)] hover:bg-[var(--hover)]'}`}
-                        >
-                          {opt.label}
-                          {isActive && <Check size={16} className="text-[var(--accent)]" />}
-                        </button>
-                      );
-                    })}
-                  </MdCard>
-                  <p className="mt-2.5 px-1 text-xs text-[var(--text-faint)]">
-                    Images are fetched from Pexels and preloaded so each new tab appears
-                    instantly.
-                  </p>
-                </div>
-              )}
             </div>
           )}
 

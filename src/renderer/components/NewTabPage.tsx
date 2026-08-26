@@ -3,6 +3,7 @@ import { Search, Pencil } from 'lucide-react';
 import { useSettingsStore } from '../stores/settingsStore';
 import { takeImage, fetchNew } from '../lib/backgroundCache';
 import type { PexelsImage } from '../../shared/types';
+import appIcon from '../../../public/icon.png';
 
 interface NewTabPageProps {
   onSearch: (url: string) => void;
@@ -142,10 +143,14 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
         )}
         <div className="relative flex flex-col items-center gap-1">
           <div className="flex items-center gap-2.5">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
-              className="text-[var(--accent)] shrink-0 drop-shadow-lg">
-              <polygon points="3,4 21,4 21,8 9,18 21,18 21,22 3,22 3,18 15,8 3,8" fill="currentColor" />
-            </svg>
+            <img
+              src={appIcon}
+              alt="Zyphora"
+              width={26}
+              height={26}
+              className="shrink-0 rounded drop-shadow-lg"
+              draggable={false}
+            />
             <span
               className="text-3xl font-semibold"
               style={{

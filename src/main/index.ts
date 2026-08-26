@@ -809,6 +809,13 @@ app.on('web-contents-created', (_event, contents) => {
         event.preventDefault();
       }
     });
+
+    contents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'i') {
+        event.preventDefault();
+        if (!contents.isDevToolsOpened()) contents.openDevTools({ mode: 'detach' });
+      }
+    });
   }
 
   // A browser must support target=_blank/window.open, but untrusted pages must
@@ -891,6 +898,30 @@ app.on('web-contents-created', (_event, contents) => {
 
     if (!isEditable) {
       items.push({ role: 'selectAll' });
+    }
+
+    if (contentsType === 'webview') {
+      items.push(
+        { type: 'separator' },
+        {
+          label: 'Inspect element',
+          click: () => {
+            if (contents.isDestroyed()) return;
+            if (!contents.isDevToolsOpened()) {
+              contents.openDevTools({ mode: 'detach' });
+            }
+            contents.inspectElement(x, y);
+          },
+        },
+        {
+          label: contents.isDevToolsOpened() ? 'Close developer tools' : 'Open developer tools',
+          click: () => {
+            if (contents.isDestroyed()) return;
+            if (contents.isDevToolsOpened()) contents.closeDevTools();
+            else contents.openDevTools({ mode: 'detach' });
+          },
+        },
+      );
     }
 
     if (items.length === 0) {

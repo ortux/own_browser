@@ -10,9 +10,16 @@ import { app, session, shell, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import type { Download } from '../shared/types';
+import {
+  saveDownloadRecord,
+  loadDownloadRecords,
+  pruneDownloadRecords,
+  clearDownloadRecords,
+} from './db';
 
 let mainWindow: Electron.BrowserWindow | null = null;
 let downloadPath = '';
+let retentionDays = 30;
 
 // In-memory store of download records + the live Electron.DownloadItem handles.
 // We must keep a reference to each in-flight `item`, or Electron may
@@ -154,6 +161,8 @@ export function attachDownloadsToSession(ses: Electron.Session): void {
           r.state = 'interrupted';
           r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
         }
+        // Persist terminal records so the Downloads page survives a restart.
+        try { saveDownloadRecord(r); } catch { /* persistence unavailable */ }
         // The download is finished — releasing our handle is now safe.
         items.delete(id);
         notify();
@@ -167,8 +176,47 @@ export function initDownloads(): void {
   attachDownloadsToSession(session.defaultSession);
 }
 
+/**
+ * Load download history persisted in SQLite (terminal records only) into the
+ * in-memory record list. Called once at startup, after the database is ready.
+ */
+export function loadPersistedDownloads(): void {
+  try {
+    pruneDownloadRecords(retentionDays);
+    for (const row of loadDownloadRecords()) {
+      // Never resurrect an "interrupted" download as in-flight; keep the
+      // record purely informational.
+      records.set(row.id, {
+        id: row.id,
+        filename: row.filename,
+        url: row.url,
+        state: (row.state === 'completed' ? 'completed'
+          : row.state === 'canceled' ? 'canceled'
+          : 'interrupted'),
+        receivedBytes: row.receivedBytes,
+        totalBytes: row.totalBytes,
+        percent: row.percent,
+        path: row.path,
+        startTime: row.startTime,
+        endTime: row.endTime,
+      });
+    }
+  } catch (error) {
+    console.warn('[downloads] could not load persisted history:', error);
+  }
+}
+
 export function getDownloads(): Download[] {
   return Array.from(records.values()).sort((a, b) => b.startTime - a.startTime);
+}
+
+/** How long completed download records are kept (0 = until cleared). */
+export function setDownloadRetention(days: number): void {
+  retentionDays = Number.isFinite(days) && days >= 0 ? Math.floor(days) : 30;
+}
+
+export function getDownloadRetention(): number {
+  return retentionDays;
 }
 
 export function setDownloadPath(p: string): void {
@@ -186,6 +234,20 @@ export function setDownloadPath(p: string): void {
 
 export function cancelDownload(id: string): void {
   items.get(id)?.cancel();
+}
+
+export function pauseDownload(id: string): void {
+  const item = items.get(id);
+  if (!item) return;
+  try { item.pause(); } catch { /* not pausable in this state */ }
+}
+
+export function resumeDownload(id: string): void {
+  const item = items.get(id);
+  if (!item) return;
+  try {
+    if (item.canResume()) item.resume();
+  } catch { /* not resumable */ }
 }
 
 export function retryDownload(id: string): void {
@@ -215,6 +277,7 @@ export function clearDownloads(): void {
   }
   records.clear();
   items.clear();
+  try { clearDownloadRecords(); } catch { /* persistence unavailable */ }
   notify();
 }
 

@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Search, Pencil } from 'lucide-react';
+import { Search, Pencil, Plus, X } from 'lucide-react';
 import { useSettingsStore } from '../stores/settingsStore';
 import { takeImage, fetchNew } from '../lib/backgroundCache';
-import type { PexelsImage } from '../../shared/types';
+import type { PexelsImage, HistoryEntry } from '../../shared/types';
 import appIcon from '../../../public/icon.png';
 
 interface NewTabPageProps {
@@ -64,9 +64,53 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
   const newTabMode        = useSettingsStore((s) => s.newTabMode);
   const backgroundCategory = useSettingsStore((s) => s.backgroundCategory);
   const account           = useSettingsStore((s) => s.account);
+  const quickLinks        = useSettingsStore((s) => s.quickLinks);
+  const addQuickLink      = useSettingsStore((s) => s.addQuickLink);
+  const removeQuickLink   = useSettingsStore((s) => s.removeQuickLink);
 
   const [bg, setBg]           = useState<PexelsImage | null>(null);
   const [bgVisible, setBgVisible] = useState(false);
+
+  // ── Quick links: user shortcuts + most-visited sites from history ──
+  const [topSites, setTopSites] = useState<{ url: string; title: string }[]>([]);
+  const [showAddLink, setShowAddLink] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkTitle, setLinkTitle] = useState('');
+  const [linkError, setLinkError] = useState('');
+
+  useEffect(() => {
+    window.browserAPI.history.get(200).then((entries: HistoryEntry[]) => {
+      const counts = new Map<string, { count: number; title: string; url: string }>();
+      for (const entry of entries) {
+        try {
+          const parsed = new URL(entry.url);
+          if (!/^https?:$/.test(parsed.protocol)) continue;
+          const host = parsed.hostname.replace(/^www\./, '');
+          const existing = counts.get(host);
+          if (existing) existing.count += 1;
+          else counts.set(host, { count: 1, title: entry.title || host, url: `${parsed.protocol}//${host}` });
+        } catch { /* skip */ }
+      }
+      const quickUrls = new Set(quickLinks.map((link) => link.url));
+      setTopSites(
+        [...counts.values()]
+          .sort((a, b) => b.count - a.count)
+          .filter((site) => !quickUrls.has(site.url))
+          .slice(0, 4)
+          .map((site) => ({ url: site.url, title: site.title })),
+      );
+    }).catch(() => {});
+    // quickLinks changes are reflected through the quickUrls filter above only
+    // on reload; acceptable for a v1 shortcut grid.
+  }, []);
+
+  const submitQuickLink = () => {
+    if (addQuickLink(linkUrl, linkTitle)) {
+      setLinkUrl(''); setLinkTitle(''); setLinkError(''); setShowAddLink(false);
+    } else {
+      setLinkError('Enter a valid http(s) URL.');
+    }
+  };
 
   // ── Clock ──
   const [now, setNow] = useState(new Date());
@@ -107,12 +151,8 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const searchEngine = useSettingsStore((s) => s.getSearchEngine());
-  const engineIcon = (() => {
-    try {
-      const domain = new URL(searchEngine.url.replace(/%s/gi, '')).hostname;
-      return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-    } catch { return null; }
-  })();
+  // Local letter avatar — no remote favicon request for a privacy browser.
+  const engineInitial = searchEngine.name.trim().charAt(0).toUpperCase() || '?';
 
   const handleSubmit = useCallback(() => {
     const raw = query.trim();
@@ -284,10 +324,9 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
             className="flex items-center gap-3 rounded-full bg-white px-5 py-3.5 shadow-2xl transition-all duration-300 w-80 focus-within:w-full"
           >
             {focused && (
-              engineIcon
-                ? <img src={engineIcon} alt="" className="h-4 w-4 shrink-0 rounded-sm"
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-                : <Search size={18} className="shrink-0 text-gray-400" />
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-gray-200 text-[10px] font-semibold text-gray-600">
+                {engineInitial}
+              </span>
             )}
             <input
               ref={searchRef}
@@ -309,6 +348,92 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
             <Search size={20} className="text-white" />
           </button>
         </div>
+
+        {/* Quick links — pinned shortcuts + most-visited sites */}
+        <div className="mt-6 flex max-w-2xl flex-wrap items-center justify-center gap-3">
+          {quickLinks.map((link) => (
+            <div key={link.url} className="group relative">
+              <button
+                type="button"
+                onClick={() => onSearch(link.url)}
+                title={link.url}
+                className="flex h-16 w-16 flex-col items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-black/30 backdrop-blur-md transition-all hover:scale-105 hover:border-white/25"
+              >
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent)]/90 text-[11px] font-semibold text-white">
+                  {(link.title || link.url).replace(/^https?:\/\/(www\.)?/, '').charAt(0).toUpperCase()}
+                </span>
+                <span className="w-14 truncate text-[10px] text-white/80">{link.title}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => removeQuickLink(link.url)}
+                className="absolute -right-1 -top-1 hidden h-5 w-5 items-center justify-center rounded-full bg-[var(--surface)] text-[var(--text-muted)] shadow group-hover:flex hover:text-red-400"
+                title="Remove shortcut"
+                aria-label={`Remove ${link.title}`}
+              >
+                <X size={11} />
+              </button>
+            </div>
+          ))}
+
+          {topSites.map((site) => (
+            <button
+              key={site.url}
+              type="button"
+              onClick={() => onSearch(site.url)}
+              title={site.title}
+              className="flex h-16 w-16 flex-col items-center justify-center gap-1.5 rounded-2xl border border-white/10 bg-black/30 backdrop-blur-md transition-all hover:scale-105 hover:border-white/25"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-[11px] font-semibold text-white">
+                {site.title.replace(/^https?:\/\/(www\.)?/, '').charAt(0).toUpperCase()}
+              </span>
+              <span className="w-14 truncate text-[10px] text-white/80">
+                {site.title.replace(/^https?:\/\/(www\.)?/, '')}
+              </span>
+            </button>
+          ))}
+
+          <button
+            type="button"
+            onClick={() => setShowAddLink((v) => !v)}
+            className="flex h-16 w-16 flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-white/20 bg-black/20 text-white/60 backdrop-blur-md transition-all hover:scale-105 hover:border-white/40 hover:text-white"
+            title="Add shortcut"
+            aria-label="Add shortcut"
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+
+        {/* Add-shortcut inline form */}
+        {showAddLink && (
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitQuickLink(); }}
+            className="mt-4 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/40 px-4 py-2.5 backdrop-blur-md"
+          >
+            <input
+              value={linkTitle}
+              onChange={(e) => setLinkTitle(e.target.value)}
+              placeholder="Name"
+              className="w-28 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs text-white placeholder-white/40 outline-none"
+              spellCheck={false}
+            />
+            <input
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="example.com"
+              className="w-48 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs text-white placeholder-white/40 outline-none"
+              spellCheck={false}
+              autoFocus
+            />
+            <button
+              type="submit"
+              className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+            >
+              Add
+            </button>
+            {linkError && <span className="text-[10px] text-red-300">{linkError}</span>}
+          </form>
+        )}
         </div>
       </div>
 

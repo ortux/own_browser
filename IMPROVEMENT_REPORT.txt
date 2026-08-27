@@ -1,0 +1,508 @@
+================================================================================
+ZYHPHORA (OWN BROWSER) — IMPROVEMENT REPORT
+"What should we add next to make the app better?"
+================================================================================
+Date:          2026-08-27
+Analyzed from: branch arena/01a043c9-own-browser (upstream of commit 2be9e3d)
+Scope:         Full source review — src/main, src/preload, src/renderer,
+               src/shared, docs/, packaging config. No files were modified.
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Zyphora is an Electron + React + TypeScript privacy-focused browser that has
+grown well past the "Phase 2 prototype" its README still describes. It already
+has: a validated-IPC tab model, Ghostery network ad-blocking with per-site
+allowlists and diagnostics, private tabs with temporary partitions, SQLite
+(sql.js) history/bookmarks, a download manager with progress/retry, proxy
+support with rollback, AdGuard DoH, a certificate viewer, permission prompts,
+find-in-page, zoom/print, recently-closed tabs, SponsorBlock for YouTube, a
+customizable new-tab page with Pexels backgrounds, and a polished Arc-style
+sidebar UI.
+
+The codebase is in good shape after the 2026-08-26 code review remediations.
+The biggest opportunities now are NOT more privacy plumbing — they are:
+
+  1. Trust infrastructure:  automated tests + CI, multi-platform packaging,
+     auto-updates. Nothing ships safely without these.
+  2. Core browser parity:   session restore, tab sleeping, tab pin/mute,
+     tab cycling shortcuts, download persistence, bookmark import/export.
+     Users switching from Chrome/Firefox will notice these gaps in day one.
+  3. Privacy depth that matters in practice: WebRTC leak fix (critical for a
+     proxy browser), encryption at rest, cookie controls, per-site settings.
+  4. Delight features that fit the design: command palette, reader mode,
+     quick-links grid, better error pages.
+
+Recommendations below are ordered by priority tier, each with rationale,
+concrete scope, and the files involved. "Effort" is a rough S/M/L estimate.
+
+--------------------------------------------------------------------------------
+2. WHAT'S ALREADY DONE (DO NOT RE-BUILD)
+--------------------------------------------------------------------------------
+- Secure Electron baseline (nodeIntegration off, contextIsolation, sandbox,
+  shell CSP, sender+payload validation on every IPC handler).
+- Ghostery ads-only engine, serialized 7-day cache, fail-open, per-site
+  allowlist + blocked-request diagnostics (src/main/adblock.ts).
+- History/bookmarks persistence with atomic writes and corrupt-DB recovery
+  (src/main/db.ts).
+- Download manager: collision-safe filenames, path validation, records cap,
+  cancel/retry, live UI (src/main/downloads.ts).
+- Proxy: transactional apply/rollback, main-process-only credentials,
+  session-created auto-apply, verification through Chromium's stack
+  (src/main/proxy.ts).
+- Private tabs via temp partitions, private-mode history exclusion, DNT,
+  force-HTTPS at the webview boundary, blank-popup OAuth routing to tabs.
+- Cert viewer, permission prompts with sticky decisions, context menu,
+  DevTools shortcuts, find-in-page with match counter, SponsorBlock,
+  debounced history suggestions, downloads page + toasts, themes.
+
+--------------------------------------------------------------------------------
+3. TIER 0 — TRUST & RELEASE INFRASTRUCTURE (DO FIRST)
+--------------------------------------------------------------------------------
+These are prerequisites for calling anything else "done". The 2026-08-26 review
+lists the test gap as its #1 open item, and it is still open.
+
+[T0.1] Automated test suite + CI pipeline                                  Effort: M
+  Problem:
+  - The only tests are 9 unit tests for the ad-block matcher and URL helpers
+    (src/main/adblock.test.ts). `npm test` is a hand-rolled esbuild+node:test
+    script in package.json.
+  - No tests exist for: db.ts (add/search/dedupe/corrupt-recovery), downloads
+    logic, proxy rollback, permissions, tab lifecycle in index.ts, settings
+    store, SponsorBlock parsing, navigation.ts edge cases.
+  - There is NO CI at all (no .github/ directory). Lint/typecheck/build/test
+    only run if a developer remembers.
+  Recommendation:
+  - Migrate to vitest (works with the existing electron-vite toolchain) and
+    add unit tests for the modules above.
+  - Add Playwright's _electron driver for integration/smoke tests. The review
+    already wrote the checklist: navigate example.com, failed-DNS page,
+    target=_blank, blank-window OAuth popup, 10-tab switching with video,
+    adblock toggle mid-load, proxy enable/fail/disable, download to two
+    folders, renderer-kill recovery, packaged AppImage run.
+  - Add GitHub Actions: lint + typecheck + test + build + npm audit on PRs;
+    cache the Electron runtime; upload build artifacts.
+
+[T0.2] Cross-platform packaging                                            Effort: M
+  Problem: package.json "build" config targets Linux only (AppImage/deb), and
+  artifactName hardcodes "-linux-". Windows and macOS users cannot install the
+  browser at all.
+  Recommendation: add NSIS/targets for Windows, DMG for macOS (signed later),
+  parameterize artifactName per-platform, and test packaged (not just dev)
+  builds in CI — several past bugs (black webviews) only appear in packages.
+
+[T0.3] Auto-update mechanism                                               Effort: M
+  Problem: a distributed browser with no update path is a security liability —
+  users will keep running old Chromium/Electron with known CVEs.
+  Recommendation: integrate electron-updater with GitHub Releases (or a generic
+  feed), add an "About/Check for updates" section in Settings, and surface
+  update availability without telemetry-heavy infrastructure.
+
+[T0.4] Electron fuses hardening                                            Effort: S
+  Problem: @electron/fuses is not configured. Packaged apps still allow
+  ELECTRON_RUN_AS_NODE, node inspect switches, and cookie encryption is off.
+  Recommendation: add an afterPack hook that flips EnableNodeCliInspectArguments,
+  EnableRunAsNode, OnlyLoadAppFromAsar, and EnableEmbeddedCookieEncryption.
+
+--------------------------------------------------------------------------------
+4. TIER 1 — CORE BROWSER PARITY (THE MOST VISIBLE GAPS)
+--------------------------------------------------------------------------------
+Every item here is something a daily driver browser is expected to have.
+
+[T1.1] Tab lifecycle: sleeping / discarding                                Effort: L
+  Problem: ALL webviews stay mounted forever; inactive ones are merely
+  display:none (src/renderer/components/BrowserWindow.tsx ~line 275). This
+  defeats the README's own memory targets and long sessions balloon RAM.
+  Recommendation: keep the active tab + N recent tabs mounted; after an idle
+  timeout (e.g. 5 min), unmount the webview and render a lightweight
+  placeholder that restores the URL (and ideally scroll/back-forward state,
+  via webview `captureSnapshot` or `loadURL` + history restoration) on focus.
+  This is the review's open item "tab discard/suspend policy".
+
+[T1.2] Session restore ("Continue where you left off")                     Effort: M
+  Problem: tabs live only in a main-process Map; quitting loses everything.
+  The README even (incorrectly) claims tab state is persisted.
+  Recommendation: persist the non-private tab list (url/title/pinned order) to
+  the DB on change + on quit; on startup, offer restore (setting in
+  Settings > General, default on). Never restore private tabs.
+
+[T1.3] Tab pinning + audio controls                                        Effort: S
+  Problem: the Tab type already has `pinned` and `muted` fields
+  (src/shared/types.ts) but no UI or logic ever reads/writes them. There is no
+  mute button and no per-tab audio indicator.
+  Recommendation:
+  - Wire `muted` to webview setAudioMuted; show a speaker icon on
+    media-playing tabs (did-start-media-suspend events via the guest
+    webContents), click to mute/unmute.
+  - Pin tabs: pinned tabs sort to the top of the sidebar and shrink to favicon
+    only; persist across session restore.
+
+[T1.4] Tab navigation shortcuts                                            Effort: S
+  Problem: there is no Ctrl+Tab / Ctrl+PgDn-PgUp to cycle tabs, no Ctrl+1..8
+  to jump to a tab, no Ctrl+9 for last tab, no Ctrl+Shift+T conflict handling
+  beyond restore. The shortcut handler is in BrowserWindow.tsx.
+  Recommendation: add the full standard set; show it in a shortcut cheat-sheet
+  (see T4.5).
+
+[T1.5] Persisted download history                                          Effort: S
+  Problem: download records are an in-memory Map; restarting clears the
+  Downloads page (src/main/downloads.ts). The review flags retention/persistence
+  as open.
+  Recommendation: store terminal download records in the SQLite DB (new table),
+  load on startup, add a retention setting (e.g. keep 7/30 days) and clear
+  button. Add pause/resume buttons (Electron DownloadItem supports both) — the
+  page currently only offers cancel/retry.
+
+[T1.6] Bookmark import/export + folders                                    Effort: M
+  Problem: bookmarks are a flat list; there is no way to bring in bookmarks
+  from Chrome/Firefox/Brave or back them up.
+  Recommendation:
+  - Import/export the standard Netscape bookmark HTML format (one parser, main
+    process, DB batch insert).
+  - Add a bookmarks folder (or at least tag) dimension + reorder in
+    BookmarksPanel; consider an optional bookmarks bar row above the content
+    area.
+
+[T1.7] History page upgrades                                               Effort: M
+  Problem: HistoryPanel is a small side list; history searching is URL/title
+  LIKE only; clearing is all-or-nothing.
+  Recommendation: a full zyphora://history page (matching zyphora://downloads)
+  with day grouping, search, per-entry delete, and "Clear browsing data…"
+  dialog with granularity: time range + checkboxes for history/cookies/cache/
+  permissions/downloads. Today `privacy:clear-data` wipes everything at once.
+
+[T1.8] Search engine keywords in the address bar                           Effort: S
+  Problem: SearchEngine has a `shortcut` field ("ddg", "g", …) that is never
+  used anywhere. You cannot type "g cats" to search Google without changing
+  the default engine.
+  Recommendation: parse "<shortcut> <query>" in the address bar submit path
+  (NavBar.tsx handleSubmit / BrowserWindow handleNavigate); show the resolved
+  engine in the suggestion dropdown. Let custom engines define shortcuts.
+
+[T1.9] Address bar suggestion behavior fix + bookmarks/search results       Effort: S
+  Problem (also a UX bug): clicking a history suggestion navigates to the
+  SITE ROOT (NavBar.tsx openSuggestion builds https://<domain>), discarding
+  the actual page. Suggestions are history-only.
+  Recommendation: navigate to the real entry URL; mix in bookmark matches and
+  a "Search <engine> for X" first row; optionally support engine-provided
+  suggestions behind an explicit privacy opt-in.
+
+[T1.10] External protocol handling (mailto:, tel:, etc.)                   Effort: S
+  Problem: webview will-navigate blocks everything except http(s)/about:blank,
+  so clicking a mailto: or tel: link silently does nothing.
+  Recommendation: in the main-process open handler / will-navigate path,
+  detect known external schemes and route to shell.openExternal after a
+  confirmation (or an allowlist setting), keeping the deny default for
+  file:/javascript:/chrome-error:.
+
+[T1.11] Fullscreen (F11), per-site zoom persistence, print preview         Effort: S
+  Problem: no F11/fullscreen toggle; zoom resets on navigation (per-webview
+  zoomLevel not stored); Ctrl+P calls webview.print() directly with no preview.
+  Recommendation: add F11 + a fullscreen menu item; persist zoom per-origin
+  (zoomLevelChanged -> settings map); implement print preview via
+  webContents.printToPDF in a modal or keep system dialog but document it.
+
+[T1.12] Multi-window support                                              Effort: L
+  Problem: the app is architecturally single-window (mainWindow singleton,
+  tab Map in main). There is no Ctrl+N, no "Move tab to new window", no
+  picture-in-picture window management.
+  Recommendation: generalize main-process state to BrowserWindow->tabs maps.
+  This unblocks PiP windows, detached devtools, and private windows. Large but
+  strategic; schedule after T1.1/T1.2.
+
+--------------------------------------------------------------------------------
+5. TIER 2 — PRIVACY & SECURITY DEPTH (THE MISSION)
+--------------------------------------------------------------------------------
+[T2.1] WebRTC IP-leak protection                                           Effort: M
+  Problem: with a proxy active, WebRTC still uses direct UDP and can expose
+  the user's real IP — a classic deanonymization vector that directly
+  undermines the proxy feature the app ships.
+  Recommendation: when proxy is enabled, set the
+  WebRTCIPHandlingChrome policy-equivalent (webPreferences
+  `webRTCIPHandlingPolicy` or command-line switch) to route or hide local
+  IPs; expose "Protect WebRTC" as a security setting (default on with proxy).
+
+[T2.2] Encryption at rest                                                  Effort: L
+  Problem: zyphora.db (full history + bookmarks) is plaintext in userData;
+  settings — including proxy metadata and download paths — sit in renderer
+  localStorage. This is Phase 6 of the project's own roadmap and the review's
+  open item.
+  Recommendation: use Electron's safeStorage (OS keychain-backed) to derive an
+  app key; encrypt the DB file (or migrate to SQLCipher-style whole-file
+  encryption), or minimally encrypt the DB file bytes with AES-GCM and store
+  the key via safeStorage. Add "Protect local data with password" option.
+
+[T2.3] Cookie controls and per-site data UI                                Effort: M
+  Problem: no cookie management beyond clear-everything. No 3rd-party cookie
+  blocking despite the privacy positioning.
+  Recommendation: session-level cookie setting (allow all / block 3rd-party /
+  block all), per-site cookie exceptions, and a cookies-per-site viewer with
+  delete. Persist exceptions in the DB.
+
+[T2.4] Per-site settings page (permissions review)                         Effort: M
+  Problem: permission decisions (permissions.ts) are remembered forever in a
+  Map with no UI to view or revoke them; the only reset is wiping all data.
+  Recommendation: a "Site settings" surface (from the shield popup): list
+  granted/denied permissions per site (camera, location, notifications, …),
+  revoke buttons, plus per-site adblock status, HTTPS-upgrade exception, and
+  zoom — all in one place, like Chrome's site settings.
+
+[T2.5] URL tracking-parameter stripping                                     Effort: S
+  Problem: Phase 7 roadmap item, absent. utm_*/fbclid/gclid/etc. accumulate in
+  history and leak between shares.
+  Recommendation: opt-in (default off to avoid breakage) stripping of a
+  maintained parameter list on navigation + a "copy clean link" context-menu
+  item (works even if auto-strip is off).
+
+[T2.6] Global Privacy Control (GPC)                                        Effort: S
+  Problem: DNT exists (optional header), but GPC (Sec-GPC: 1) is the modern,
+  legally recognized signal.
+  Recommendation: add a GPC toggle that sets the header and overrides
+  navigator.globalPrivacyControl in webviews. Cheap, high-alignment feature.
+
+[T2.7] SponsorBlock opt-in setting                                         Effort: S
+  Problem: SponsorBlock runs automatically for every YouTube URL
+  (WebView.tsx -> applySponsorBlock), sending hashed video prefixes to
+  sponsor.ajay.app without any user setting.
+  Recommendation: add a Settings > Security/Privacy toggle (default off or at
+  least visible), and document the request in docs/PRIVACY.md.
+
+[T2.8] Local font + favicon independence                                   Effort: S
+  Problem: the shell loads Google Fonts remotely (index.html, and the CSP
+  allows fonts.googleapis.com) — a privacy and offline weakness for a privacy
+  browser. SettingsPage engineFavicon() still requests favicons from
+  google.com/s2/favicons (the exact leak the review removed from suggestions).
+  Recommendation: bundle the display font locally; replace engine favicons
+  with letter avatars or locally cached icons; build a local favicon cache
+  (store favicons seen via page-favicon-updated into the DB) so the shell
+  never fetches remote icons itself.
+
+[T2.9] Certificate state per-tab                                           Effort: M
+  Problem: cert cache is keyed by hostname only (certificate.ts) and survives
+  into later sessions/tabs; NavBar polls with timers (400ms/1400ms) — the
+  review's M14.
+  Recommendation: derive security state from the webview's own
+  did-navigate/security-state events per tab instead of polling a global map;
+  distinguish checking/valid/invalid/unknown already partly done in UI.
+
+[T2.10] Proxy UX upgrades                                                  Effort: M
+  Problem: proxy list only supports http:// proxies via ZYPHORA_PROXY_LIST
+  (ProxyInfo.type mentions socks but rules always build http://); Google bypass
+  is hardcoded in proxy.ts; verify endpoint (api.ipify.org) is fixed; there is
+  no per-site bypass UI; no failure auto-rotation.
+  Recommendation: support socks5 in proxyRules; make the bypass list and
+  verify endpoint configurable in Settings; show the active exit IP in the
+  proxy panel; optionally auto-rotate on repeated failures.
+
+[T2.11] Cosmetic filtering, staged                                         Effort: M
+  Problem: ads-only network filtering is intentionally conservative
+  (docs/ADBLOCK.md); YouTube is fully exempt.
+  Recommendation: follow the doc's own plan — add opt-in toggles for
+  privacy/annoyance lists, then cosmetic filtering, with per-site breakage
+  reporting. Keep network-only as default until the smoke suite (T0.1) exists.
+
+--------------------------------------------------------------------------------
+6. TIER 3 — PERFORMANCE
+--------------------------------------------------------------------------------
+[T3.1] Asynchronous / batched database writes                              Effort: M
+  Problem: every history/bookmark write exports the ENTIRE sql.js database and
+  writes it synchronously on the main process (db.ts persist()). Cost grows
+  with DB size; it stalls the UI thread and gets worse over months of use.
+  (Review open item.)
+  Recommendation: mark-dirty + debounced writes on idle (setImmediate /
+  requestIdleCallback equivalent), or a worker thread for export; fsync only
+  on quit. Also consider better-sqlite3 (native, prepared statements, WAL)
+  for the main process now that packaging is Linux-native — it removes the
+  whole export-on-write pattern.
+
+[T3.2] Startup performance instrumentation                                  Effort: S
+  The README sets targets (launch < 2s, new tab < 100ms) but nothing measures
+  them. Add lightweight perf marks (main-process boot, renderer first paint,
+  first tab interactive) logged locally and asserted in the smoke tests.
+
+[T3.3] Warm-up and prefetch                                                Effort: S
+  Pre-resolve DNS / preconnect for the top history domains on the new-tab
+  page; prefetch the hover-selected suggestion. Small wins that compound.
+
+--------------------------------------------------------------------------------
+7. TIER 4 — UX POLISH & DELIGHT
+--------------------------------------------------------------------------------
+[T4.1] Command palette (Ctrl+K)                                            Effort: M
+  The Arc-style sidebar begs for it: fuzzy actions (new private tab, toggle
+  theme, clear data, open downloads, switch engine) + tab/history search in
+  one overlay. High visibility, moderate effort, fits the existing design
+  language (rounded popups already exist in NavBar).
+
+[T4.2] Quick-links grid on the new-tab page                                Effort: S
+  README claims "New tab page with quick links" but NewTabPage has no
+  shortcuts — only clock/greeting/quote/search/background. Add a user-editable
+  shortcut grid (top sites from history by default, add/remove/pin).
+
+[T4.3] Branded error pages + offline detection                             Effort: M
+  Problem: load failures render a generic overlay (WebView.tsx) with a raw
+  Chromium error string; no distinction between offline / DNS blocked / TLS /
+  proxy-down.
+  Recommendation: a zyphora-styled error surface with friendly copy per error
+  code (-105 name-not-resolved, -118 connection-closed, -200 TLS…), offline
+  banner, and actions (retry, disable proxy, open settings). The proxy hint
+  already exists for 2 codes — generalize it.
+
+[T4.4] Reader mode                                                         Effort: M
+  Distraction-free reading (extract article via Readability, styled view,
+  font-size control). Natural fit for the privacy/minimal positioning, and a
+  great companion to "copy clean link" (T2.5).
+
+[T4.5] Keyboard shortcut cheat sheet + docs refresh                        Effort: S
+  Add "?" / Ctrl+/ overlay listing all shortcuts (several are undiscoverable:
+  Ctrl+J downloads global shortcut is registered in main and never advertised).
+  Refresh README (Ctrl+D listed as "future" but implemented; "quick links"
+  stale; Phase-3/5/7/8 items already exist) and ARCHITECTURE/SECURITY/PRIVACY
+  (review L6 — still true).
+
+[T4.6] Translate integration                                               Effort: M
+  Electron webviews have no built-in translate bar. Offer an opt-in translate
+  action (self-hostable LibreTranslate endpoint or a configured provider)
+  with per-site memory — disclosed in privacy docs since it necessarily sends
+  text to a service.
+
+[T4.7] Context menu additions                                              Effort: S
+  Add: "Open link in new PRIVATE tab", "Search <selection> with <engine>",
+  "Copy image address", "Save image as…", "Copy clean link" (T2.5),
+  Back/Forward/Reload group, and "Mute tab" when T1.3 lands. The menu builder
+  in index.ts is already well structured for this.
+
+[T4.8] Downloads page polish                                               Effort: S
+  Show transfer speed and ETA for active downloads; badge the sidebar
+  downloads icon with an in-progress count; toast click-through already
+  exists. Add "Search downloads" (records are capped at 500 — fine).
+
+[T4.9] Onboarding / first-run experience                                   Effort: M
+  A 3-step first-run tour (privacy defaults, private tabs, proxy setup) plus
+  a short "why your data stays local" explainer. Cheap trust-builder for a
+  new privacy browser.
+
+[T4.10] Accessibility pass                                                 Effort: M
+  Icon-only buttons mostly have titles, but verify aria-labels everywhere,
+  focus rings/trap in popups (cert/adblock dropdowns close only on
+  re-click — add Escape and outside-click handling), full keyboard
+  navigation for the sidebar/panels, and prefers-reduced-motion respect for
+  the animations.
+
+[T4.11] i18n groundwork                                                    Effort: M
+  Strings are hardcoded throughout. Extract to a message catalog before the
+  UI surface grows further (every feature above adds strings).
+
+--------------------------------------------------------------------------------
+8. TIER 5 — ENGINEERING HEALTH (DO AS YOU GO)
+--------------------------------------------------------------------------------
+[T5.1] Delete or revive dead components                                    Effort: S
+  ControlBar.tsx, AddressBar.tsx, and TabBar.tsx are no longer imported by
+  anything (NavBar/BrowserWindow superseded them). They contain a third copy
+  of looksLikeUrl. Delete them or extract their unique bits.
+
+[T5.2] Single source of truth for URL detection                            Effort: S
+  looksLikeUrl is duplicated (BrowserWindow.tsx, NavBar.tsx + the dead
+  components) with subtly different behavior (review L5, still true). Move to
+  shared/navigation.ts and unit-test it.
+
+[T5.3] Move settings persistence into the main process                     Effort: M
+  Settings live in renderer localStorage; the DB lives in main. Two stores,
+  two lifetimes, and localStorage can be wiped independently. Migrate
+  settings into SQLite (main-process owned, exposed via IPC) — it also
+  enables T2.2 encryption of settings and cleaner backup/export.
+
+[T5.4] CertInfo type location                                              Effort: S
+  NavBar imports CertInfo from src/main/certificate across the process
+  boundary. Move shared DTOs (CertInfo, ProxyInfo already leaks into main via
+  renderer/stores import) into src/shared/types.ts.
+
+[T5.5] Local diagnostics page                                              Effort: S
+  A zyphora://diagnostics page surfacing main-process logs, adblock engine
+  status (list age, cache path), DoH mode, proxy state, DB size, and electron
+  versions. No telemetry — purely local; invaluable for bug reports.
+
+[T5.6] Settings > General "Account" placeholder                            Effort: S
+  SettingsPage shows "Account settings are not available yet." Either
+  implement local profiles (name/avatar only, no sync) or remove the section
+  until there is a plan.
+
+--------------------------------------------------------------------------------
+9. SUGGESTED ROADMAP ORDER
+--------------------------------------------------------------------------------
+  Sprint 1-2  (Trust):        T0.1 tests+CI, T0.2 packaging, T0.4 fuses
+  Sprint 3    (Trust):        T0.3 auto-update
+  Sprint 3-4  (Parity quick): T1.3 pin/mute, T1.4 shortcuts, T1.5 download
+                              persistence, T1.8 engine keywords, T1.9
+                              suggestion fix, T1.10 external protocols,
+                              T4.2 quick links, T4.7 context menu
+  Sprint 5-6  (Parity core):  T1.1 tab sleeping, T1.2 session restore,
+                              T1.7 history page + clear-dialog
+  Sprint 7    (Privacy):      T2.1 WebRTC leak, T2.6 GPC, T2.5 URL stripping,
+                              T2.7 SponsorBlock opt-in, T2.8 local fonts
+  Sprint 8-9  (Privacy core): T2.2 encryption at rest, T2.3 cookies,
+                              T2.4 site settings, T3.1 async DB writes
+  Sprint 10+  (Delight):      T4.1 palette, T4.3 error pages, T4.4 reader,
+                              T1.12 multi-window, T2.11 cosmetic filtering
+
+Rationale: tests and packaging first because every later feature lands safer
+and ships; quick parity wins next because they are small and highly visible;
+privacy depth after parity so the fundamentals (restore, memory) don't regress
+under new surfaces; delight last because it layers cleanly on finished
+foundations.
+
+--------------------------------------------------------------------------------
+10. TOP 10 IF YOU ONLY DO TEN THINGS
+--------------------------------------------------------------------------------
+  1. T0.1  Test suite + CI (Playwright smoke incl.)
+  2. T0.2  Windows/macOS packaging
+  3. T0.3  Auto-updates
+  4. T1.1  Tab sleeping (memory)
+  5. T1.2  Session restore
+  6. T1.3  Tab pin/mute + audio indicator
+  7. T2.1  WebRTC IP-leak fix when proxy is on
+  8. T1.5  Persisted downloads (with pause/resume)
+  9. T1.9  Fix suggestion-click navigates to site root (data-loss-class UX bug)
+ 10. T2.2  Encrypt local history/bookmarks/settings at rest
+
+================================================================================
+END OF REPORT
+================================================================================
+
+================================================================================
+IMPLEMENTATION STATUS ADDENDUM (2026-08-27, branch arena/01a043c9-own-browser)
+================================================================================
+Implemented and verified (typecheck + lint + 44 unit tests + build all green):
+
+TIER 0   [all done]  T0.1 vitest suite + Playwright smoke specs + CI workflow
+                      (workflow definition in docs/ci-workflow.yml — copy to
+                      .github/workflows/ci.yml; the sandbox push token lacks
+                      workflows permission), T0.2 win/mac packaging, T0.3
+                      electron-updater + Settings>About, T0.4 fuses afterPack.
+TIER 1   [11/12 done] T1.1 tab sleeping, T1.2 session restore, T1.3 pin/mute +
+                      audio indicator, T1.4 shortcut set, T1.5 persisted
+                      downloads + pause/resume/retention, T1.6 bookmark
+                      import/export, T1.7 history page + clear dialog, T1.8
+                      engine keywords, T1.9 suggestion fix + bookmark/search
+                      rows, T1.10 external protocols, T1.11 F11 + per-site zoom
+                      (print preview intentionally kept as the system dialog).
+                      T1.12 multi-window DEFERRED (architectural).
+TIER 2   [8/11 done] T2.1 WebRTC leak policy, T2.2 encryption at rest
+                      (AES-256-GCM + keychain, unit-tested), T2.3 3rd-party
+                      cookie blocking, T2.4 Site settings (permissions + cookies
+                      per host), T2.5 clean links, T2.6 GPC, T2.7 SponsorBlock
+                      opt-in, T2.8 local fonts + no remote favicons, T2.10 SOCKS
+                      + exit IP. T2.9 cert-per-tab, T2.11 cosmetic filtering
+                      DEFERRED (staged rollout needs the smoke suite green in CI).
+TIER 3   [2/3 done]  T3.1 debounced DB writes, T3.2 startup timing. T3.3
+                      prefetch DEFERRED.
+TIER 4   [7/11 done] T4.1 command palette, T4.2 quick links, T4.3 branded error
+                      pages, T4.5 cheat sheet + docs refresh, T4.7 context menu,
+                      T4.8 speed/ETA, T4.10 partial a11y (roles/labels/Escape).
+                      T4.4 reader, T4.6 translate, T4.9 onboarding, T4.11 i18n
+                      DEFERRED.
+TIER 5   [5/6 done]  T5.1 dead code, T5.2 single URL source, T5.4 shared DTOs,
+                      T5.5 diagnostics page, T5.6 local profile. T5.3
+                      settings-in-main DEFERRED.
+
+Deferred items are tracked above with their reason; next big rocks are T1.12
+multi-window, T2.9/T2.11 privacy depth, and T5.3 storage consolidation.

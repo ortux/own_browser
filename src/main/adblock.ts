@@ -13,6 +13,8 @@ let mainWindowGetter: (() => WebContents | null) | null = null;
 let statsTimer: ReturnType<typeof setTimeout> | null = null;
 let forceHttps = true;
 let doNotTrack = false;
+let globalPrivacyControl = false;
+let stripTrackingParams = false;
 const allowedSites = new Set<string>();
 const blockedBySite = new Map<string, number>();
 const blockedRequestsBySite = new Map<string, BlockedRequest[]>();
@@ -182,8 +184,11 @@ function installYouTubeException(engine: ElectronBlocker): void {
 function installDntListener(ses: Electron.Session): void {
   if (dntListeners.has(ses)) return;
   const listener: DntListener = (details, callback) => {
-    if (doNotTrack && details.webContents?.getType() === 'webview') {
-      details.requestHeaders.DNT = '1';
+    if (details.webContents?.getType() === 'webview') {
+      // Classic Do Not Track signal (honoured rarely, costs nothing).
+      if (doNotTrack) details.requestHeaders.DNT = '1';
+      // Global Privacy Control — the legally recognised successor signal.
+      if (globalPrivacyControl) details.requestHeaders['Sec-GPC'] = '1';
     }
     callback({ requestHeaders: details.requestHeaders });
   };
@@ -267,13 +272,46 @@ export function setAdblockEnabled(value: boolean): void {
 export function setNetworkSecuritySettings(settings: {
   forceHttps: boolean;
   doNotTrack: boolean;
+  globalPrivacyControl?: boolean;
+  stripTrackingParams?: boolean;
 }): void {
   forceHttps = Boolean(settings.forceHttps);
   doNotTrack = Boolean(settings.doNotTrack);
+  globalPrivacyControl = Boolean(settings.globalPrivacyControl);
+  stripTrackingParams = Boolean(settings.stripTrackingParams);
 }
 
 export function isForceHttpsEnabled(): boolean {
   return forceHttps;
+}
+
+export function isStripTrackingParamsEnabled(): boolean {
+  return stripTrackingParams;
+}
+
+export interface AdblockDiagnostics {
+  enabled: boolean;
+  blockedThisSession: number;
+  cacheExists: boolean;
+  cacheAgeDays: number | null;
+  allowlistSize: number;
+}
+
+export function getAdblockDiagnostics(): AdblockDiagnostics {
+  let cacheExists = false;
+  let cacheAgeDays: number | null = null;
+  try {
+    const stat = fs.statSync(cachePath());
+    cacheExists = true;
+    cacheAgeDays = Math.floor((Date.now() - stat.mtimeMs) / 86_400_000);
+  } catch { /* no cache yet */ }
+  return {
+    enabled,
+    blockedThisSession: blockedCount,
+    cacheExists,
+    cacheAgeDays,
+    allowlistSize: allowedSites.size,
+  };
 }
 
 export function isAdblockEnabled(): boolean {

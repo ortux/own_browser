@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bookmark, Search, Trash2, X, ExternalLink } from 'lucide-react';
+import { Bookmark, Search, Trash2, X, ExternalLink, Download, Upload } from 'lucide-react';
 import { useBookmarks } from '../hooks/useBookmarks';
 import type { Bookmark as BookmarkType } from '../../shared/types';
 
@@ -9,8 +9,30 @@ interface BookmarksPanelProps {
 }
 
 export const BookmarksPanel: React.FC<BookmarksPanelProps> = ({ onNavigate, onClose }) => {
-  const { bookmarks, remove } = useBookmarks();
+  const { bookmarks, remove, refresh } = useBookmarks();
   const [query, setQuery] = useState('');
+  const [importNote, setImportNote] = useState('');
+
+  const exportBookmarks = async () => {
+    try {
+      const result = await window.browserAPI.bookmarks.export();
+      if (!result.canceled) setImportNote(`Exported ${result.count} bookmark(s).`);
+    } catch {
+      setImportNote('Export failed.');
+    }
+  };
+
+  const importBookmarks = async () => {
+    try {
+      const result = await window.browserAPI.bookmarks.import();
+      if (!result.canceled) {
+        setImportNote(`Imported ${result.imported}, skipped ${result.skipped}.`);
+        refresh();
+      }
+    } catch {
+      setImportNote('Import failed.');
+    }
+  };
 
   const filtered = query.trim()
     ? bookmarks.filter(
@@ -28,13 +50,35 @@ export const BookmarksPanel: React.FC<BookmarksPanelProps> = ({ onNavigate, onCl
           <Bookmark size={15} />
           <span className="text-sm font-semibold">Bookmarks</span>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded hover:bg-[var(--hover)] text-[var(--text-faint)] transition-colors"
-        >
-          <X size={14} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => void importBookmarks()}
+            title="Import bookmarks from another browser"
+            className="p-1.5 rounded hover:bg-[var(--hover)] text-[var(--text-faint)] transition-colors"
+          >
+            <Upload size={14} />
+          </button>
+          <button
+            onClick={() => void exportBookmarks()}
+            title="Export bookmarks to HTML"
+            className="p-1.5 rounded hover:bg-[var(--hover)] text-[var(--text-faint)] transition-colors"
+          >
+            <Download size={14} />
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-[var(--hover)] text-[var(--text-faint)] transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
       </div>
+
+      {importNote && (
+        <div className="mx-3 mt-2 rounded-lg bg-[var(--surface-2)] px-3 py-1.5 text-[11px] text-[var(--text-muted)]">
+          {importNote}
+        </div>
+      )}
 
       {/* Search */}
       <div className="px-3 py-2 shrink-0">

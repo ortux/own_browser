@@ -10,6 +10,9 @@ import {
   User,
   ChevronDown,
   RotateCcw,
+  Volume2,
+  VolumeX,
+  Pin,
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -26,6 +29,8 @@ interface SidebarTabsProps {
   onOpenHistory: () => void;
   onOpenBookmarks: () => void;
   onOpenRecentlyClosed: () => void;
+  onTabTogglePin: (tabId: string) => void;
+  onTabToggleMute: (tabId: string) => void;
 }
 
 const COLLAPSED_W = 48;
@@ -74,21 +79,31 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onOpenHistory,
   onOpenBookmarks,
   onOpenRecentlyClosed,
+  onTabTogglePin,
+  onTabToggleMute,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [tabSearch, setTabSearch] = useState('');
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const account = useSettingsStore((s) => s.account);
 
+  // Pinned tabs always sort to the top (stable within each group).
+  const sortedTabs = useMemo(
+    () => [...tabs].sort((a, b) => Number(b.pinned) - Number(a.pinned)),
+    [tabs]
+  );
+
   const filteredTabs = useMemo(() => {
     const q = tabSearch.toLowerCase().trim();
-    if (!q) return tabs;
-    return tabs.filter(
-      (t) =>
-        (t.title || 'New Tab').toLowerCase().includes(q) ||
-        t.url.toLowerCase().includes(q)
-    );
-  }, [tabs, tabSearch]);
+    const source = q
+      ? sortedTabs.filter(
+          (t) =>
+            (t.title || 'New Tab').toLowerCase().includes(q) ||
+            t.url.toLowerCase().includes(q)
+        )
+      : sortedTabs;
+    return source;
+  }, [sortedTabs, tabSearch]);
 
   const iconBtn = (icon: React.ReactNode, label: string, onClick?: () => void) => (
     <button
@@ -127,16 +142,31 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
 
           {/* Tab favicons */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col gap-0.5">
-            {tabs.map((tab) => (
+            {sortedTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => onTabClick(tab.id)}
-                title={tab.title || 'New Tab'}
-                className={`flex items-center justify-center w-full py-2 rounded-lg transition-colors ${
+                title={`${tab.pinned ? '📌 ' : ''}${tab.title || 'New Tab'}${tab.muted ? ' (muted)' : tab.audible ? ' (playing audio)' : ''}`}
+                data-testid="tab-row"
+                className={`relative flex items-center justify-center w-full py-2 rounded-lg transition-colors ${
                   tab.id === activeTabId ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
                 }`}
               >
                 <TabFavicon tab={tab} size={14} />
+                {(tab.muted || tab.audible) && (
+                  <span
+                    className={`absolute bottom-0.5 right-1.5 ${
+                      tab.muted ? 'text-[var(--text-faint)]' : 'text-[var(--accent)]'
+                    }`}
+                  >
+                    {tab.muted ? <VolumeX size={10} /> : <Volume2 size={10} />}
+                  </span>
+                )}
+                {tab.pinned && (
+                  <span className="absolute top-0.5 left-1.5 text-[var(--text-faint)]">
+                    <Pin size={9} />
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -248,6 +278,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                     setDraggedTabId(null);
                   }}
                   onDragEnd={() => setDraggedTabId(null)}
+                  data-testid="tab-row"
                   className={`group flex items-center gap-2.5 px-3 py-2 my-0.5 rounded-lg cursor-pointer transition-colors ${
                     isActive
                       ? 'bg-[var(--hover)] text-[var(--text)]'
@@ -257,9 +288,36 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                   <div className="shrink-0 w-4 h-4 flex items-center justify-center">
                     <TabFavicon tab={tab} size={14} />
                   </div>
-                  <span className="flex-1 truncate text-sm leading-none">
+                  <span
+                    className={`flex-1 truncate text-sm leading-none ${
+                      tab.pinned ? 'text-[var(--accent)]' : ''
+                    }`}
+                  >
+                    {tab.pinned && <Pin size={10} className="inline mr-1 -mt-0.5" />}
                     {tab.title || 'New Tab'}
                   </span>
+                  {(tab.muted || tab.audible) && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onTabToggleMute(tab.id); }}
+                      className={`shrink-0 p-0.5 rounded hover:bg-[var(--border-strong)] transition-all ${
+                        tab.muted ? 'text-[var(--text-faint)]' : 'text-[var(--accent)]'
+                      }`}
+                      title={tab.muted ? 'Unmute tab' : 'Mute tab'}
+                    >
+                      {tab.muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onTabTogglePin(tab.id); }}
+                    className={`shrink-0 p-0.5 rounded hover:bg-[var(--border-strong)] transition-all ${
+                      tab.pinned
+                        ? 'text-[var(--accent)] opacity-100'
+                        : 'opacity-0 group-hover:opacity-100 text-[var(--text-faint)]'
+                    }`}
+                    title={tab.pinned ? 'Unpin tab' : 'Pin tab'}
+                  >
+                    <Pin size={12} />
+                  </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}
                     className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--border-strong)] transition-all"

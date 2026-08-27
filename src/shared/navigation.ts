@@ -12,7 +12,7 @@ const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
 export function isAllowedNavigationUrl(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed === 'about:blank') return true;
-  if (trimmed === 'zyphora://downloads') return true;
+  if (isInternalPageUrl(trimmed)) return true;
 
   try {
     const parsed = new URL(trimmed);
@@ -51,5 +51,72 @@ export function isHttpNavigationUrl(value: string): boolean {
       && Boolean(parsed.hostname);
   } catch {
     return false;
+  }
+}
+
+/**
+ * Heuristic: does this address-bar input look like a destination URL rather
+ * than a search query? Kept here so every input surface (address bar, new-tab
+ * search, command palette) interprets input identically.
+ */
+export function looksLikeUrl(input: string): boolean {
+  const trimmed = input.trim();
+  if (
+    trimmed.startsWith('http://')
+    || trimmed.startsWith('https://')
+    || trimmed.startsWith('file://')
+    || trimmed.startsWith('about:')
+    || trimmed.startsWith('zyphora://')
+    || trimmed.startsWith('localhost')
+  ) {
+    return true;
+  }
+  return trimmed.includes('.') && !trimmed.includes(' ');
+}
+
+/** Schemes that should be handed to the OS instead of loaded in a tab. */
+export const EXTERNAL_PROTOCOLS = new Set([
+  'mailto:',
+  'tel:',
+  'sms:',
+  'callto:',
+  'news:',
+  'nntp:',
+  'feed:',
+  'webcal:',
+  'irc:',
+  'ircs:',
+  'magnet:',
+  'xmpp:',
+  'matrix:',
+]);
+
+export function isExternalProtocolUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed.includes(':')) return false;
+  for (const scheme of EXTERNAL_PROTOCOLS) {
+    if (trimmed.toLowerCase().startsWith(scheme)) return true;
+  }
+  return false;
+}
+
+/** Internal pages the shell can render without a webview. */
+export const INTERNAL_PAGES = new Set([
+  'zyphora://downloads',
+  'zyphora://history',
+  'zyphora://diagnostics',
+]);
+
+export function isInternalPageUrl(value: string): boolean {
+  return INTERNAL_PAGES.has(value.trim());
+}
+
+/** Friendly title for an internal page, or null for anything else. */
+export function internalPageTitle(value: string): string | null {
+  switch (value.trim()) {
+    case 'zyphora://downloads': return 'Downloads';
+    case 'zyphora://history': return 'History';
+    case 'zyphora://diagnostics': return 'Diagnostics';
+    default: return null;
   }
 }

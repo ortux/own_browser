@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { BackgroundCategory } from '../lib/backgroundCache';
+import type { ProxyInfo } from '../../shared/types';
+
+export type { ProxyInfo };
 
 export interface SearchEngine {
   id: string;
@@ -9,23 +12,26 @@ export interface SearchEngine {
   shortcut: string;
 }
 
-export interface ProxyInfo {
-  ip: string;
-  port: string;
-  ipPort: string;
-  country: string;
-  type: string;           // "http" | "socks4" | "socks5"
-  proxyLevel: string;     // "anonymous" | "elite" | "transparent"
-  supportsHttps: boolean;
-  speed: number;          // seconds
-  fetchedAt: number;      // unix ms
-}
-
 export interface SecuritySettings {
   blockTrackers: boolean;
   forceHttps: boolean;
   doNotTrack: boolean;
   privateByDefault: boolean;
+  /** Send the Global Privacy Control signal (Sec-GPC: 1). */
+  globalPrivacyControl: boolean;
+  /** Strip utm_ and click-tracker identifiers from navigations. */
+  stripTrackingParams: boolean;
+  /** WebRTC IP handling policy (applies on next launch). */
+  webrtcPolicy: 'default' | 'public-only' | 'disable';
+  /** Block third-party cookies (applies on next launch). */
+  blockThirdPartyCookies: boolean;
+  /** Skip sponsored segments on YouTube (queries sponsor.ajay.app). */
+  sponsorBlock: boolean;
+}
+
+export interface QuickLink {
+  url: string;
+  title: string;
 }
 
 export const SEARCH_ENGINES: SearchEngine[] = [
@@ -79,9 +85,18 @@ interface SettingsStore {
 
   // Security / privacy
   security: SecuritySettings;
-  setSecurityFlag: (flag: keyof SecuritySettings, value: boolean) => void;
+  setSecurityFlag: <K extends keyof SecuritySettings>(flag: K, value: SecuritySettings[K]) => void;
   adblockAllowlist: string[];
   setAdblockAllowlist: (sites: string[]) => void;
+
+  // Session
+  restoreSession: boolean;
+  setRestoreSession: (enabled: boolean) => void;
+
+  // New-tab quick links (user-pinned shortcuts)
+  quickLinks: QuickLink[];
+  addQuickLink: (url: string, title: string) => boolean;
+  removeQuickLink: (url: string) => void;
 
   // Appearance / theme
   theme: 'light' | 'dark' | 'system';
@@ -89,6 +104,8 @@ interface SettingsStore {
 
   // Signed-in account (null = not signed in)
   account: { name: string; image?: string } | null;
+  /** Local-only profile display name (no sync, no account). */
+  setAccountName: (name: string) => void;
 
   // New-tab mode
   newTabMode: 'minimal' | 'full';
@@ -107,6 +124,12 @@ interface SettingsStore {
   setDownloadPath: (path: string) => void;
   openDownloadsOnStart: boolean;
   setOpenDownloadsOnStart: (value: boolean) => void;
+  downloadRetentionDays: number;
+  setDownloadRetentionDays: (days: number) => void;
+
+  /** Per-origin zoom factor persistence (origin → factor, 1 = default). */
+  siteZoom: Record<string, number>;
+  setSiteZoom: (origin: string, factor: number) => void;
 }
 
 function sanitizeProxy(value: unknown): ProxyInfo | null {
@@ -191,6 +214,11 @@ export const useSettingsStore = create<SettingsStore>()(
         forceHttps: true,
         doNotTrack: false,
         privateByDefault: false,
+        globalPrivacyControl: false,
+        stripTrackingParams: false,
+        webrtcPolicy: 'public-only',
+        blockThirdPartyCookies: true,
+        sponsorBlock: false,
       },
       adblockAllowlist: [],
 
@@ -199,10 +227,37 @@ export const useSettingsStore = create<SettingsStore>()(
       setAdblockAllowlist: (sites) =>
         set({ adblockAllowlist: [...new Set(sites.map((site) => site.toLowerCase().replace(/^www\./, '')))] }),
 
+      restoreSession: true,
+      setRestoreSession: (enabled) => set({ restoreSession: enabled }),
+
+      quickLinks: [],
+      addQuickLink: (url, title) => {
+        const trimmed = url.trim();
+        try {
+          const parsed = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+          if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) return false;
+          const finalUrl = parsed.toString();
+          if (get().quickLinks.some((link) => link.url === finalUrl)) return false;
+          const host = parsed.hostname.replace(/^www\./, '');
+          set((s) => ({
+            quickLinks: [...s.quickLinks, { url: finalUrl, title: (title.trim() || host).slice(0, 60) }],
+          }));
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      removeQuickLink: (url) =>
+        set((s) => ({ quickLinks: s.quickLinks.filter((link) => link.url !== url) })),
+
       theme: 'dark',
       setTheme: (theme) => set({ theme }),
 
       account: null,
+      setAccountName: (name) => {
+        const trimmed = name.trim().slice(0, 60);
+        set({ account: trimmed ? { name: trimmed } : null });
+      },
 
       newTabMode: 'full',
       backgroundCategory: 'random',
@@ -218,6 +273,21 @@ export const useSettingsStore = create<SettingsStore>()(
       setDownloadPath: (path) => set({ downloadPath: path }),
       openDownloadsOnStart: false,
       setOpenDownloadsOnStart: (value) => set({ openDownloadsOnStart: value }),
+      downloadRetentionDays: 30,
+      setDownloadRetentionDays: (days) =>
+        set({ downloadRetentionDays: Math.min(365, Math.max(0, Math.floor(days))) }),
+
+      siteZoom: {},
+      setSiteZoom: (origin, factor) =>
+        set((s) => {
+          const next = { ...s.siteZoom };
+          if (Math.abs(factor - 1) < 0.01) delete next[origin];
+          else next[origin] = Math.min(3, Math.max(0.5, factor));
+          // Cap the map so years of browsing cannot grow it unbounded.
+          const keys = Object.keys(next);
+          if (keys.length > 200) for (const key of keys.slice(0, keys.length - 200)) delete next[key];
+          return { siteZoom: next };
+        }),
     }),
     {
       name: 'own-browser-settings',

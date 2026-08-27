@@ -1,7 +1,17 @@
 import { useCallback, useEffect } from 'react';
 import { useBrowserStore } from '../stores/tabStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { webviewRegistry } from '../stores/webviewRegistry';
 import type { BrowserState } from '../../shared/types';
+
+function originOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
 
 export const useBrowser = () => {
   const updateState = useBrowserStore((state) => state.updateState);
@@ -90,13 +100,21 @@ export const useBrowser = () => {
   const zoom = useCallback((delta: number) => {
     const wv = webviewRegistry.get(store.activeTabId);
     if (!wv) return;
-    wv.setZoomFactor(Math.min(3, Math.max(0.5, wv.getZoomFactor() + delta)));
-  }, [store.activeTabId]);
+    const next = Math.min(3, Math.max(0.5, wv.getZoomFactor() + delta));
+    wv.setZoomFactor(next);
+    // Remember the zoom per-origin so it survives navigation and restarts.
+    const tab = store.tabs.find((t) => t.id === store.activeTabId);
+    const origin = originOf(tab?.url);
+    if (origin) useSettingsStore.getState().setSiteZoom(origin, next);
+  }, [store.activeTabId, store.tabs]);
 
   const resetZoom = useCallback(() => {
     const wv = webviewRegistry.get(store.activeTabId);
     if (wv) wv.setZoomFactor(1);
-  }, [store.activeTabId]);
+    const tab = store.tabs.find((t) => t.id === store.activeTabId);
+    const origin = originOf(tab?.url);
+    if (origin) useSettingsStore.getState().setSiteZoom(origin, 1);
+  }, [store.activeTabId, store.tabs]);
 
   const printPage = useCallback(() => {
     const wv = webviewRegistry.get(store.activeTabId);

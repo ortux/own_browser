@@ -15,10 +15,12 @@ import {
   CornerDownLeft,
   Download as DownloadIcon,
   Globe,
+  Bookmark as BookmarkIcon,
 } from 'lucide-react';
-import type { Tab, HistoryEntry, Download, BlockedRequest } from '../../shared/types';
-import type { CertInfo } from '../../main/certificate';
-import { useSettingsStore } from '../stores/settingsStore';
+import type { Tab, HistoryEntry, Download, BlockedRequest, Bookmark, CertInfo } from '../../shared/types';
+import { looksLikeUrl } from '../../shared/navigation';
+import { resolveAddressInput } from '../lib/addressInput';
+import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 
 interface NavBarProps {
   activeTab: Tab | undefined;
@@ -34,21 +36,6 @@ interface NavBarProps {
   onOpenDownloads?: () => void;
 }
 
-function looksLikeUrl(input: string): boolean {
-  const trimmed = input.trim();
-  if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('file://') ||
-    trimmed.startsWith('about:') ||
-    trimmed.startsWith('zyphora://') ||
-    trimmed.startsWith('localhost')
-  ) {
-    return true;
-  }
-  return trimmed.includes('.') && !trimmed.includes(' ');
-}
-
 /** Strip protocol for a cleaner display when not focused */
 function displayUrl(url: string): string {
   if (!url || url === 'about:blank') return '';
@@ -59,6 +46,12 @@ function displayUrl(url: string): string {
 function domainOf(url: string): string {
   try { return new URL(url).hostname; } catch { return url; }
 }
+
+/** One row in the address-bar suggestion dropdown. */
+type SuggestionRow =
+  | { kind: 'search'; query: string; engineName: string }
+  | { kind: 'bookmark'; entry: Bookmark }
+  | { kind: 'history'; entry: HistoryEntry };
 
 export const NavBar: React.FC<NavBarProps> = ({
   activeTab,
@@ -76,6 +69,8 @@ export const NavBar: React.FC<NavBarProps> = ({
   const [isFocused, setIsFocused] = useState(false);
   const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
   const getSearchEngine = useSettingsStore((s) => s.getSearchEngine);
+  const searchEngineId = useSettingsStore((s) => s.searchEngineId);
+  const customSearchEngines = useSettingsStore((s) => s.customSearchEngines);
   const engine = getSearchEngine();
 
   // ── Ad blocker state (mirrors SecuritySettings.blockTrackers) ──
@@ -96,8 +91,9 @@ export const NavBar: React.FC<NavBarProps> = ({
     () => setSecurityFlag('blockTrackers', !blockTrackers),
     [blockTrackers, setSecurityFlag]
   );
-  // ── History suggestions ──
-  const [history, setHistory]           = useState<HistoryEntry[]>([]);
+  // ── History + bookmark suggestions ──
+  const [history, setHistory]         = useState<HistoryEntry[]>([]);
+  const [bookmarkHits, setBookmarkHits] = useState<Bookmark[]>([]);
   const suggestionRequest = useRef(0);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIdx, setActiveIdx]       = useState(-1);
@@ -117,18 +113,29 @@ export const NavBar: React.FC<NavBarProps> = ({
   const loadSuggestions = useCallback(async (q: string) => {
     if (!window.browserAPI) return;
     const request = ++suggestionRequest.current;
+    const query = q.trim();
     try {
-      const data = q.trim()
-        ? await window.browserAPI.history.search(q.trim())
-        : await window.browserAPI.history.get();
-      if (request === suggestionRequest.current) setHistory(data);
+      const [hist, marks] = await Promise.all([
+        query
+          ? window.browserAPI.history.search(query)
+          : window.browserAPI.history.get(),
+        query
+          ? window.browserAPI.bookmarks.search(query).catch(() => [] as Bookmark[])
+          : window.browserAPI.bookmarks.get().catch(() => [] as Bookmark[]),
+      ]);
+      if (request !== suggestionRequest.current) return;
+      setHistory(hist);
+      setBookmarkHits(marks);
     } catch {
-      if (request === suggestionRequest.current) setHistory([]);
+      if (request === suggestionRequest.current) {
+        setHistory([]);
+        setBookmarkHits([]);
+      }
     }
   }, []);
 
-  // Fetch (de-duplicated by domain) suggestions whenever the typed query changes.
-  // Debouncing prevents an IPC/database round-trip for every keystroke.
+  // Fetch suggestions whenever the typed query changes. Debouncing prevents an
+  // IPC/database round-trip for every keystroke.
   useEffect(() => {
     setActiveIdx(-1);
     if (!isFocused) return;
@@ -136,33 +143,58 @@ export const NavBar: React.FC<NavBarProps> = ({
     return () => clearTimeout(timer);
   }, [input, isFocused, loadSuggestions]);
 
-  // De-duplicate history entries by domain, keeping the most recent visit.
-  const suggestions = useMemo(() => {
+  // Combined suggestion rows: an optional "search for X" row first, then
+  // bookmark matches, then de-duplicated (by domain) history matches.
+  const suggestions = useMemo<SuggestionRow[]>(() => {
+    const query = input.trim();
+    const rows: SuggestionRow[] = [];
+    if (query && !looksLikeUrl(query)) {
+      rows.push({ kind: 'search', query, engineName: engine.name });
+    }
+    for (const bookmark of bookmarkHits.slice(0, 3)) {
+      rows.push({ kind: 'bookmark', entry: bookmark });
+    }
     const seen = new Set<string>();
-    const out: HistoryEntry[] = [];
-    for (const e of history) {
-      const d = domainOf(e.url);
+    for (const entry of history) {
+      const d = domainOf(entry.url);
       if (seen.has(d)) continue;
       seen.add(d);
-      out.push(e);
-      if (out.length >= 8) break;
+      rows.push({ kind: 'history', entry });
+      if (rows.length >= 10) break;
     }
-    return out;
-  }, [history]);
+    return rows.slice(0, 10);
+  }, [history, bookmarkHits, input, engine.name]);
 
-  const openSuggestion = useCallback((entry: HistoryEntry) => {
-    // Navigate to the root domain (e.g. youtube.com) rather than the exact
-    // page that was visited (e.g. a specific video), so clicking a suggestion
-    // lands you on the site's home page.
-    const root = `https://${domainOf(entry.url)}`;
-    onNavigate(root);
+  const openSuggestion = useCallback((row: SuggestionRow) => {
+    // Navigate to the suggestion's REAL URL. (An earlier version navigated to
+    // the site root, silently discarding the actual page the user picked.)
+    let destination = '';
+    if (row.kind === 'search') {
+      destination = buildSearchUrl(row.query);
+    } else {
+      destination = row.entry.url;
+    }
+    if (!destination) return;
+    onNavigate(destination);
     setIsFocused(false);
     setShowSuggestions(false);
-    setInput(root);
+    setInput(destination);
     searchRef.current?.blur();
-  }, [onNavigate]);
+  }, [onNavigate, buildSearchUrl]);
 
   const isLoading = activeTab?.loading;
+
+  // Ctrl+L (from the shell or from a focused webview via main) focuses the bar.
+  useEffect(() => {
+    const focusAddress = () => {
+      setIsFocused(true);
+      setShowSuggestions(true);
+      setInput(activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '');
+      setTimeout(() => searchRef.current?.focus(), 0);
+    };
+    window.addEventListener('zyphora:focus-address', focusAddress);
+    return () => window.removeEventListener('zyphora:focus-address', focusAddress);
+  }, [activeTab?.url]);
 
   // ── Certificate / security shield ──
   const [cert, setCert] = useState<CertInfo | null>(null);
@@ -318,8 +350,15 @@ export const NavBar: React.FC<NavBarProps> = ({
     }
     const raw = input.trim();
     if (!raw) return;
-    const url = looksLikeUrl(raw) ? raw : buildSearchUrl(raw);
-    onNavigate(url);
+    // Resolve "<shortcut> query" keywords, URLs, and search queries centrally.
+    const resolved = resolveAddressInput(
+      raw,
+      [...SEARCH_ENGINES, ...customSearchEngines],
+      searchEngineId,
+      (searchEngine, query) => searchEngine.url.replace(/%s/g, encodeURIComponent(query)),
+    );
+    if (!resolved.url) return;
+    onNavigate(resolved.url);
     setIsFocused(false);
     setShowSuggestions(false);
     (document.activeElement as HTMLElement)?.blur();
@@ -502,28 +541,22 @@ export const NavBar: React.FC<NavBarProps> = ({
         )}
       </div>
 
-      {/* History suggestions tooltip/dialog — opens upward (bar sits at the bottom) */}
+      {/* Suggestions tooltip/dialog — opens upward (bar sits at the bottom) */}
       {showSuggestions && isFocused && suggestions.length > 0 && (
         <div
           className="absolute bottom-full left-0 right-0 mb-2 max-h-80 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-1.5 z-50"
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
-            {input.trim() ? 'Suggestions from history' : 'Recent domains'}
-          </div>
-          {suggestions.map((s, i) => (
-            <button
-              key={s.id}
-              type="button"
-              onMouseEnter={() => setActiveIdx(i)}
-              onClick={() => openSuggestion(s)}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors duration-150 ${
-                i === activeIdx ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
-              }`}
-            >
-              {s.favicon ? (
+          {suggestions.map((s, i) => {
+            const isActive = i === activeIdx;
+            const rowIcon =
+              s.kind === 'search' ? (
+                <Search size={16} className="shrink-0 text-[var(--text-faint)]" />
+              ) : s.kind === 'bookmark' ? (
+                <BookmarkIcon size={16} className="shrink-0 text-yellow-400" />
+              ) : s.entry.favicon ? (
                 <img
-                  src={s.favicon}
+                  src={s.entry.favicon}
                   alt=""
                   className="h-5 w-5 shrink-0 rounded-sm"
                   onError={(e) => {
@@ -531,21 +564,44 @@ export const NavBar: React.FC<NavBarProps> = ({
                   }}
                 />
               ) : (
-                <Globe size={18} className="shrink-0 text-[var(--text-faint)]" />
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-[var(--text)]">
-                  {domainOf(s.url)}
+                <Globe size={16} className="shrink-0 text-[var(--text-faint)]" />
+              );
+            const primary =
+              s.kind === 'search'
+                ? s.query
+                : s.kind === 'bookmark'
+                  ? s.entry.title || domainOf(s.entry.url)
+                  : s.entry.title && s.entry.title !== domainOf(s.entry.url)
+                    ? s.entry.title
+                    : domainOf(s.entry.url);
+            const secondary =
+              s.kind === 'search'
+                ? `Search with ${s.engineName}`
+                : s.entry.url;
+            const key = s.kind === 'search' ? `search-${s.query}` : `${s.kind}-${s.entry.id}`;
+            return (
+              <button
+                key={key}
+                type="button"
+                onMouseEnter={() => setActiveIdx(i)}
+                onClick={() => openSuggestion(s)}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors duration-150 ${
+                  isActive ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
+                }`}
+              >
+                {rowIcon}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-[var(--text)]">{primary}</div>
+                  {secondary && (
+                    <div className="truncate text-xs text-[var(--text-muted)]">{secondary}</div>
+                  )}
                 </div>
-                {s.title && s.title !== domainOf(s.url) && (
-                  <div className="truncate text-xs text-[var(--text-muted)]">{s.title}</div>
+                {i === activeIdx && (
+                  <CornerDownLeft size={14} className="shrink-0 text-[var(--text-faint)]" />
                 )}
-              </div>
-              {i === activeIdx && (
-                <CornerDownLeft size={14} className="shrink-0 text-[var(--text-faint)]" />
-              )}
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -556,7 +612,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         >
           <div className="flex items-center gap-2 px-2 text-sm text-[var(--text-muted)]">
             <HistoryIcon size={14} />
-            {input.trim() ? 'No matches in your history' : 'No history yet'}
+            {input.trim() ? 'No matches in history or bookmarks' : 'No history yet'}
           </div>
         </div>
       )}

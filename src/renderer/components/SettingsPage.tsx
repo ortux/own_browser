@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Plus, X, Shield, ShieldCheck, ShieldOff, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen, Trash2 } from 'lucide-react';
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useProxy } from '../hooks/useProxy';
-import type { SecuritySettings } from '../stores/settingsStore';
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -14,7 +13,11 @@ const THEMES: { id: 'light' | 'dark' | 'system'; label: string; icon: React.Elem
   { id: 'system', label: 'System', icon: Monitor },
 ];
 
-const SECURITY_OPTIONS: { key: keyof SecuritySettings; label: string; desc: string }[] = [
+type BooleanSecurityKey =
+  | 'blockTrackers' | 'forceHttps' | 'doNotTrack' | 'globalPrivacyControl'
+  | 'stripTrackingParams' | 'sponsorBlock' | 'privateByDefault';
+
+const SECURITY_OPTIONS: { key: BooleanSecurityKey; label: string; desc: string }[] = [
   {
     key: 'blockTrackers',
     label: 'Block trackers & ads',
@@ -31,19 +34,30 @@ const SECURITY_OPTIONS: { key: keyof SecuritySettings; label: string; desc: stri
     desc: 'Request that sites do not track your activity.',
   },
   {
+    key: 'globalPrivacyControl',
+    label: 'Send Global Privacy Control (GPC)',
+    desc: 'Send the legally recognised Sec-GPC: 1 opt-out signal to every site.',
+  },
+  {
+    key: 'stripTrackingParams',
+    label: 'Clean links automatically',
+    desc: 'Strip utm_ and click-tracker identifiers from URLs you navigate to.',
+  },
+  {
+    key: 'sponsorBlock',
+    label: 'Skip sponsored YouTube segments',
+    desc: 'Uses the community SponsorBlock API (sends hashed video IDs to sponsor.ajay.app).',
+  },
+  {
     key: 'privateByDefault',
     label: 'Private tabs by default',
     desc: 'Open new tabs without saving history or cookies.',
   },
 ];
 
-function engineFavicon(url: string): string | null {
-  try {
-    const domain = new URL(url.replace(/%s/gi, '')).hostname;
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-  } catch {
-    return null;
-  }
+/** First letter of an engine name, used for a local (network-free) icon. */
+function engineInitial(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || '?';
 }
 
 // Material-style switch. Kept as a local component since it is reused
@@ -87,15 +101,39 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     setTheme,
     newTabMode,
     setNewTabMode,
+    account,
+    setAccountName,
+    restoreSession,
+    setRestoreSession,
     downloadPath,
     setDownloadPath,
     openDownloadsOnStart,
     setOpenDownloadsOnStart,
+    downloadRetentionDays,
+    setDownloadRetentionDays,
   } = useSettingsStore();
 
-  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads'>('general');
+  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads' | 'sites' | 'about'>('general');
 
-  const { proxy, proxyEnabled, status: proxyStatus, error: proxyError, fetchAndApply, toggle: toggleProxy } = useProxy();
+  const { proxy, proxyEnabled, status: proxyStatus, error: proxyError, exitIp, fetchAndApply, toggle: toggleProxy } = useProxy();
+
+  // ── Site settings data ──
+  const [permissionRows, setPermissionRows] = useState<{ host: string; permission: string; allowed: boolean }[]>([]);
+  const [cookieRows, setCookieRows] = useState<{ host: string; count: number }[]>([]);
+  useEffect(() => {
+    if (activeSection !== 'sites') return;
+    window.browserAPI.sites.permissions().then(setPermissionRows).catch(() => setPermissionRows([]));
+    window.browserAPI.sites.cookies().then(setCookieRows).catch(() => setCookieRows([]));
+  }, [activeSection]);
+
+  // ── Update status (About section) ──
+  const [updateStatus, setUpdateStatus] = useState<{ supported: boolean; state: string; version?: string; error?: string } | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  useEffect(() => {
+    window.browserAPI.updates.status().then(setUpdateStatus).catch(() => {});
+    const unsub = window.browserAPI.updates.onStatus(setUpdateStatus);
+    return unsub;
+  }, []);
 
   const allEngines = [...SEARCH_ENGINES, ...customSearchEngines];
 
@@ -166,6 +204,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'downloads', label: 'Downloads', icon: Download },
     { id: 'proxy', label: 'Proxy', icon: Wifi },
+    { id: 'sites', label: 'Site settings', icon: AlertTriangle },
+    { id: 'about', label: 'About', icon: RefreshCw },
   ] as const;
 
   return (
@@ -218,11 +258,33 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
 
           {activeSection === 'general' && (
             <div className="space-y-4">
-              <MdCard>
-                <p className="text-sm leading-relaxed text-[var(--text-muted)]">
-                  Account settings are not available yet. This section is reserved for
-                  future profile and sync features.
-                </p>
+              {/* Local profile */}
+              <MdCard className="space-y-3.5">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Profile name</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Local only — used for the new-tab greeting. There is no account and nothing is synced.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={account?.name ?? ''}
+                    onChange={(e) => setAccountName(e.target.value)}
+                    placeholder="Guest"
+                    className="flex-1 rounded-xl bg-[var(--surface-2)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-2 focus:ring-[var(--accent)]"
+                  />
+                </div>
+              </MdCard>
+
+              {/* Session restore */}
+              <MdCard className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Continue where you left off</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Reopen your tabs (never private ones) when the browser starts.
+                  </div>
+                </div>
+                <MdSwitch checked={restoreSession} onChange={() => setRestoreSession(!restoreSession)} />
               </MdCard>
               <MdCard className="flex items-center justify-between gap-4">
                 <div>
@@ -262,7 +324,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                 {allEngines.map((engine, i) => {
                   const isActive = searchEngineId === engine.id;
                   const isCustom = engine.id.startsWith('custom-');
-                  const favicon = engineFavicon(engine.url);
                   return (
                     <div
                       key={engine.id}
@@ -274,19 +335,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                         onClick={() => setSearchEngine(engine.id)}
                         className="flex flex-1 items-center gap-3.5 text-left min-w-0"
                       >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)]">
-                          {favicon ? (
-                            <img
-                              src={favicon}
-                              alt=""
-                              className="h-5 w-5 rounded"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <Globe size={16} className="text-[var(--text-faint)]" />
-                          )}
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)] text-sm font-semibold text-[var(--text-muted)]">
+                          {engineInitial(engine.name)}
                         </span>
                         <span className="min-w-0">
                           <span className="block text-sm font-medium text-[var(--text)]">
@@ -463,6 +513,53 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                 These protections apply wherever supported by the browsing engine.
               </p>
 
+              {/* WebRTC IP-leak protection (startup policy) */}
+              <MdCard className="space-y-3">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">WebRTC IP handling</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Stops WebRTC from exposing your local IP — or bypassing an active proxy with
+                    direct UDP. Applies on next launch.
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: 'default', label: 'Default', hint: 'Chromium default' },
+                    { id: 'public-only', label: 'Protect', hint: 'Public interface only' },
+                    { id: 'disable', label: 'Strict', hint: 'No non-proxied UDP' },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setSecurityFlag('webrtcPolicy', option.id)}
+                      className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                        security.webrtcPolicy === option.id
+                          ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                          : 'border-[var(--border)] hover:bg-[var(--hover)]'
+                      }`}
+                    >
+                      <span className="block text-sm text-[var(--text)]">{option.label}</span>
+                      <span className="block text-[11px] text-[var(--text-faint)]">{option.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </MdCard>
+
+              {/* Third-party cookies (startup policy) */}
+              <MdCard className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Block third-party cookies</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Partition cross-site storage so trackers cannot link your activity between
+                    sites. Applies on next launch.
+                  </div>
+                </div>
+                <MdSwitch
+                  checked={security.blockThirdPartyCookies}
+                  onChange={() => setSecurityFlag('blockThirdPartyCookies', !security.blockThirdPartyCookies)}
+                />
+              </MdCard>
+
               {/* Live ad-blocker summary */}
               <MdCard className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
@@ -544,6 +641,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                       { label: 'Level', value: proxy.proxyLevel },
                       { label: 'HTTPS', value: proxy.supportsHttps ? 'Yes' : 'No' },
                       { label: 'Speed', value: `${proxy.speed}s` },
+                      { label: 'Exit IP', value: exitIp ?? 'unknown' },
                     ].map(({ label, value }) => (
                       <div key={label} className="flex justify-between rounded-xl bg-[var(--surface)] px-3 py-2">
                         <span className="text-[var(--text-faint)]">{label}</span>
@@ -627,6 +725,208 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                   </div>
                 </div>
                 <MdSwitch checked={openDownloadsOnStart} onChange={() => setOpenDownloadsOnStart(!openDownloadsOnStart)} />
+              </MdCard>
+
+              {/* Retention */}
+              <MdCard className="space-y-3">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Keep download history</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Completed records are stored locally and pruned after this period. Files on disk are never deleted.
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {[
+                    { days: 7, label: '7 days' },
+                    { days: 30, label: '30 days' },
+                    { days: 90, label: '90 days' },
+                    { days: 0, label: 'Until cleared' },
+                  ].map((option) => (
+                    <button
+                      key={option.days}
+                      type="button"
+                      onClick={() => setDownloadRetentionDays(option.days)}
+                      className={`flex-1 rounded-xl border px-2 py-2 text-xs transition-colors ${
+                        downloadRetentionDays === option.days
+                          ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text)]'
+                          : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--hover)]'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </MdCard>
+            </div>
+          )}
+
+          {activeSection === 'sites' && (
+            <div className="space-y-4">
+              <MdCard padded={false}>
+                <div className="px-4 pt-4 pb-2">
+                  <div className="text-sm font-medium text-[var(--text)]">Site permissions</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Decisions you made on permission prompts. Revoke to be asked again next time.
+                  </div>
+                </div>
+                {permissionRows.length === 0 ? (
+                  <p className="px-4 pb-4 pt-1 text-xs text-[var(--text-faint)]">
+                    No saved permission decisions yet.
+                  </p>
+                ) : (
+                  <div>
+                    {Object.entries(
+                      permissionRows.reduce<Record<string, typeof permissionRows>>((groups, row) => {
+                        (groups[row.host] = groups[row.host] ?? []).push(row);
+                        return groups;
+                      }, {})
+                    ).map(([host, rows], index) => (
+                      <div key={host} className={index > 0 ? 'border-t border-[var(--border)]' : ''}>
+                        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                          <span className="truncate text-sm text-[var(--text)]">{host}</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await window.browserAPI.sites.clearPermissions(host).catch(() => {});
+                              setPermissionRows((current) => current.filter((row) => row.host !== host));
+                            }}
+                            className="text-xs font-medium text-[var(--accent)] hover:underline"
+                          >
+                            Revoke all
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 px-4 pb-3">
+                          {rows.map((row) => (
+                            <span
+                              key={row.permission}
+                              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] ${
+                                row.allowed
+                                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                                  : 'bg-[var(--surface-2)] text-[var(--text-faint)]'
+                              }`}
+                            >
+                              {row.allowed ? <ShieldCheck size={11} /> : <ShieldOff size={11} />}
+                              {row.permission}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </MdCard>
+
+              <MdCard padded={false}>
+                <div className="px-4 pt-4 pb-2">
+                  <div className="text-sm font-medium text-[var(--text)]">Cookies by site</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Top sites by cookie count in the default session. Clear signs you out of that site.
+                  </div>
+                </div>
+                {cookieRows.length === 0 ? (
+                  <p className="px-4 pb-4 pt-1 text-xs text-[var(--text-faint)]">No cookies stored yet.</p>
+                ) : (
+                  <div>
+                    {cookieRows.slice(0, 30).map((row, index) => (
+                      <div
+                        key={row.host}
+                        className={`flex items-center justify-between gap-3 px-4 py-2.5 ${index > 0 ? 'border-t border-[var(--border)]' : ''}`}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">{row.host}</span>
+                        <span className="shrink-0 text-xs tabular-nums text-[var(--text-faint)]">
+                          {row.count} cookie{row.count === 1 ? '' : 's'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await window.browserAPI.sites.clearCookies(row.host).catch(() => {});
+                            setCookieRows((current) => current.filter((entry) => entry.host !== row.host));
+                          }}
+                          className="shrink-0 text-xs font-medium text-[var(--accent)] hover:underline"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </MdCard>
+            </div>
+          )}
+
+          {activeSection === 'about' && (
+            <div className="space-y-4">
+              <MdCard className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--accent-soft)] text-lg font-semibold text-[var(--accent)]">
+                    Z
+                  </span>
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text)]">Zyphora</div>
+                    <div className="text-xs text-[var(--text-faint)]">A privacy-first browser — your data stays on this device.</div>
+                  </div>
+                </div>
+              </MdCard>
+
+              <MdCard className="space-y-3">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Updates</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    {updateStatus?.supported
+                      ? {
+                          idle: 'No update check has run yet.',
+                          checking: 'Checking for updates…',
+                          uptodate: 'You are up to date.',
+                          available: `Version ${updateStatus.version ?? '?'} is available — downloading…`,
+                          downloading: updateStatus.version
+                            ? `Downloading ${updateStatus.version}…`
+                            : 'Downloading update…',
+                          ready: `Version ${updateStatus.version ?? '?'} is ready — it installs on restart.`,
+                          error: `Update check failed: ${updateStatus.error ?? 'unknown error'}`,
+                        }[updateStatus.state] ?? 'Unknown state.'
+                      : 'Updates apply to packaged installs (dev builds are not updated).'}
+                  </div>
+                  {updateStatus?.state === 'ready' && (
+                    <button
+                      type="button"
+                      onClick={() => window.browserAPI.updates.quitAndInstall().catch(() => {})}
+                      className="mt-3 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-medium text-white hover:opacity-90"
+                    >
+                      Restart &amp; install
+                    </button>
+                  )}
+                </div>
+                {updateStatus?.supported && (
+                  <button
+                    type="button"
+                    disabled={updateBusy}
+                    onClick={async () => {
+                      setUpdateBusy(true);
+                      try { setUpdateStatus(await window.browserAPI.updates.check()); } catch { /* ignore */ }
+                      finally { setUpdateBusy(false); }
+                    }}
+                    className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} className="mr-1.5 inline" />
+                    {updateBusy ? 'Checking…' : 'Check for updates'}
+                  </button>
+                )}
+              </MdCard>
+
+              <MdCard className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">Diagnostics</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Local-only report of versions, filter lists, proxy and storage state.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => window.browserAPI.sendMessage({ type: 'create-tab-url', url: 'zyphora://diagnostics' })}
+                  className="rounded-full border border-[var(--border)] px-4 py-2 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                >
+                  Open diagnostics
+                </button>
               </MdCard>
             </div>
           )}

@@ -15,20 +15,30 @@ Own Browser is built with privacy as a core principle:
 
 The current implementation stores the following locally:
 
-- Browsing history in `zyphora.db`: URL, title, timestamp, and favicon.
-- Bookmarks in `zyphora.db`.
+- Browsing history in the local database: URL, title, timestamp, and favicon.
+- Bookmarks, persisted download records, and the open-tab session in the same database.
 - Settings in renderer localStorage, including theme, search engines, download path, and proxy endpoint metadata.
-- In-memory download records for the current app session.
 
-This data is not encrypted at rest yet. History can include sensitive query strings, so users should clear it when appropriate. There is no account sync or remote browsing-history database.
+The database is encrypted at rest with AES-256-GCM whenever the OS keychain
+(safeStorage) is available; the key never leaves the keychain and plaintext
+database material is renamed `.legacy-plaintext` after migration. On systems
+without safeStorage the database falls back to plaintext — `zyphora://diagnostics`
+shows which mode is active. History can include sensitive query strings, so use
+History → Clear browsing data when appropriate. There is no account sync or
+remote browsing-history database.
 
 The browser makes explicit third-party requests when enabled or configured:
 
 - Search queries go directly to the selected search engine.
 - DNS is configured to prefer AdGuard DNS-over-HTTPS; automatic mode can fall back to system DNS.
 - A Pexels API key, when configured, is used to request new-tab images.
-- YouTube video IDs are reduced to a four-character SHA-256 prefix for optional SponsorBlock lookups.
-- Favicon URLs supplied by visited pages may be fetched by the shell; address-bar suggestions do not use a Google fallback request.
+- SponsorBlock is **opt-in** (off by default). When enabled, YouTube video IDs are
+  reduced to a four-character SHA-256 prefix before `sponsor.ajay.app` is queried.
+- With a proxy enabled, `api.ipify.org` is asked for the apparent exit IP to verify the tunnel.
+- Update checks contact GitHub Releases, and only from packaged builds, when auto-update runs
+  or you press "Check for updates".
+- Favicon URLs supplied by visited pages may be fetched by the shell; address-bar suggestions
+  and engine icons do not use a Google fallback request.
 
 ## Data we do not collect
 

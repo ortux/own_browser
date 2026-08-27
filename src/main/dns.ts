@@ -25,3 +25,7 @@ export function configureAdGuardDns(): void {
 export function getAdGuardDnsEndpoint(): string {
   return ADGUARD_DOH_ENDPOINT;
 }
+
+export function getDnsMode(): 'automatic' | 'secure' {
+  return process.env.ZYPHORA_DNS_MODE === 'secure' ? 'secure' : 'automatic';
+}

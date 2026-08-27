@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Tab } from '../../shared/types';
 import { webviewRegistry } from '../stores/webviewRegistry';
+import { useSettingsStore } from '../stores/settingsStore';
 import { applySponsorBlock } from '../lib/sponsorBlock';
 import { isAllowedNavigationUrl } from '../../shared/navigation';
 
@@ -8,9 +9,45 @@ interface WebViewProps {
   tab: Tab;
 }
 
+/** Friendly copy for the load-failure surface (Chromium net error codes). */
+const ERROR_INFO: Record<number, { title: string; hint: string }> = {
+  [-6]: { title: 'File not found', hint: 'The address may be wrong or the page may have moved.' },
+  [-105]: { title: 'Site not found', hint: 'The domain could not be resolved. Check the address, or your DNS/proxy settings.' },
+  [-106]: { title: 'You appear to be offline', hint: 'No internet connection was detected. Reconnect and try again.' },
+  [-109]: { title: 'Server unreachable', hint: 'The server could not be reached. It may be down or blocked by a proxy.' },
+  [-101]: { title: 'Connection reset', hint: 'The connection was interrupted. If a proxy is enabled, try rotating or disabling it.' },
+  [-100]: { title: 'Connection refused', hint: 'The server refused the connection.' },
+  [-102]: { title: 'Server refused', hint: 'The server denied the request.' },
+  [-118]: { title: 'Connection closed', hint: 'The connection was closed unexpectedly. Retry, or check proxy/firewall settings.' },
+  [-200]: { title: 'Secure connection failed', hint: 'The site\u2019s certificate could not be validated. Do not enter sensitive data here.' },
+  [-201]: { title: 'Certificate mismatch', hint: 'The certificate does not match this site\u2019s address.' },
+  [-202]: { title: 'Certificate expired', hint: 'The site\u2019s certificate has expired.' },
+  [-130]: { title: 'Proxy unreachable', hint: 'The configured proxy did not respond. Rotate or disable the proxy and retry.' },
+  [-501]: { title: 'Insecure connection', hint: 'The site could not upgrade to a secure HTTPS connection.' },
+};
+
+function describeError(code: number, desc: string): { title: string; hint: string; proxy: boolean } {
+  const info = ERROR_INFO[code];
+  const proxy = code === -130 || code === -101 || code === -21;
+  if (info) return { title: info.title, hint: info.hint, proxy };
+  return {
+    title: 'Page failed to load',
+    hint: desc || 'An unknown error occurred.',
+    proxy,
+  };
+}
+
 export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   const webviewRef = useRef<Electron.WebviewTag>(null);
   const [loadError, setLoadError] = useState<{ code: number; desc: string } | null>(null);
+  const sponsorBlockEnabled = useSettingsStore((s) => s.security.sponsorBlock);
+  const siteZoom = useSettingsStore((s) => s.siteZoom);
+  // The webview event listeners bind once (useLayoutEffect [tab.id]); keep the
+  // latest settings reachable from those closures through refs.
+  const sponsorBlockRef = useRef(sponsorBlockEnabled);
+  sponsorBlockRef.current = sponsorBlockEnabled;
+  const siteZoomRef = useRef(siteZoom);
+  siteZoomRef.current = siteZoom;
   // Capture the URL only once, on first mount. The webview must NOT have its
   // `src` bound reactively to `tab.url`, or every store update (including
   // client-side SPA navigations like ChatGPT's pushState) would force a full
@@ -93,7 +130,18 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
           return;
         }
 
-        void applySponsorBlock(el, url);
+        // SponsorBlock is opt-in: it queries sponsor.ajay.app for the video ID.
+        if (sponsorBlockRef.current) void applySponsorBlock(el, url);
+
+        // Re-apply this origin's remembered zoom after every navigation.
+        try {
+          const origin = new URL(url).origin;
+          const remembered = siteZoomRef.current[origin];
+          if (remembered !== undefined && Math.abs(el.getZoomFactor() - remembered) > 0.01) {
+            el.setZoomFactor(remembered);
+          }
+        } catch { /* not a parseable URL */ }
+
         void window.browserAPI.sendMessage({
           type: 'webview-nav-state',
           tabId: tab.id,
@@ -201,33 +249,36 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       />
 
       {/* Error overlay — shown when the page fails to load */}
-      {loadError && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[var(--bg)] text-[var(--text)] gap-4">
-          <div className="text-5xl">⚠</div>
-          <h2 className="text-xl font-semibold">Page failed to load</h2>
-          <p className="text-sm text-[var(--text-muted)] max-w-sm text-center">
-            {loadError.desc || 'An unknown error occurred.'}
-            {loadError.code === -130 || loadError.code === -101
-              ? ' — If proxy is enabled, it may be unreachable. Try rotating or disabling the proxy.'
-              : ''}
-          </p>
-          <div className="flex gap-3">
-            <button
-              onClick={() => { setLoadError(null); webviewRef.current?.reload(); }}
-              className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm hover:opacity-90 transition-opacity"
-            >
-              Retry
-            </button>
-            <button
-              onClick={() => { setLoadError(null); webviewRef.current?.stop(); }}
-              className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm hover:bg-[var(--hover)] transition-colors"
-            >
-              Dismiss
-            </button>
+      {loadError && (() => {
+        const info = describeError(loadError.code, loadError.desc);
+        return (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[var(--bg)] text-[var(--text)] gap-4">
+            <div className="text-5xl" aria-hidden>{info.title.includes('offline') ? '📡' : '⚠'}</div>
+            <h2 className="text-xl font-semibold">{info.title}</h2>
+            <p className="text-sm text-[var(--text-muted)] max-w-sm text-center">{info.hint}</p>
+            {info.proxy && (
+              <p className="text-xs text-[var(--text-faint)] max-w-xs text-center">
+                A configured proxy can cause this. Rotate or disable it from Settings → Proxy.
+              </p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setLoadError(null); webviewRef.current?.reload(); }}
+                className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm hover:opacity-90 transition-opacity"
+              >
+                Retry
+              </button>
+              <button
+                onClick={() => { setLoadError(null); webviewRef.current?.stop(); }}
+                className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm hover:bg-[var(--hover)] transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+            <p className="text-xs text-[var(--text-faint)]">Error {loadError.code}</p>
           </div>
-          <p className="text-xs text-[var(--text-faint)]">Error {loadError.code}</p>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

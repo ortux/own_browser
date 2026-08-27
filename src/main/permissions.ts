@@ -77,3 +77,33 @@ export function configureSessionPermissions(ses: Electron.Session, getWindow: ()
 export function clearPermissionDecisions(): void {
   decisions.clear();
 }
+
+export interface PermissionDecision {
+  host: string;
+  permission: string;
+  allowed: boolean;
+}
+
+/** All remembered permission decisions (for the Site settings surface). */
+export function listPermissionDecisions(): PermissionDecision[] {
+  const out: PermissionDecision[] = [];
+  for (const [key, allowed] of decisions) {
+    const separator = key.indexOf('\0');
+    if (separator <= 0) continue;
+    out.push({ host: key.slice(0, separator), permission: key.slice(separator + 1), allowed });
+  }
+  return out.sort((a, b) => a.host.localeCompare(b.host) || a.permission.localeCompare(b.permission));
+}
+
+/** Forget every decision recorded for one host. Returns how many were removed. */
+export function clearPermissionDecisionsForHost(host: string): number {
+  const prefix = `${host.toLowerCase()}\0`;
+  let removed = 0;
+  for (const key of [...decisions.keys()]) {
+    if (key.startsWith(prefix)) {
+      decisions.delete(key);
+      removed++;
+    }
+  }
+  return removed;
+}

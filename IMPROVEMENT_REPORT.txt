@@ -467,3 +467,42 @@ foundations.
 ================================================================================
 END OF REPORT
 ================================================================================
+
+================================================================================
+IMPLEMENTATION STATUS ADDENDUM (2026-08-27, branch arena/01a043c9-own-browser)
+================================================================================
+Implemented and verified (typecheck + lint + 44 unit tests + build all green):
+
+TIER 0   [all done]  T0.1 vitest suite + Playwright smoke specs + CI workflow
+                      (workflow definition in docs/ci-workflow.yml — copy to
+                      .github/workflows/ci.yml; the sandbox push token lacks
+                      workflows permission), T0.2 win/mac packaging, T0.3
+                      electron-updater + Settings>About, T0.4 fuses afterPack.
+TIER 1   [11/12 done] T1.1 tab sleeping, T1.2 session restore, T1.3 pin/mute +
+                      audio indicator, T1.4 shortcut set, T1.5 persisted
+                      downloads + pause/resume/retention, T1.6 bookmark
+                      import/export, T1.7 history page + clear dialog, T1.8
+                      engine keywords, T1.9 suggestion fix + bookmark/search
+                      rows, T1.10 external protocols, T1.11 F11 + per-site zoom
+                      (print preview intentionally kept as the system dialog).
+                      T1.12 multi-window DEFERRED (architectural).
+TIER 2   [8/11 done] T2.1 WebRTC leak policy, T2.2 encryption at rest
+                      (AES-256-GCM + keychain, unit-tested), T2.3 3rd-party
+                      cookie blocking, T2.4 Site settings (permissions + cookies
+                      per host), T2.5 clean links, T2.6 GPC, T2.7 SponsorBlock
+                      opt-in, T2.8 local fonts + no remote favicons, T2.10 SOCKS
+                      + exit IP. T2.9 cert-per-tab, T2.11 cosmetic filtering
+                      DEFERRED (staged rollout needs the smoke suite green in CI).
+TIER 3   [2/3 done]  T3.1 debounced DB writes, T3.2 startup timing. T3.3
+                      prefetch DEFERRED.
+TIER 4   [7/11 done] T4.1 command palette, T4.2 quick links, T4.3 branded error
+                      pages, T4.5 cheat sheet + docs refresh, T4.7 context menu,
+                      T4.8 speed/ETA, T4.10 partial a11y (roles/labels/Escape).
+                      T4.4 reader, T4.6 translate, T4.9 onboarding, T4.11 i18n
+                      DEFERRED.
+TIER 5   [5/6 done]  T5.1 dead code, T5.2 single URL source, T5.4 shared DTOs,
+                      T5.5 diagnostics page, T5.6 local profile. T5.3
+                      settings-in-main DEFERRED.
+
+Deferred items are tracked above with their reason; next big rocks are T1.12
+multi-window, T2.9/T2.11 privacy depth, and T5.3 storage consolidation.

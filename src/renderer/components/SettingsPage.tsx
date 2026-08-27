@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Plus, X, Shield, ShieldCheck, ShieldOff, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen, Trash2 } from 'lucide-react';
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useProxy } from '../hooks/useProxy';
 
@@ -113,9 +113,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     setDownloadRetentionDays,
   } = useSettingsStore();
 
-  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads' | 'about'>('general');
+  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads' | 'sites' | 'about'>('general');
 
   const { proxy, proxyEnabled, status: proxyStatus, error: proxyError, exitIp, fetchAndApply, toggle: toggleProxy } = useProxy();
+
+  // ── Site settings data ──
+  const [permissionRows, setPermissionRows] = useState<{ host: string; permission: string; allowed: boolean }[]>([]);
+  const [cookieRows, setCookieRows] = useState<{ host: string; count: number }[]>([]);
+  useEffect(() => {
+    if (activeSection !== 'sites') return;
+    window.browserAPI.sites.permissions().then(setPermissionRows).catch(() => setPermissionRows([]));
+    window.browserAPI.sites.cookies().then(setCookieRows).catch(() => setCookieRows([]));
+  }, [activeSection]);
 
   // ── Update status (About section) ──
   const [updateStatus, setUpdateStatus] = useState<{ supported: boolean; state: string; version?: string; error?: string } | null>(null);
@@ -195,6 +204,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'downloads', label: 'Downloads', icon: Download },
     { id: 'proxy', label: 'Proxy', icon: Wifi },
+    { id: 'sites', label: 'Site settings', icon: AlertTriangle },
     { id: 'about', label: 'About', icon: RefreshCw },
   ] as const;
 
@@ -746,6 +756,100 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
                     </button>
                   ))}
                 </div>
+              </MdCard>
+            </div>
+          )}
+
+          {activeSection === 'sites' && (
+            <div className="space-y-4">
+              <MdCard padded={false}>
+                <div className="px-4 pt-4 pb-2">
+                  <div className="text-sm font-medium text-[var(--text)]">Site permissions</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Decisions you made on permission prompts. Revoke to be asked again next time.
+                  </div>
+                </div>
+                {permissionRows.length === 0 ? (
+                  <p className="px-4 pb-4 pt-1 text-xs text-[var(--text-faint)]">
+                    No saved permission decisions yet.
+                  </p>
+                ) : (
+                  <div>
+                    {Object.entries(
+                      permissionRows.reduce<Record<string, typeof permissionRows>>((groups, row) => {
+                        (groups[row.host] = groups[row.host] ?? []).push(row);
+                        return groups;
+                      }, {})
+                    ).map(([host, rows], index) => (
+                      <div key={host} className={index > 0 ? 'border-t border-[var(--border)]' : ''}>
+                        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                          <span className="truncate text-sm text-[var(--text)]">{host}</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await window.browserAPI.sites.clearPermissions(host).catch(() => {});
+                              setPermissionRows((current) => current.filter((row) => row.host !== host));
+                            }}
+                            className="text-xs font-medium text-[var(--accent)] hover:underline"
+                          >
+                            Revoke all
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 px-4 pb-3">
+                          {rows.map((row) => (
+                            <span
+                              key={row.permission}
+                              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] ${
+                                row.allowed
+                                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                                  : 'bg-[var(--surface-2)] text-[var(--text-faint)]'
+                              }`}
+                            >
+                              {row.allowed ? <ShieldCheck size={11} /> : <ShieldOff size={11} />}
+                              {row.permission}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </MdCard>
+
+              <MdCard padded={false}>
+                <div className="px-4 pt-4 pb-2">
+                  <div className="text-sm font-medium text-[var(--text)]">Cookies by site</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Top sites by cookie count in the default session. Clear signs you out of that site.
+                  </div>
+                </div>
+                {cookieRows.length === 0 ? (
+                  <p className="px-4 pb-4 pt-1 text-xs text-[var(--text-faint)]">No cookies stored yet.</p>
+                ) : (
+                  <div>
+                    {cookieRows.slice(0, 30).map((row, index) => (
+                      <div
+                        key={row.host}
+                        className={`flex items-center justify-between gap-3 px-4 py-2.5 ${index > 0 ? 'border-t border-[var(--border)]' : ''}`}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">{row.host}</span>
+                        <span className="shrink-0 text-xs tabular-nums text-[var(--text-faint)]">
+                          {row.count} cookie{row.count === 1 ? '' : 's'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await window.browserAPI.sites.clearCookies(row.host).catch(() => {});
+                            setCookieRows((current) => current.filter((entry) => entry.host !== row.host));
+                          }}
+                          className="shrink-0 text-xs font-medium text-[var(--accent)] hover:underline"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </MdCard>
             </div>
           )}

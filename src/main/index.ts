@@ -74,7 +74,13 @@ import {
   detachAdblockFromSession,
 } from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
-import { configureSessionPermissions, clearPermissionDecisions } from './permissions';
+import {
+  configureSessionPermissions,
+  clearPermissionDecisions,
+  clearPermissionDecisionsForHost,
+  listPermissionDecisions,
+} from './permissions';
+import { getCookieSummary, clearCookiesForHost } from './siteData';
 import { configureAdGuardDns, getDnsMode, getAdGuardDnsEndpoint } from './dns';
 import { applyStartupPolicyCommandLine, readStartupPolicy, writeStartupPolicy } from './startupPolicy';
 import { initAutoUpdate, getUpdateStatus } from './update';
@@ -767,6 +773,7 @@ app.on('ready', async () => {
   registerAdblockHandlers();
   registerCertHandlers();
   registerDownloadHandlers();
+  registerSiteDataHandlers();
   registerDiagnosticsHandler();
   initAutoUpdate(() => mainWindow, isTrustedMainFrame);
   createWindow();
@@ -969,10 +976,36 @@ function registerPrivacyHandlers() {
   });
 }
 
+// ── Per-site data IPC (Site settings) ────────────────────────────────────────
+
+function isHostString(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z\d.-]+$/i.test(value.trim()) && value.trim().length <= 253;
+}
+
+function registerSiteDataHandlers() {
+  ipcMain.handle('sites:permissions', (event) => {
+    assertTrustedMainFrame(event);
+    return listPermissionDecisions();
+  });
+  ipcMain.handle('sites:clear-permissions', (event, host: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isHostString(host)) throw new Error('Invalid host.');
+    return { removed: clearPermissionDecisionsForHost(host.trim().toLowerCase()) };
+  });
+  ipcMain.handle('sites:cookies', (event) => {
+    assertTrustedMainFrame(event);
+    return getCookieSummary();
+  });
+  ipcMain.handle('sites:clear-cookies', async (event, host: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isHostString(host)) throw new Error('Invalid host.');
+    return { removed: await clearCookiesForHost(host.trim().toLowerCase()) };
+  });
+}
+
 // ── Diagnostics IPC ──────────────────────────────────────────────────────────
 
-function registerDiagnosticsHandler() {
-  ipcMain.handle('diag:get', (event) => {
+function registerDiagnosticsHandler() {  ipcMain.handle('diag:get', (event) => {
     assertTrustedMainFrame(event);
     const policy = readStartupPolicy();
     let dbInfo = { sizeBytes: 0, path: 'unavailable' };

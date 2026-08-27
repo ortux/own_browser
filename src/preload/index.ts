@@ -328,6 +328,18 @@ const browserAPI = {
       ipcRenderer.invoke('diag:get'),
   },
 
+  /** Per-site data (Site settings): permission decisions + cookie counts. */
+  sites: {
+    permissions: (): Promise<{ host: string; permission: string; allowed: boolean }[]> =>
+      ipcRenderer.invoke('sites:permissions'),
+    clearPermissions: (host: string): Promise<{ removed: number }> =>
+      ipcRenderer.invoke('sites:clear-permissions', host),
+    cookies: (): Promise<{ host: string; count: number }[]> =>
+      ipcRenderer.invoke('sites:cookies'),
+    clearCookies: (host: string): Promise<{ removed: number }> =>
+      ipcRenderer.invoke('sites:clear-cookies', host),
+  },
+
   /** App updates (electron-updater / GitHub Releases). */
   updates: {
     check: (): Promise<import('../main/update').UpdateStatus> =>

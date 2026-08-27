@@ -12,6 +12,7 @@ function App() {
   const markAuthPromptShown = useSettingsStore((state) => state.markAuthPromptShown);
   const [hydrated, setHydrated] = useState(useSettingsStore.persist.hasHydrated());
 
+  useEffect(() => {
     const unsubscribe = useSettingsStore.persist.onFinishHydration(() => setHydrated(true));
     const fallback = window.setTimeout(() => setHydrated(true), 1500);
     return () => {

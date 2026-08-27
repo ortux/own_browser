@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { SidebarTabs } from './SidebarTabs';
 import { TitleBar } from './TitleBar';
 import { NavBar } from './NavBar';
@@ -11,37 +11,57 @@ import { HistoryPanel } from './HistoryPanel';
 import { BookmarksPanel } from './BookmarksPanel';
 import { FindBar } from './FindBar';
 import { RecentlyClosedPanel } from './RecentlyClosedPanel';
+import { HistoryPage } from './HistoryPage';
+import { DiagnosticsPage } from './DiagnosticsPage';
+import { CommandPalette } from './CommandPalette';
+import { ShortcutCheatsheet } from './ShortcutCheatsheet';
+import { ClearBrowsingDataDialog } from './ClearBrowsingDataDialog';
 import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
-import { useSettingsStore } from '../stores/settingsStore';
+import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useBookmarks } from '../hooks/useBookmarks';
-import { normalizeNavigationUrl } from '../../shared/navigation';
-
-function looksLikeUrl(input: string): boolean {
-  const trimmed = input.trim();
-  if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('file://') ||
-    trimmed.startsWith('about:') ||
-    trimmed.startsWith('zyphora://') ||
-    trimmed.startsWith('localhost')
-  ) return true;
-  return trimmed.includes('.') && !trimmed.includes(' ');
-}
+import { resolveAddressInput } from '../lib/addressInput';
+import { internalPageTitle } from '../../shared/navigation';
 
 type Panel = 'history' | 'bookmarks' | 'closed' | null;
+
+/** Idle time before a background tab's webview is unmounted (memory). */
+const TAB_SLEEP_AFTER_MS = 5 * 60_000;
+const TAB_SLEEP_CHECK_INTERVAL_MS = 30_000;
+
+/** Placeholder shown while a tab is discarded. Click reloads the page. */
+const SleepPlaceholder: React.FC<{ title: string; onWake: () => void }> = ({ title, onWake }) => (
+  <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-[var(--bg)] text-[var(--text-faint)]">
+    <div className="text-3xl" aria-hidden>💤</div>
+    <p className="text-sm">
+      “{title}” was put to sleep to save memory.
+    </p>
+    <button
+      onClick={onWake}
+      className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm text-white hover:opacity-90 transition-opacity"
+    >
+      Wake tab
+    </button>
+  </div>
+);
 
 export const BrowserWindow: React.FC = () => {
   const tabs        = useBrowserStore((s) => s.tabs);
   const activeTabId = useBrowserStore((s) => s.activeTabId);
   const activeTab   = tabs.find((t) => t.id === activeTabId);
-  const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
+  const searchEngineId = useSettingsStore((s) => s.searchEngineId);
+  const customSearchEngines = useSettingsStore((s) => s.customSearchEngines);
   const blockTrackers = useSettingsStore((s) => s.security.blockTrackers);
   const adblockAllowlist = useSettingsStore((s) => s.adblockAllowlist);
   const forceHttps = useSettingsStore((s) => s.security.forceHttps);
   const doNotTrack = useSettingsStore((s) => s.security.doNotTrack);
+  const globalPrivacyControl = useSettingsStore((s) => s.security.globalPrivacyControl);
+  const stripTrackingParamsSetting = useSettingsStore((s) => s.security.stripTrackingParams);
+  const webrtcPolicy = useSettingsStore((s) => s.security.webrtcPolicy);
+  const blockThirdPartyCookies = useSettingsStore((s) => s.security.blockThirdPartyCookies);
   const privateByDefault = useSettingsStore((s) => s.security.privateByDefault);
+  const restoreSession = useSettingsStore((s) => s.restoreSession);
+  const downloadRetentionDays = useSettingsStore((s) => s.downloadRetentionDays);
   const savedProxy = useSettingsStore((s) => s.proxy);
   const savedDownloadPath = useSettingsStore((s) => s.downloadPath);
   const proxyEnabled = useSettingsStore((s) => s.proxyEnabled);
@@ -53,6 +73,81 @@ export const BrowserWindow: React.FC = () => {
   const [findOpen, setFindOpen] = useState(false);
   const [panel, setPanel]               = useState<Panel>(null);
   const togglePanel = (p: Panel) => setPanel((cur) => (cur === p ? null : p));
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+
+  // ── Tab sleeping ──
+  const [asleepTabs, setAsleepTabs] = useState<Set<string>>(() => new Set());
+  const lastActiveRef = useRef<Map<string, number>>(new Map());
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+
+  useEffect(() => {
+    const now = Date.now();
+    const map = lastActiveRef.current;
+    for (const tab of tabs) {
+      if (!map.has(tab.id)) map.set(tab.id, now);
+    }
+    const ids = new Set(tabs.map((tab) => tab.id));
+    for (const id of map.keys()) {
+      if (!ids.has(id)) map.delete(id);
+    }
+    setAsleepTabs((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of current) {
+        if (ids.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [tabs]);
+
+  useEffect(() => {
+    if (!activeTabId) return;
+    lastActiveRef.current.set(activeTabId, Date.now());
+    setAsleepTabs((current) => {
+      if (!current.has(activeTabId)) return current;
+      const next = new Set(current);
+      next.delete(activeTabId);
+      return next;
+    });
+  }, [activeTabId]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const currentActive = activeTabIdRef.current;
+      const toSleep = tabsRef.current.filter((tab) =>
+        tab.id !== currentActive
+        && !tab.pinned
+        && !tab.audible
+        && tab.url !== 'about:blank'
+        && !tab.url.startsWith('zyphora://')
+        && now - (lastActiveRef.current.get(tab.id) ?? now) > TAB_SLEEP_AFTER_MS
+      );
+      if (toSleep.length === 0) return;
+      setAsleepTabs((current) => {
+        const next = new Set(current);
+        for (const tab of toSleep) next.add(tab.id);
+        return next;
+      });
+    }, TAB_SLEEP_CHECK_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const wakeTab = useCallback((tabId: string) => {
+    setAsleepTabs((current) => {
+      if (!current.has(tabId)) return current;
+      const next = new Set(current);
+      next.delete(tabId);
+      return next;
+    });
+    lastActiveRef.current.set(tabId, Date.now());
+  }, []);
 
   const { toggle: toggleBookmark, isBookmarked } = useBookmarks();
 
@@ -71,13 +166,20 @@ export const BrowserWindow: React.FC = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
     if (trimmed === 'about:blank') { navigate('about:blank'); return; }
-    const url = looksLikeUrl(trimmed) ? normalizeNavigationUrl(trimmed) : null;
-    const destination = url ?? buildSearchUrl(trimmed);
-    const secureDestination = forceHttps && destination.startsWith('http://')
-      ? `https://${destination.slice('http://'.length)}`
-      : destination;
+    // Shared resolver handles URLs, "<keyword> query" engine shortcuts, and
+    // search queries identically to the address bar.
+    const resolved = resolveAddressInput(
+      trimmed,
+      [...SEARCH_ENGINES, ...customSearchEngines],
+      searchEngineId,
+      (engine, query) => engine.url.replace(/%s/g, encodeURIComponent(query)),
+    );
+    if (!resolved.url) return;
+    const secureDestination = forceHttps && resolved.url.startsWith('http://')
+      ? `https://${resolved.url.slice('http://'.length)}`
+      : resolved.url;
     navigate(secureDestination);
-  }, [navigate, buildSearchUrl, forceHttps]);
+  }, [navigate, searchEngineId, customSearchEngines, forceHttps]);
 
   const handleBookmarkToggle = useCallback(() => {
     if (!activeTab?.url || activeTab.url.startsWith('about:')) return;
@@ -88,36 +190,76 @@ export const BrowserWindow: React.FC = () => {
 
   React.useEffect(() => window.browserAPI.onOpenFind(() => setFindOpen(true)), []);
 
+  // handleNavigate may change (engine/HTTPS settings); keep a stable ref for
+  // the long-lived context-search listener below.
+  const handleNavigateRef = useRef(handleNavigate);
+  handleNavigateRef.current = handleNavigate;
+
+  // Raised by the main process when a webview has keyboard focus and the
+  // shortcut can't reach the renderer's window listener.
+  React.useEffect(() => {
+    const unsubs = [
+      window.browserAPI.onFocusAddress(() => {
+        window.dispatchEvent(new Event('zyphora:focus-address'));
+      }),
+      window.browserAPI.onOpenPalette(() => setPaletteOpen(true)),
+      window.browserAPI.onContextSearch((selection) => {
+        handleNavigateRef.current(selection);
+      }),
+    ];
+    return () => unsubs.forEach((unsub) => unsub());
+  }, []);
+
   // ── Keyboard shortcuts ──
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 't') {
+      const control = e.ctrlKey || e.metaKey;
+      if (control && e.key === 'Tab') {
+        e.preventDefault(); void window.browserAPI.tabs.cycle(!e.shiftKey);
+      } else if (control && /^[1-9]$/.test(e.key)) {
+        e.preventDefault();
+        const index = e.key === '9' ? tabs.length - 1 : Number(e.key) - 1;
+        const target = tabs[index];
+        if (target) activateTab(target.id);
+      } else if (control && !e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        window.dispatchEvent(new Event('zyphora:focus-address'));
+      } else if (control && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault(); setPaletteOpen((v) => !v);
+      } else if (control && e.key === '/') {
+        e.preventDefault(); setCheatsheetOpen((v) => !v);
+      } else if (e.key === 'F11') {
+        e.preventDefault(); window.browserAPI.toggleFullscreen();
+      } else if (control && !e.shiftKey && e.key === 't') {
         e.preventDefault(); createNewBrowserTab();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+      } else if (control && e.key === 'w') {
         e.preventDefault(); if (activeTabId) closeTab(activeTabId);
-      } else if (((e.ctrlKey || e.metaKey) && e.key === 'r') || e.key === 'F5') {
+      } else if ((control && e.key === 'r') || e.key === 'F5') {
         e.preventDefault(); reload();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) {
+      } else if (control && (e.key === '+' || e.key === '=')) {
         e.preventDefault(); zoom(0.1);
-      } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+      } else if (control && e.key === '-') {
         e.preventDefault(); zoom(-0.1);
-      } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+      } else if (control && e.key === '0') {
         e.preventDefault(); resetZoom();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+      } else if (control && e.key === 'p') {
         e.preventDefault(); printPage();
-      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'T') {
+      } else if (control && e.shiftKey && e.key === 'T') {
         e.preventDefault(); restoreClosedTab();
       } else if (e.altKey && e.key === 'ArrowLeft') {
         e.preventDefault(); goBack();
       } else if (e.altKey && e.key === 'ArrowRight') {
         e.preventDefault(); goForward();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+      } else if (control && e.key === 'd') {
         e.preventDefault(); handleBookmarkToggle();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      } else if (control && e.key === 'f') {
         e.preventDefault(); setFindOpen(true);
-      } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+      } else if (control && e.key === ',') {
         e.preventDefault(); setSettingsOpen(true);
       } else if (e.key === 'Escape') {
+        if (paletteOpen) { setPaletteOpen(false); return; }
+        if (cheatsheetOpen) { setCheatsheetOpen(false); return; }
+        if (clearDialogOpen) { setClearDialogOpen(false); return; }
         if (findOpen) { setFindOpen(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (panel) { setPanel(null); return; }
@@ -125,29 +267,52 @@ export const BrowserWindow: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTabId, findOpen, panel, settingsOpen, createNewBrowserTab, createTabWithUrl, closeTab, reload,
+  }, [activeTabId, tabs, findOpen, panel, settingsOpen, paletteOpen, cheatsheetOpen, clearDialogOpen,
+       createNewBrowserTab, createTabWithUrl, closeTab, reload, activateTab,
        restoreClosedTab, zoom, resetZoom, printPage, goBack, goForward, handleBookmarkToggle]);
 
   const isNewTab = !activeTab?.url || activeTab.url === 'about:blank';
   const isDownloads = activeTab?.url === 'zyphora://downloads';
+  const isHistory = activeTab?.url === 'zyphora://history';
+  const isDiagnostics = activeTab?.url === 'zyphora://diagnostics';
 
   // Keep internal pages showing a friendly tab title (the webview never loads
   // them, so main never receives a real title for zyphora:// URLs).
   React.useEffect(() => {
-    if (activeTab && isDownloads && activeTab.title !== 'Downloads') {
+    if (!activeTab || !activeTab.url.startsWith('zyphora://')) return;
+    const friendly = internalPageTitle(activeTab.url);
+    if (friendly && activeTab.title !== friendly) {
       window.browserAPI.sendMessage({
         type: 'webview-title-updated',
         tabId: activeTab.id,
-        title: 'Downloads',
+        title: friendly,
       });
     }
-  }, [activeTab?.id, activeTab?.url, activeTab?.title, isDownloads]);
+  }, [activeTab?.id, activeTab?.url, activeTab?.title]);
 
   // Keep network security settings in sync with the main process before a
   // renderer-initiated navigation can happen.
   React.useEffect(() => {
-    window.browserAPI.security.set({ forceHttps, doNotTrack }).catch(() => {});
-  }, [forceHttps, doNotTrack]);
+    window.browserAPI.security.set({
+      forceHttps,
+      doNotTrack,
+      globalPrivacyControl,
+      stripTrackingParams: stripTrackingParamsSetting,
+      webrtcPolicy,
+      blockThirdPartyCookies,
+    }).catch(() => {});
+  }, [forceHttps, doNotTrack, globalPrivacyControl, stripTrackingParamsSetting, webrtcPolicy, blockThirdPartyCookies]);
+
+  // "Continue where you left off" — stored main-side so restore can happen
+  // before the renderer loads.
+  React.useEffect(() => {
+    window.browserAPI.session.setRestore(restoreSession).catch(() => {});
+  }, [restoreSession]);
+
+  // Download history retention (days).
+  React.useEffect(() => {
+    window.browserAPI.downloads.setRetention(downloadRetentionDays).catch(() => {});
+  }, [downloadRetentionDays]);
 
   // The initial tab is created by the main process before the renderer can read
   // persisted settings. Mark it private while it is still a blank page so the
@@ -223,9 +388,17 @@ export const BrowserWindow: React.FC = () => {
         onTabReorder={reorderTabs}
         onNewTab={createNewBrowserTab}
         onOpenSettings={() => setSettingsOpen(true)}
-        onOpenHistory={() => togglePanel('history')}
+        onOpenHistory={() => createTabWithUrl('zyphora://history')}
         onOpenBookmarks={() => togglePanel('bookmarks')}
         onOpenRecentlyClosed={() => togglePanel('closed')}
+        onTabTogglePin={(tabId) => {
+          const tab = tabs.find((t) => t.id === tabId);
+          if (tab) void window.browserAPI.tabs.setPinned(tabId, !tab.pinned);
+        }}
+        onTabToggleMute={(tabId) => {
+          const tab = tabs.find((t) => t.id === tabId);
+          if (tab) void window.browserAPI.tabs.setMuted(tabId, !tab.muted);
+        }}
       />
 
       {/* Main column */}
@@ -263,13 +436,37 @@ export const BrowserWindow: React.FC = () => {
                 </div>
               )}
 
-              {/* Webviews — all mounted, visibility toggled */}
+              {/* History page (zyphora://history) */}
+              {!settingsOpen && isHistory && (
+                <div className="absolute inset-0">
+                  <HistoryPage
+                    onBack={() => handleNavigate('about:blank')}
+                    onNavigate={(url) => handleNavigate(url)}
+                  />
+                </div>
+              )}
+
+              {/* Diagnostics page (zyphora://diagnostics) */}
+              {!settingsOpen && isDiagnostics && (
+                <div className="absolute inset-0">
+                  <DiagnosticsPage onBack={() => handleNavigate('about:blank')} />
+                </div>
+              )}
+
+              {/* Webviews — mounted unless the tab is asleep; visibility toggled */}
               {tabs
                 .filter((t) => t.url && t.url !== 'about:blank' && !t.url.startsWith('zyphora://'))
                 .map((t) => (
                   <div key={t.id} className="absolute inset-0 w-full h-full"
                     style={{ display: !settingsOpen && t.id === activeTabId ? 'flex' : 'none' }}>
-                    <WebView tab={t} />
+                    {asleepTabs.has(t.id) ? (
+                      <SleepPlaceholder
+                        title={t.title || t.url}
+                        onWake={() => { wakeTab(t.id); activateTab(t.id); }}
+                      />
+                    ) : (
+                      <WebView tab={t} />
+                    )}
                   </div>
                 ))}
             </div>
@@ -319,6 +516,30 @@ export const BrowserWindow: React.FC = () => {
 
       {/* Download-start notifications */}
       <DownloadToast onOpenDownloads={() => createTabWithUrl('zyphora://downloads')} />
+
+      {/* Command palette (Ctrl+K) */}
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => setPaletteOpen(false)}
+          onNavigate={handleNavigate}
+          onCreateTab={(privateMode) => createTab(privateMode)}
+          onOpenUrl={(url) => createTabWithUrl(url)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenFind={() => setFindOpen(true)}
+          onClearData={() => setClearDialogOpen(true)}
+        />
+      )}
+
+      {/* Keyboard shortcut cheat sheet (Ctrl+/) */}
+      {cheatsheetOpen && <ShortcutCheatsheet onClose={() => setCheatsheetOpen(false)} />}
+
+      {/* Clear browsing data (also available from History) */}
+      {clearDialogOpen && (
+        <ClearBrowsingDataDialog
+          onClose={() => setClearDialogOpen(false)}
+          onDone={() => setClearDialogOpen(false)}
+        />
+      )}
 
     </div>
   );

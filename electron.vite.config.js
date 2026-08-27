@@ -15,7 +15,7 @@ export default defineConfig({
       reportCompressedSize: false,
       target: 'node22',
       rollupOptions: {
-        external: ['sql.js'],
+        external: ['sql.js', 'electron-updater'],
       },
     },
   },

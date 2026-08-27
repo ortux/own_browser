@@ -15,6 +15,8 @@ export interface Tab {
   privateMode: boolean;
   muted: boolean;
   pinned: boolean;
+  /** True while the tab's page is playing audio (drives the speaker icon). */
+  audible?: boolean;
 }
 
 export interface BrowserState {
@@ -53,8 +55,20 @@ export type RendererToMainMessage =
   // Open a new tab directly at a given URL (used for internal pages like downloads)
   | { type: 'create-tab-url'; url: string; privateMode?: boolean }
   // Synchronise network privacy settings from the renderer.
-  | { type: 'security-settings'; forceHttps: boolean; doNotTrack: boolean }
-  | { type: 'set-tab-private'; tabId: string; privateMode: boolean };
+  | {
+    type: 'security-settings';
+    forceHttps: boolean;
+    doNotTrack: boolean;
+    globalPrivacyControl?: boolean;
+    stripTrackingParams?: boolean;
+    webrtcPolicy?: 'default' | 'public-only' | 'disable';
+    blockThirdPartyCookies?: boolean;
+  }
+  | { type: 'set-tab-private'; tabId: string; privateMode: boolean }
+  | { type: 'set-tab-pinned'; tabId: string; pinned: boolean }
+  | { type: 'set-tab-muted'; tabId: string; muted: boolean }
+  | { type: 'cycle-tab'; forward?: boolean }
+  | { type: 'set-session-restore'; enabled: boolean };
 // IPC Messages from Main to Renderer
 export type MainToRendererMessage =
   | { type: 'state-updated'; state: BrowserState }
@@ -86,6 +100,72 @@ export interface BlockedRequest {
   url: string;
   type: string;
   timestamp: number;
+}
+
+// ── Cross-process DTOs (single source of truth for renderer + main) ──────────
+
+/** TLS certificate details captured by the main-process cert monitor. */
+export interface CertInfo {
+  present: boolean;
+  valid: boolean;
+  issuer?: string;
+  subject?: string;
+  validFrom?: string; // ISO string
+  validTo?: string; // ISO string
+  serialNumber?: string;
+  fingerprint?: string;
+  error?: string;
+}
+
+/** Proxy endpoint metadata. Credentials intentionally never leave main. */
+export interface ProxyInfo {
+  ip: string;
+  port: string;
+  ipPort: string;
+  country: string;
+  type: string;           // "http" | "socks4" | "socks5"
+  proxyLevel: string;     // "anonymous" | "elite" | "transparent"
+  supportsHttps: boolean;
+  speed: number;          // seconds
+  fetchedAt: number;      // unix ms
+}
+
+/** Result of verifying the active proxy through Chromium's network stack. */
+export interface ProxyVerifyResult {
+  ok: boolean;
+  exitIp: string | null;
+}
+
+/** Local-only diagnostics snapshot (zyphora://diagnostics). */
+export interface DiagnosticsInfo {
+  versions: {
+    app: string;
+    electron: string;
+    chrome: string;
+    node: string;
+    platform: string;
+  };
+  dns: { mode: string; endpoint: string };
+  adblock: {
+    enabled: boolean;
+    blockedThisSession: number;
+    cacheExists: boolean;
+    cacheAgeDays: number | null;
+    allowlistSize: number;
+  };
+  proxy: { configured: boolean; rules: string | null };
+  startupPolicy: {
+    webrtcPolicy: 'default' | 'public-only' | 'disable';
+    blockThirdPartyCookies: boolean;
+  };
+  db: { sizeBytes: number; path: string };
+  updates: {
+    supported: boolean;
+    state: string;
+    version?: string;
+    error?: string;
+    progress?: number;
+  };
 }
 
 export interface Download {

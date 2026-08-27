@@ -4,17 +4,24 @@ import {
   ipcMain,
   Menu,
   clipboard,
+  dialog,
   globalShortcut,
   session,
+  shell,
+  webContents as webContentsModule,
 } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
-import type { Tab, BrowserState, RendererToMainMessage } from '../shared/types';
+import type { Tab, BrowserState, RendererToMainMessage, ProxyInfo } from '../shared/types';
 import {
   isAllowedNavigationUrl,
   isHttpNavigationUrl,
+  isExternalProtocolUrl,
+  internalPageTitle,
   normalizeNavigationUrl,
 } from '../shared/navigation';
+import { stripTrackingParams } from '../shared/urlClean';
 import { registerPexelsHandlers } from './pexels';
 import {
   fetchProxy,
@@ -23,13 +30,14 @@ import {
   verifyProxy,
   initProxyAutoApply,
   forgetProxySession,
+  getProxyStatus,
 } from './proxy';
-import type { ProxyInfo } from '../renderer/stores/settingsStore';
 import {
   addHistory,
   getHistory,
   searchHistory,
   deleteHistoryEntry,
+  deleteHistorySince,
   clearHistory,
   addBookmark,
   removeBookmark,
@@ -39,6 +47,14 @@ import {
   updateHistoryMetadata,
   closeDb,
   initDb,
+  saveSessionTabs,
+  loadSessionTabs,
+  clearSessionTabs,
+  getSetting,
+  setSetting,
+  getDbDiagnostics,
+  clearDownloadRecords,
+  pruneDownloadRecords,
 } from './db';
 import {
   initAdblock,
@@ -52,19 +68,28 @@ import {
   getSiteBlockedRequests,
   setNetworkSecuritySettings,
   isForceHttpsEnabled,
+  isStripTrackingParamsEnabled,
+  getAdblockDiagnostics,
   attachAdblockToSession,
   detachAdblockFromSession,
 } from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
 import { configureSessionPermissions, clearPermissionDecisions } from './permissions';
-import { configureAdGuardDns } from './dns';
+import { configureAdGuardDns, getDnsMode, getAdGuardDnsEndpoint } from './dns';
+import { applyStartupPolicyCommandLine, readStartupPolicy, writeStartupPolicy } from './startupPolicy';
+import { initAutoUpdate, getUpdateStatus } from './update';
+import { bookmarksToHtml, parseBookmarksHtml } from './bookmarksHtml';
 import {
   initDownloads,
   attachDownloadsToSession,
   setMainWindow,
   getDownloads,
   setDownloadPath,
+  setDownloadRetention,
+  loadPersistedDownloads,
   cancelDownload,
+  pauseDownload,
+  resumeDownload,
   retryDownload,
   removeDownload,
   clearDownloads,
@@ -76,6 +101,7 @@ import {
 } from './downloads';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STARTED_AT = Date.now();
 
 // Linux GPU/driver combinations can render the embedded webview as a solid
 // black surface even though the guest page loaded successfully. The browser
@@ -87,6 +113,9 @@ if (process.platform === 'linux' && process.env.ZYPHORA_ENABLE_HARDWARE_ACCELERA
 }
 
 configureAdGuardDns();
+// WebRTC IP-leak protection + third-party-cookie blocking are Chromium
+// command-line switches and must be applied before app ready.
+applyStartupPolicyCommandLine();
 
 /**
  * Present web content as the Chromium version it actually runs on, without the
@@ -169,9 +198,25 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
         && Number.isSafeInteger(value.webContentsId)
         && value.webContentsId > 0;
     case 'security-settings':
-      return typeof value.forceHttps === 'boolean' && typeof value.doNotTrack === 'boolean';
+      return typeof value.forceHttps === 'boolean'
+        && typeof value.doNotTrack === 'boolean'
+        && (value.globalPrivacyControl === undefined || typeof value.globalPrivacyControl === 'boolean')
+        && (value.stripTrackingParams === undefined || typeof value.stripTrackingParams === 'boolean')
+        && (value.webrtcPolicy === undefined
+          || value.webrtcPolicy === 'default'
+          || value.webrtcPolicy === 'public-only'
+          || value.webrtcPolicy === 'disable')
+        && (value.blockThirdPartyCookies === undefined || typeof value.blockThirdPartyCookies === 'boolean');
     case 'set-tab-private':
       return isBoundedString(value.tabId, 200) && typeof value.privateMode === 'boolean';
+    case 'set-tab-pinned':
+      return isBoundedString(value.tabId, 200) && typeof value.pinned === 'boolean';
+    case 'set-tab-muted':
+      return isBoundedString(value.tabId, 200) && typeof value.muted === 'boolean';
+    case 'cycle-tab':
+      return value.forward === undefined || typeof value.forward === 'boolean';
+    case 'set-session-restore':
+      return typeof value.enabled === 'boolean';
     default:
       return false;
   }
@@ -221,8 +266,63 @@ const tabs: Map<string, Tab> = new Map();
 const closedTabs: Tab[] = [];
 const managedSessions = new Set<Electron.Session>();
 const tabByWebContentsId = new Map<number, string>();
+const webContentsIdByTabId = new Map<string, number>();
 let activeTabId: string = '';
 let nextTabId = 1;
+
+/** Apply the opt-in tracking-parameter stripper at navigation boundaries. */
+function cleanNavigationUrl(url: string): string {
+  return isStripTrackingParamsEnabled() ? stripTrackingParams(url) : url;
+}
+
+// Debounced session persistence — updateRendererState fires often.
+let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleSessionSave(): void {
+  if (sessionSaveTimer) return;
+  sessionSaveTimer = setTimeout(() => {
+    sessionSaveTimer = null;
+    if (getSetting('restoreSession') === 'false') return;
+    const rows = Array.from(tabs.values())
+      .filter((tab) => !tab.privateMode && tab.url !== 'about:blank')
+      .map((tab) => ({
+        tabId: tab.id,
+        url: tab.url,
+        title: tab.title,
+        pinned: tab.pinned,
+        muted: tab.muted,
+      }));
+    try {
+      saveSessionTabs(rows, activeTabId);
+    } catch {
+      // Persistence unavailable — session restore silently degrades.
+    }
+  }, 1_500);
+}
+
+function cycleTab(forward: boolean): void {
+  const ids = Array.from(tabs.keys());
+  if (ids.length < 2) return;
+  const current = ids.indexOf(activeTabId);
+  if (current === -1) {
+    activeTabId = ids[0];
+  } else {
+    const next = forward ? (current + 1) % ids.length : (current - 1 + ids.length) % ids.length;
+    activeTabId = ids[next];
+  }
+  updateRendererState();
+}
+
+function setTabMutedState(tab: Tab, muted: boolean): void {
+  tab.muted = muted;
+  const wcId = webContentsIdByTabId.get(tab.id);
+  const contents = wcId !== undefined ? webContentsModule.fromId(wcId) : null;
+  try {
+    contents?.setAudioMuted(muted);
+  } catch {
+    // Guest may not be attached yet; the flag re-applies on attach.
+  }
+  updateRendererState();
+}
 
 /**
  * SECURITY: Default Electron security configuration
@@ -275,26 +375,48 @@ function createWindow() {
     mainWindow = null;
   });
 
-  // Initialize with first tab
-  createNewTab();
+  // Initialize with the first tab — either a fresh New Tab or the tabs saved
+  // by session restore ("Continue where you left off").
+  const restored = initialSession?.tabs ?? [];
+  if (restored.length > 0) {
+    for (const row of restored) {
+      const tabId = createNewTab(row.url, false, row.pinned, row.muted);
+      if (!tabId) continue;
+      const tab = tabs.get(tabId);
+      if (tab && row.title && row.title !== 'Loading...') tab.title = row.title;
+    }
+    const savedActive = initialSession?.activeTabId;
+    if (savedActive && tabs.has(savedActive)) {
+      activeTabId = savedActive;
+    } else {
+      activeTabId = Array.from(tabs.keys()).pop() ?? activeTabId;
+    }
+    updateRendererState();
+  } else {
+    createNewTab();
+  }
 }
 
-function createNewTab(rawUrl?: string, privateMode = false): string {
-  const url = rawUrl ? normalizeNavigationUrl(rawUrl) : null;
-  if (rawUrl && !url) {
+function createNewTab(
+  rawUrl?: string,
+  privateMode = false,
+  pinned = false,
+  muted = false,
+): string {
+  const normalized = rawUrl ? normalizeNavigationUrl(cleanNavigationUrl(rawUrl)) : null;
+  if (rawUrl && !normalized) {
     console.warn('[navigation] refused unsupported new-tab URL:', rawUrl);
     return '';
   }
+  const url = normalized;
 
   const tabId = `tab-${nextTabId++}`;
   // Give internal pages a friendly title up-front so the tab strip reads well.
-  const isInternal = !!url && url.startsWith('zyphora://');
+  const internalTitle = url ? internalPageTitle(url) : null;
   const title = !url || url === 'about:blank'
     ? 'New Tab'
-    : isInternal
-      ? url === 'zyphora://downloads'
-        ? 'Downloads'
-        : 'Zyphora'
+    : internalTitle
+      ? internalTitle
       : 'Loading...';
   const tab: Tab = {
     id: tabId,
@@ -304,8 +426,8 @@ function createNewTab(rawUrl?: string, privateMode = false): string {
     canGoBack: false,
     canGoForward: false,
     privateMode,
-    muted: false,
-    pinned: false,
+    muted,
+    pinned,
   };
 
   tabs.set(tabId, tab);
@@ -351,6 +473,7 @@ function closeTab(tabId: string) {
     closedTabs.splice(20);
   }
   tabs.delete(tabId);
+  webContentsIdByTabId.delete(tabId);
 
   if (tabs.size === 0) {
     // No tabs left — close the browser window
@@ -385,9 +508,16 @@ function getState(): BrowserState {
   };
 }
 
+/** Session snapshot consumed by createWindow on startup (null = fresh start). */
+let initialSession: ReturnType<typeof loadSessionTabs> | null = null;
+
 function updateRendererState() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('state-updated', getState());
+  }
+  if (initialSession !== null) {
+    // Only start persisting once the startup restore has been consumed.
+    scheduleSessionSave();
   }
 }
 
@@ -407,7 +537,7 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
 
   switch (message.type) {
       case 'navigate': {
-        const url = normalizeNavigationUrl(message.url);
+        const url = normalizeNavigationUrl(cleanNavigationUrl(message.url));
         if (!url) return { success: false, error: 'unsupported-url' };
         const tab = tabs.get(message.tabId);
         if (tab) {
@@ -457,14 +587,56 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       case 'webview-attached': {
         if (tabs.has(message.tabId)) {
           tabByWebContentsId.set(message.webContentsId, message.tabId);
+          webContentsIdByTabId.set(message.tabId, message.webContentsId);
+          // Re-apply a restored mute state to the freshly attached guest.
+          const attachedTab = tabs.get(message.tabId);
+          if (attachedTab?.muted) {
+            try { webContentsModule.fromId(message.webContentsId)?.setAudioMuted(true); } catch { /* guest not ready */ }
+          }
         }
         break;
       }
-      case 'security-settings':
+      case 'security-settings': {
         setNetworkSecuritySettings({
           forceHttps: message.forceHttps,
           doNotTrack: message.doNotTrack,
+          globalPrivacyControl: message.globalPrivacyControl,
+          stripTrackingParams: message.stripTrackingParams,
         });
+        // Startup-only Chromium policies persist to disk for the next launch.
+        if (message.webrtcPolicy !== undefined || message.blockThirdPartyCookies !== undefined) {
+          writeStartupPolicy({
+            ...(message.webrtcPolicy !== undefined ? { webrtcPolicy: message.webrtcPolicy } : {}),
+            ...(message.blockThirdPartyCookies !== undefined
+              ? { blockThirdPartyCookies: message.blockThirdPartyCookies }
+              : {}),
+          });
+        }
+        break;
+      }
+      case 'set-tab-pinned': {
+        const tab = tabs.get(message.tabId);
+        if (tab) {
+          tab.pinned = message.pinned;
+          updateRendererState();
+        }
+        break;
+      }
+      case 'set-tab-muted': {
+        const tab = tabs.get(message.tabId);
+        if (tab) setTabMutedState(tab, message.muted);
+        break;
+      }
+      case 'cycle-tab':
+        cycleTab(message.forward !== false);
+        break;
+      case 'set-session-restore':
+        try {
+          setSetting('restoreSession', message.enabled ? 'true' : 'false');
+          if (!message.enabled) clearSessionTabs();
+        } catch {
+          // DB unavailable; the renderer keeps its own flag.
+        }
         break;
       case 'set-tab-private': {
         const tab = tabs.get(message.tabId);
@@ -576,6 +748,12 @@ app.on('ready', async () => {
   initDownloads(); // session will-download handler — before any webview exists
   try {
     await initDb();
+    loadPersistedDownloads();
+    // Session restore: "Continue where you left off" (default on). Private
+    // tabs are never saved; a disabled setting starts completely fresh.
+    initialSession = getSetting('restoreSession') === 'false'
+      ? { tabs: [], activeTabId: null }
+      : loadSessionTabs();
   } catch (error) {
     // The UI can still browse if local persistence is unavailable. Individual
     // database IPC calls will reject and the renderer displays empty state
@@ -589,6 +767,8 @@ app.on('ready', async () => {
   registerAdblockHandlers();
   registerCertHandlers();
   registerDownloadHandlers();
+  registerDiagnosticsHandler();
+  initAutoUpdate(() => mainWindow, isTrustedMainFrame);
   createWindow();
 
   // Global shortcut — opens the Downloads page as a new tab (zyphora://downloads).
@@ -596,6 +776,8 @@ app.on('ready', async () => {
   globalShortcut.register('CommandOrControl+J', () => {
     createNewTab('zyphora://downloads');
   });
+  // Startup timing marker (see README performance targets).
+  console.log(`[perf] app ready in ${Date.now() - STARTED_AT}ms`);
 });
 
 app.on('will-quit', () => {
@@ -606,9 +788,13 @@ app.on('will-quit', () => {
 // ── DB IPC handlers ──────────────────────────────────────────────────────────
 
 function registerDbHandlers() {
-  ipcMain.handle('db:history:get', (event) => {
+  ipcMain.handle('db:history:get', (event, limit?: unknown) => {
     assertTrustedMainFrame(event);
-    return getHistory();
+    if (limit !== undefined
+      && (typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)) {
+      throw new Error('Invalid history limit.');
+    }
+    return getHistory(limit === undefined ? 200 : limit);
   });
   ipcMain.handle('db:history:search', (event, query: unknown) => {
     assertTrustedMainFrame(event);
@@ -657,6 +843,55 @@ function registerDbHandlers() {
     if (!isBoundedString(url, 8_192)) throw new Error('Invalid bookmark URL.');
     return isBookmarked(url);
   });
+
+  // ── Bookmark import / export (Netscape HTML, compatible with all major browsers)
+
+  ipcMain.handle('db:bookmarks:export', async (event) => {
+    assertTrustedMainFrame(event);
+    if (!mainWindow) throw new Error('No window available.');
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export bookmarks',
+      defaultPath: 'zyphora-bookmarks.html',
+      filters: [{ name: 'HTML', extensions: ['html', 'htm'] }],
+    });
+    if (result.canceled || !result.filePath) return { success: false, canceled: true, count: 0 };
+    const items = getBookmarks().map((bookmark) => ({
+      url: bookmark.url,
+      title: bookmark.title,
+      createdAt: bookmark.created_at,
+    }));
+    await fs.promises.writeFile(result.filePath, bookmarksToHtml(items), 'utf-8');
+    return { success: true, canceled: false, count: items.length };
+  });
+
+  ipcMain.handle('db:bookmarks:import', async (event) => {
+    assertTrustedMainFrame(event);
+    if (!mainWindow) throw new Error('No window available.');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import bookmarks',
+      properties: ['openFile'],
+      filters: [{ name: 'HTML', extensions: ['html', 'htm'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { success: false, canceled: true, imported: 0, skipped: 0 };
+    const html = await fs.promises.readFile(result.filePaths[0], 'utf-8');
+    if (html.length > 20_000_000) throw new Error('Bookmark file too large.');
+    const items = parseBookmarksHtml(html);
+    let imported = 0;
+    let skipped = 0;
+    for (const item of items) {
+      if (!isAllowedNavigationUrl(item.url) || item.url.startsWith('zyphora://')) {
+        skipped++;
+        continue;
+      }
+      try {
+        addBookmark(item.url, item.title.slice(0, 1000), undefined, item.createdAt);
+        imported++;
+      } catch {
+        skipped++;
+      }
+    }
+    return { success: true, canceled: false, imported, skipped };
+  });
 }
 
 // ── Proxy IPC handlers ───────────────────────────────────────────────────────
@@ -673,6 +908,90 @@ function registerPrivacyHandlers() {
       });
       await ses.clearCache();
     }
+  });
+
+  /**
+   * Selective "Clear browsing data" — validated targets + optional time
+   * range. History respects `since`; site storage clears globally (Chromium
+   * provides no timestamped variant), which the dialog states explicitly.
+   */
+  ipcMain.handle('privacy:clear-data-selective', async (event, options: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isRecord(options)) throw new Error('Invalid clear-data options.');
+    const targets = options.targets;
+    const since = typeof options.since === 'number' && Number.isFinite(options.since) && options.since >= 0
+      ? options.since
+      : 0;
+    if (!isRecord(targets)) throw new Error('Invalid clear-data targets.');
+    const want = (key: string): boolean =>
+      Object.prototype.hasOwnProperty.call(targets, key) && targets[key] === true;
+
+    const cleared: string[] = [];
+    if (want('history')) {
+      try {
+        if (since > 0) deleteHistorySince(since);
+        else clearHistory();
+        cleared.push('history');
+      } catch { /* DB unavailable */ }
+    }
+    if (want('downloads')) {
+      try {
+        pruneDownloadRecords(0);
+        cleared.push('downloads');
+      } catch { /* DB unavailable */ }
+    }
+    if (want('permissions')) {
+      clearPermissionDecisions();
+      cleared.push('permissions');
+    }
+    if (want('cookies') || want('cache')) {
+      type Storages = NonNullable<Parameters<Electron.Session['clearStorageData']>[0]>['storages'];
+      const storages: Storages = [
+        ...(want('cookies')
+          ? (['cookies', 'localstorage', 'indexdb', 'serviceworkers', 'cachestorage', 'filesystem'] as NonNullable<Storages>)
+          : []),
+        ...(want('cache') ? (['shadercache'] as NonNullable<Storages>) : []),
+      ];
+      for (const ses of managedSessions) {
+        if (want('cookies')) {
+          await ses.clearStorageData({ storages });
+        }
+        if (want('cache')) await ses.clearCache();
+      }
+      if (want('cookies')) cleared.push('cookies');
+      if (want('cache')) cleared.push('cache');
+    }
+    if (want('blockedStats')) {
+      resetBlockedStats();
+      cleared.push('blockedStats');
+    }
+    return { success: true, cleared };
+  });
+}
+
+// ── Diagnostics IPC ──────────────────────────────────────────────────────────
+
+function registerDiagnosticsHandler() {
+  ipcMain.handle('diag:get', (event) => {
+    assertTrustedMainFrame(event);
+    const policy = readStartupPolicy();
+    let dbInfo = { sizeBytes: 0, path: 'unavailable' };
+    try { dbInfo = getDbDiagnostics(); } catch { /* DB unavailable */ }
+    return {
+      versions: {
+        app: app.getVersion(),
+        electron: process.versions.electron,
+        chrome: process.versions.chrome,
+        node: process.versions.node,
+        platform: `${process.platform} ${process.arch}`,
+      },
+      dns: { mode: getDnsMode(), endpoint: getAdGuardDnsEndpoint() },
+      adblock: getAdblockDiagnostics(),
+      proxy: getProxyStatus(),
+      startupPolicy: policy,
+      db: dbInfo,
+      updates: getUpdateStatus(),
+    };
   });
 }
 
@@ -757,6 +1076,29 @@ function registerDownloadHandlers() {
     assertTrustedMainFrame(event);
     return getDownloads();
   });
+  ipcMain.handle('download:pause', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return pauseDownload(id);
+  });
+  ipcMain.handle('download:resume', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return resumeDownload(id);
+  });
+  ipcMain.handle('download:set-retention', (event, days: unknown) => {
+    assertTrustedMainFrame(event);
+    if (typeof days !== 'number' || !Number.isSafeInteger(days) || days < 0 || days > 365) {
+      throw new Error('Invalid retention (days).');
+    }
+    setDownloadRetention(days);
+    return { success: true };
+  });
+  ipcMain.handle('download:clear-history', (event) => {
+    assertTrustedMainFrame(event);
+    try { clearDownloadRecords(); } catch { /* DB unavailable */ }
+    return { success: true };
+  });
   ipcMain.handle('download:set-path', (event, p: unknown) => {
     assertTrustedMainFrame(event);
     if (!isBoundedString(p, 4_096)) throw new Error('Invalid download path.');
@@ -817,6 +1159,11 @@ ipcMain.on('window:maximize', (event) => {
 ipcMain.on('window:close', (event) => {
   if (isTrustedMainFrame(event)) mainWindow?.close();
 });
+ipcMain.on('window:fullscreen', (event) => {
+  if (!isTrustedMainFrame(event)) return;
+  if (mainWindow?.isFullScreen()) mainWindow.setFullScreen(false);
+  else mainWindow?.setFullScreen(true);
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -864,7 +1211,9 @@ app.on('web-contents-created', (_event, contents) => {
         detachAdblockFromSession(contents.session);
         managedSessions.delete(contents.session);
       }
+      const tabId = tabByWebContentsId.get(contents.id);
       tabByWebContentsId.delete(contents.id);
+      if (tabId) webContentsIdByTabId.delete(tabId);
     });
 
     // A remote page must not be able to navigate a guest into an internal or
@@ -881,19 +1230,70 @@ app.on('web-contents-created', (_event, contents) => {
           return;
         }
       }
+      if (isExternalProtocolUrl(navigationUrl)) {
+        // mailto:/tel:/magnet:… belong to OS handlers, not a browser tab.
+        event.preventDefault();
+        shell.openExternal(navigationUrl).catch((error: unknown) => {
+          console.warn('[navigation] external protocol handler failed:', error);
+        });
+        return;
+      }
       if (!isHttpNavigationUrl(navigationUrl) && navigationUrl !== 'about:blank') {
         event.preventDefault();
       }
     });
 
+    // Track per-tab audio state for the sidebar speaker indicator.
+    const setAudible = (audible: boolean) => {
+      const tabId = tabByWebContentsId.get(contents.id);
+      if (!tabId) return;
+      const tab = tabs.get(tabId);
+      if (!tab || tab.audible === audible) return;
+      tab.audible = audible;
+      updateRendererState();
+    };
+    contents.on('media-started-playing', () => setAudible(true));
+    contents.on('media-paused', () => setAudible(false));
+
     contents.on('before-input-event', (event, input) => {
-      if (input.type !== 'keyDown' || !input.control) return;
+      if (input.type !== 'keyDown') return;
+
+      // Tab cycling works even while a webview holds keyboard focus.
+      if (input.control && input.key === 'Tab') {
+        event.preventDefault();
+        cycleTab(!input.shift);
+        return;
+      }
+      // F11 fullscreen from within page content.
+      if (input.key === 'F11') {
+        event.preventDefault();
+        if (mainWindow?.isFullScreen()) mainWindow.setFullScreen(false);
+        else mainWindow?.setFullScreen(true);
+        return;
+      }
+      if (!input.control) return;
       if (input.shift && input.key.toLowerCase() === 'i') {
         event.preventDefault();
         if (!contents.isDevToolsOpened()) contents.openDevTools({ mode: 'detach' });
       } else if (!input.shift && input.key.toLowerCase() === 'f') {
         event.preventDefault();
         mainWindow?.webContents.send('open-find');
+      } else if (!input.shift && input.key.toLowerCase() === 'l') {
+        // Focus the address bar (the renderer listens for this event).
+        event.preventDefault();
+        mainWindow?.webContents.send('focus-address');
+      } else if (!input.shift && input.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        mainWindow?.webContents.send('open-palette');
+      } else if (/^[1-9]$/.test(input.key)) {
+        // Ctrl+1..8 jumps to tab N; Ctrl+9 to the last tab.
+        event.preventDefault();
+        const ids = Array.from(tabs.keys());
+        const index = input.key === '9' ? ids.length - 1 : Number(input.key) - 1;
+        if (ids[index]) {
+          activeTabId = ids[index];
+          updateRendererState();
+        }
       }
     });
   }
@@ -945,7 +1345,17 @@ app.on('web-contents-created', (_event, contents) => {
     if (isEditable) {
       items.push({ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { type: 'separator' });
     } else if (selectionText) {
-      items.push({ role: 'copy' }, { type: 'separator' });
+      items.push(
+        { role: 'copy' },
+        {
+          label: `Search for "${selectionText.slice(0, 24)}${selectionText.length > 24 ? '…' : ''}"`,
+          click: () => {
+            // The renderer resolves the query with the user's search engine.
+            mainWindow?.webContents.send('context-search', selectionText.slice(0, 500));
+          },
+        },
+        { type: 'separator' },
+      );
     }
 
     if (linkURL) {
@@ -955,8 +1365,16 @@ app.on('web-contents-created', (_event, contents) => {
           click: () => createNewTab(linkURL),
         },
         {
+          label: 'Open link in new private tab',
+          click: () => createNewTab(linkURL, true),
+        },
+        {
           label: 'Copy link address',
           click: () => clipboard.writeText(linkURL),
+        },
+        {
+          label: 'Copy clean link',
+          click: () => clipboard.writeText(stripTrackingParams(linkURL)),
         },
         { type: 'separator' },
       );
@@ -972,6 +1390,32 @@ app.on('web-contents-created', (_event, contents) => {
           label: 'Copy image',
           click: () => contents.copyImageAt(x, y),
         },
+        {
+          label: 'Copy image address',
+          click: () => clipboard.writeText(srcURL),
+        },
+        {
+          label: 'Save image as…',
+          click: () => {
+            if (isHttpNavigationUrl(srcURL)) contents.downloadURL(srcURL);
+          },
+        },
+        { type: 'separator' },
+      );
+    }
+
+    if (contentsType === 'webview') {
+      if (contents.canGoBack() || contents.canGoForward()) {
+        if (contents.canGoBack()) {
+          items.push({ label: 'Back', click: () => { try { contents.goBack(); } catch { /* destroyed */ } } });
+        }
+        if (contents.canGoForward()) {
+          items.push({ label: 'Forward', click: () => { try { contents.goForward(); } catch { /* destroyed */ } } });
+        }
+        items.push({ type: 'separator' });
+      }
+      items.push(
+        { role: 'reload' },
         { type: 'separator' },
       );
     }

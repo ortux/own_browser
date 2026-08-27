@@ -51,5 +51,5 @@ export function useBookmarks() {
     return bookmarks.some((b) => b.url === url);
   }, [bookmarks]);
 
-  return { bookmarks, loading, add, remove, toggle, isBookmarked, reload: load };
+  return { bookmarks, loading, add, remove, toggle, isBookmarked, reload: load, refresh: load };
 }

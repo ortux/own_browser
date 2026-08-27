@@ -5,12 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; form-action 'self';"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; form-action 'self';"
     />
     <title>Zyphora</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300..700;1,300..700&display=swap" rel="stylesheet">
 
     <style>
       /* Preloader — visible until React removes it */
@@ -42,14 +39,14 @@
         animation: pulse 1.8s ease-in-out infinite;
       }
       #preloader .logo span {
-        font-family: 'Cormorant Garamond', serif;
+        font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
         font-size: 2.5rem;
         font-weight: 600;
         letter-spacing: 0.08em;
         color: #ededed;
       }
       #preloader .tagline {
-        font-family: 'Cormorant Garamond', serif;
+        font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
         font-size: 0.7rem;
         letter-spacing: 0.22em;
         text-transform: uppercase;

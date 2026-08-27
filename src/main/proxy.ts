@@ -55,16 +55,23 @@ async function applyToSession(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+const SUPPORTED_PROXY_TYPES = new Set(['http', 'https', 'socks4', 'socks5']);
+
 /** Pick a random proxy from the configured list. */
 export function fetchProxy(): ProxyInfo {
   const proxies = configuredProxyList();
   if (proxies.length === 0) {
-    throw new Error('No proxy configured. Set ZYPHORA_PROXY_LIST to ip:port:user:password entries.');
+    throw new Error('No proxy configured. Set ZYPHORA_PROXY_LIST to ip:port:user:password[:type] entries.');
   }
   const raw = proxies[Math.floor(Math.random() * proxies.length)];
+  const parts = raw.split(':');
   const { ip, port, user, pass } = parseProxy(raw);
+  const type = (parts[4] ?? 'http').toLowerCase();
   if (!ip || !port || !/^\d+$/.test(port)) {
-    throw new Error('Invalid proxy entry. Expected ip:port:user:password.');
+    throw new Error('Invalid proxy entry. Expected ip:port:user:password[:type].');
+  }
+  if (!SUPPORTED_PROXY_TYPES.has(type)) {
+    throw new Error(`Unsupported proxy type "${type}". Use http, https, socks4 or socks5.`);
   }
 
   const ipPort = `${ip}:${port}`;
@@ -77,7 +84,7 @@ export function fetchProxy(): ProxyInfo {
     port,
     ipPort,
     country: 'US',
-    type: 'http',
+    type,
     proxyLevel: 'anonymous',
     supportsHttps: true,
     speed: 1,
@@ -91,7 +98,8 @@ export async function applyProxy(proxy: ProxyInfo): Promise<void> {
   const nextAuth = credentials?.user
     ? { user: credentials.user, pass: credentials.pass }
     : null;
-  const nextRules = `http://${proxy.ipPort}`;
+  const scheme = SUPPORTED_PROXY_TYPES.has(proxy.type) ? proxy.type : 'http';
+  const nextRules = `${scheme}://${proxy.ipPort}`;
   const previousAuth = currentAuth;
   const previousRules = lastProxyRules;
 
@@ -137,8 +145,11 @@ export async function clearProxy(): Promise<void> {
   );
 }
 
-/** Verify the proxy through Electron's session network stack. */
-export async function verifyProxy(_proxy: ProxyInfo): Promise<boolean> {
+/**
+ * Verify the proxy through Electron's session network stack and report the
+ * apparent exit IP, so the UI can show exactly where traffic egresses.
+ */
+export async function verifyProxy(_proxy: ProxyInfo): Promise<{ ok: boolean; exitIp: string | null }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
@@ -148,14 +159,20 @@ export async function verifyProxy(_proxy: ProxyInfo): Promise<boolean> {
     const res = await session.defaultSession.fetch('https://api.ipify.org?format=json', {
       signal: controller.signal,
     });
-    if (!res.ok) return false;
+    if (!res.ok) return { ok: false, exitIp: null };
     const body = await res.json() as { ip?: unknown };
-    return typeof body.ip === 'string' && body.ip.length > 0;
+    const ip = typeof body.ip === 'string' && body.ip.length > 0 ? body.ip : null;
+    return { ok: ip !== null, exitIp: ip };
   } catch {
-    return false;
+    return { ok: false, exitIp: null };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Current proxy state, for the diagnostics page. */
+export function getProxyStatus(): { configured: boolean; rules: string | null } {
+  return { configured: lastProxyRules !== null, rules: lastProxyRules };
 }
 
 /**

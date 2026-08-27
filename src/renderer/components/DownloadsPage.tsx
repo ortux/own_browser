@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Download as DownloadIcon,
   File,
@@ -11,6 +11,8 @@ import {
   XCircle,
   Ban,
   RotateCcw,
+  Pause,
+  Play,
 } from 'lucide-react';
 import type { Download } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -40,9 +42,19 @@ function statusMeta(d: Download): { label: string; icon: React.ElementType; tone
   }
 }
 
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m ${Math.ceil(seconds % 60)}s`;
+  return `${Math.floor(seconds / 3_600)}h ${Math.floor((seconds % 3_600) / 60)}m`;
+}
+
 export const DownloadsPage: React.FC = () => {
   const [downloads, setDownloads] = useState<Download[]>([]);
   const downloadPath = useSettingsStore((s) => s.downloadPath);
+  const [pausedIds, setPausedIds] = useState<Set<string>>(() => new Set());
+  const [speeds, setSpeeds] = useState<Record<string, { speed: number; eta: number | null }>>({});
+  const speedSamples = useRef(new Map<string, { received: number; time: number; speed: number; eta: number | null }>());
 
   const refresh = useCallback(async () => {
     try {
@@ -53,11 +65,55 @@ export const DownloadsPage: React.FC = () => {
     }
   }, []);
 
+  // Derive transfer speed + ETA from consecutive progress snapshots.
+  const handleUpdate = useCallback((list: Download[]) => {
+    setDownloads(list);
+    const now = Date.now();
+    const next: Record<string, { speed: number; eta: number | null }> = {};
+    const active = new Set<string>();
+    for (const download of list) {
+      if (download.state !== 'progressing') continue;
+      active.add(download.id);
+      const prev = speedSamples.current.get(download.id);
+      if (prev && now > prev.time) {
+        const speed = Math.max(0, (download.receivedBytes - prev.received) / ((now - prev.time) / 1000));
+        const eta = speed > 0 && download.totalBytes > download.receivedBytes
+          ? (download.totalBytes - download.receivedBytes) / speed
+          : null;
+        speedSamples.current.set(download.id, { received: download.receivedBytes, time: now, speed, eta });
+        next[download.id] = { speed, eta };
+      } else if (prev) {
+        next[download.id] = { speed: prev.speed, eta: prev.eta };
+      } else {
+        speedSamples.current.set(download.id, { received: download.receivedBytes, time: now, speed: 0, eta: null });
+        next[download.id] = { speed: 0, eta: null };
+      }
+    }
+    for (const id of [...speedSamples.current.keys()]) {
+      if (!active.has(id)) speedSamples.current.delete(id);
+    }
+    setSpeeds(next);
+  }, []);
+
   useEffect(() => {
     refresh();
-    const unsub = window.browserAPI.downloads.onUpdated(setDownloads);
+    const unsub = window.browserAPI.downloads.onUpdated(handleUpdate);
     return unsub;
-  }, [refresh]);
+  }, [refresh, handleUpdate]);
+
+  const togglePause = (d: Download) => {
+    if (pausedIds.has(d.id)) {
+      window.browserAPI.downloads.resume(d.id).catch(() => {});
+      setPausedIds((current) => {
+        const next = new Set(current);
+        next.delete(d.id);
+        return next;
+      });
+    } else {
+      window.browserAPI.downloads.pause(d.id).catch(() => {});
+      setPausedIds((current) => new Set(current).add(d.id));
+    }
+  };
 
   const handleClear = () => window.browserAPI.downloads.clear().then(refresh).catch(() => {});
 
@@ -133,6 +189,15 @@ export const DownloadsPage: React.FC = () => {
                         {d.totalBytes > 0 && ` / ${formatBytes(d.totalBytes)}`}
                         {showBar && !indeterminate && ` (${pct}%)`}
                       </span>
+                      {showBar && speeds[d.id] && speeds[d.id].speed > 0 && (
+                        <>
+                          <span>·</span>
+                          <span className="tabular-nums">
+                            {formatBytes(speeds[d.id].speed)}/s
+                            {speeds[d.id].eta !== null && ` — ${formatEta(speeds[d.id].eta as number)} left`}
+                          </span>
+                        </>
+                      )}
                     </div>
 
                     {/* Progress bar */}
@@ -148,16 +213,25 @@ export const DownloadsPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Actions */}
+                    {/* Actions */}
                   <div className="flex shrink-0 items-center gap-1">
                     {d.state === 'progressing' && (
-                      <button
-                        onClick={() => window.browserAPI.downloads.cancel(d.id).catch(() => {})}
-                        title="Cancel"
-                        className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
-                      >
-                        <Ban size={16} />
-                      </button>
+                      <>
+                        <button
+                          onClick={() => togglePause(d)}
+                          title={pausedIds.has(d.id) ? 'Resume' : 'Pause'}
+                          className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                        >
+                          {pausedIds.has(d.id) ? <Play size={16} /> : <Pause size={16} />}
+                        </button>
+                        <button
+                          onClick={() => window.browserAPI.downloads.cancel(d.id).catch(() => {})}
+                          title="Cancel"
+                          className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                        >
+                          <Ban size={16} />
+                        </button>
+                      </>
                     )}
                     {(d.state === 'interrupted' || d.state === 'canceled') && (
                       <button

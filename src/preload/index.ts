@@ -118,6 +118,50 @@ const browserAPI = {
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
   closeWindow:    () => ipcRenderer.send('window:close'),
+  toggleFullscreen: () => ipcRenderer.send('window:fullscreen'),
+
+  /** Focus the address bar (raised by Ctrl+L while a webview has focus). */
+  onFocusAddress: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('focus-address', handler);
+    return () => {
+      ipcRenderer.removeListener('focus-address', handler);
+    };
+  },
+
+  /** Open the command palette (raised by Ctrl+K while a webview has focus). */
+  onOpenPalette: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('open-palette', handler);
+    return () => {
+      ipcRenderer.removeListener('open-palette', handler);
+    };
+  },
+
+  /** "Search <selection>" from the page context menu. */
+  onContextSearch: (callback: (selection: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, selection: string) => callback(selection);
+    ipcRenderer.on('context-search', handler);
+    return () => {
+      ipcRenderer.removeListener('context-search', handler);
+    };
+  },
+
+  // ── Tab pinning / muting / cycling ─────────────────────────────────────────
+  tabs: {
+    setPinned: (tabId: string, pinned: boolean): Promise<unknown> =>
+      browserAPI.sendMessage({ type: 'set-tab-pinned', tabId, pinned }),
+    setMuted: (tabId: string, muted: boolean): Promise<unknown> =>
+      browserAPI.sendMessage({ type: 'set-tab-muted', tabId, muted }),
+    cycle: (forward = true): Promise<unknown> =>
+      browserAPI.sendMessage({ type: 'cycle-tab', forward }),
+  },
+
+  // ── Session restore ────────────────────────────────────────────────────────
+  session: {
+    setRestore: (enabled: boolean): Promise<unknown> =>
+      browserAPI.sendMessage({ type: 'set-session-restore', enabled }),
+  },
 
   /**
    * Fetch a random background image from the Pexels API.
@@ -129,8 +173,8 @@ const browserAPI = {
 
   /** History */
   history: {
-    get:    ():                    Promise<import('../shared/types').HistoryEntry[]> =>
-      ipcRenderer.invoke('db:history:get'),
+    get:    (limit?: number):      Promise<import('../shared/types').HistoryEntry[]> =>
+      ipcRenderer.invoke('db:history:get', limit),
     search: (query: string):       Promise<import('../shared/types').HistoryEntry[]> =>
       ipcRenderer.invoke('db:history:search', query),
     delete: (id: number):          Promise<void> =>
@@ -151,23 +195,36 @@ const browserAPI = {
       ipcRenderer.invoke('db:bookmarks:remove', url),
     is:     (url: string):                               Promise<boolean> =>
       ipcRenderer.invoke('db:bookmarks:is', url),
+    /** Export bookmarks to a Netscape-format HTML file. */
+    export: (): Promise<{ success: boolean; canceled: boolean; count: number }> =>
+      ipcRenderer.invoke('db:bookmarks:export'),
+    /** Import bookmarks from any browser's HTML export. */
+    import: (): Promise<{ success: boolean; canceled: boolean; imported: number; skipped: number }> =>
+      ipcRenderer.invoke('db:bookmarks:import'),
   },
 
   /** Proxy */
   proxy: {
-    fetch:  (): Promise<import('../renderer/stores/settingsStore').ProxyInfo> =>
+    fetch:  (): Promise<import('../shared/types').ProxyInfo> =>
       ipcRenderer.invoke('proxy:fetch'),
-    apply:  (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<void> =>
+    apply:  (proxy: import('../shared/types').ProxyInfo): Promise<void> =>
       ipcRenderer.invoke('proxy:apply', proxy),
     clear:  (): Promise<void> =>
       ipcRenderer.invoke('proxy:clear'),
-    verify: (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<boolean> =>
+    verify: (proxy: import('../shared/types').ProxyInfo): Promise<import('../shared/types').ProxyVerifyResult> =>
       ipcRenderer.invoke('proxy:verify', proxy),
   },
 
   /** Network privacy policy */
   security: {
-    set: (settings: { forceHttps: boolean; doNotTrack: boolean }): Promise<unknown> =>
+    set: (settings: {
+      forceHttps: boolean;
+      doNotTrack: boolean;
+      globalPrivacyControl?: boolean;
+      stripTrackingParams?: boolean;
+      webrtcPolicy?: 'default' | 'public-only' | 'disable';
+      blockThirdPartyCookies?: boolean;
+    }): Promise<unknown> =>
       ipcRenderer.invoke('browser:message', { type: 'security-settings', ...settings }),
   },
 
@@ -209,6 +266,14 @@ const browserAPI = {
       ipcRenderer.invoke('download:pick-folder'),
     cancel: (id: string): Promise<void> =>
       ipcRenderer.invoke('download:cancel', id),
+    pause: (id: string): Promise<void> =>
+      ipcRenderer.invoke('download:pause', id),
+    resume: (id: string): Promise<void> =>
+      ipcRenderer.invoke('download:resume', id),
+    setRetention: (days: number): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('download:set-retention', days),
+    clearHistory: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('download:clear-history'),
     retry: (id: string): Promise<void> =>
       ipcRenderer.invoke('download:retry', id),
     remove: (id: string): Promise<void> =>
@@ -242,6 +307,42 @@ const browserAPI = {
   /** Clear local history and current-session site storage. */
   privacy: {
     clearData: (): Promise<void> => ipcRenderer.invoke('privacy:clear-data'),
+    /** Selective clear with targets + optional time range. */
+    clearDataSelective: (options: {
+      since: number;
+      targets: {
+        history?: boolean;
+        cookies?: boolean;
+        cache?: boolean;
+        permissions?: boolean;
+        downloads?: boolean;
+        blockedStats?: boolean;
+      };
+    }): Promise<{ success: boolean; cleared: string[] }> =>
+      ipcRenderer.invoke('privacy:clear-data-selective', options),
+  },
+
+  /** Local diagnostics (versions, adblock, DNS, proxy, DB) — no network. */
+  diagnostics: {
+    get: (): Promise<import('../shared/types').DiagnosticsInfo> =>
+      ipcRenderer.invoke('diag:get'),
+  },
+
+  /** App updates (electron-updater / GitHub Releases). */
+  updates: {
+    check: (): Promise<import('../main/update').UpdateStatus> =>
+      ipcRenderer.invoke('update:check'),
+    status: (): Promise<import('../main/update').UpdateStatus> =>
+      ipcRenderer.invoke('update:status'),
+    quitAndInstall: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('update:quit-install'),
+    onStatus: (callback: (status: import('../main/update').UpdateStatus) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, status: import('../main/update').UpdateStatus) => callback(status);
+      ipcRenderer.on('update:status', handler);
+      return () => {
+        ipcRenderer.removeListener('update:status', handler);
+      };
+    },
   },
 
   /** Certificate information for a given hostname. */

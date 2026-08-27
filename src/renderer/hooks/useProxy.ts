@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
-import type { ProxyInfo } from '../stores/settingsStore';
+import type { ProxyInfo } from '../../shared/types';
 
 type ProxyStatus = 'idle' | 'fetching' | 'verifying' | 'active' | 'failed';
 
@@ -12,21 +12,24 @@ export function useProxy() {
 
   const [status, setStatus]       = useState<ProxyStatus>(proxyEnabled && proxy ? 'active' : 'idle');
   const [error,  setError]        = useState<string | null>(null);
+  const [exitIp, setExitIp]       = useState<string | null>(null);
 
   /** Fetch a new proxy, verify it, and apply it to the session. */
   const fetchAndApply = useCallback(async () => {
     setStatus('fetching');
     setError(null);
+    setExitIp(null);
     try {
       // fetchProxy is synchronous on the main side — IPC returns immediately
       const p: ProxyInfo = await window.browserAPI.proxy.fetch();
       setStatus('verifying');
       await window.browserAPI.proxy.apply(p);
-      const working = await window.browserAPI.proxy.verify(p);
-      if (!working) {
+      const verified = await window.browserAPI.proxy.verify(p);
+      if (!verified.ok) {
         await window.browserAPI.proxy.clear().catch(() => {});
         throw new Error('The selected proxy did not respond. Browsing remains on the direct connection.');
       }
+      setExitIp(verified.exitIp);
       setProxy(p);
       setProxyEnabled(true);
       setStatus('active');
@@ -55,5 +58,5 @@ export function useProxy() {
     else await fetchAndApply();
   }, [proxyEnabled, disable, fetchAndApply]);
 
-  return { proxy, proxyEnabled, status, error, fetchAndApply, disable, toggle };
+  return { proxy, proxyEnabled, status, error, exitIp, fetchAndApply, disable, toggle };
 }

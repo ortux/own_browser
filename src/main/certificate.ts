@@ -8,18 +8,9 @@
  */
 
 import { session, app } from 'electron';
+import type { CertInfo } from '../shared/types';
 
-export interface CertInfo {
-  present: boolean;
-  valid: boolean;
-  issuer?: string;
-  subject?: string;
-  validFrom?: string; // ISO string
-  validTo?: string; // ISO string
-  serialNumber?: string;
-  fingerprint?: string;
-  error?: string;
-}
+export type { CertInfo };
 
 const certByHost = new Map<string, CertInfo>();
 

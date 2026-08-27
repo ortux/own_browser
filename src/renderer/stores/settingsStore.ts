@@ -38,7 +38,7 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   {
     id: 'google',
     name: 'Google',
-    url: 'https://www.google.com/search?q=%s',
+    url: 'https://www.google.com/search?igu=1&q=%s',
     shortcut: 'g',
   },
   {
@@ -89,6 +89,8 @@ interface SettingsStore {
 
   // Signed-in account (null = not signed in)
   account: { name: string; image?: string } | null;
+  authPromptLastShownAt: number | null;
+  markAuthPromptShown: () => void;
 
   // New-tab mode
   newTabMode: 'minimal' | 'full';
@@ -203,6 +205,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setTheme: (theme) => set({ theme }),
 
       account: null,
+      authPromptLastShownAt: null,
+      markAuthPromptShown: () => set({ authPromptLastShownAt: Date.now() }),
 
       newTabMode: 'full',
       backgroundCategory: 'random',

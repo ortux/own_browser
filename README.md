@@ -116,34 +116,47 @@ npm run format
 
 ## Current Capabilities
 
-✓ Browser window with Electron
-✓ Address bar with URL/search detection
-✓ Tab management (create, close, switch, duplicate)
-✓ Navigation controls (back, forward, reload, stop)
-✓ New tab page with quick links
-✓ Keyboard shortcuts (Ctrl+T, Ctrl+W, Ctrl+R, etc.)
-✓ Loading indicators
-✓ Favicon support (when web content loads)
-✓ Embedded web content with link navigation and managed target=_blank tabs
-✓ Page-load and renderer-crash error surfaces instead of silent blank tabs
-✓ Find in page, zoom, print, recently closed tabs, and download retry
-✓ Per-site ad-blocker controls, blocked-request diagnostics, private sessions, and permissions
-✓ Inspect element and detached developer tools
-✓ Secure IPC communication
-✓ TypeScript throughout
+✓ Multi-tab browsing with an Arc-style sidebar (create, close, switch, duplicate, drag-reorder)
+✓ Address bar with URL/search detection, engine keyword shortcuts (`g cats`), history + bookmark suggestions
+✓ Navigation controls (back, forward, reload, stop), find in page, per-site zoom, print
+✓ Tab pinning, per-tab mute with audio indicator, tab sleeping after idle, Ctrl+Tab cycling
+✓ Session restore ("Continue where you left off"), recently-closed tabs
+✓ New tab page with clock, quotes, Pexels backgrounds and an editable quick-links grid
+✓ History page (day grouping, search, per-entry delete) and Clear Browsing Data dialog (targets + time range)
+✓ Bookmarks with import/export (Netscape HTML — compatible with Chrome/Firefox/Edge exports)
+✓ Download manager: progress, pause/resume, retry, speed/ETA, persisted history with retention
+✓ Per-site ad-blocker controls, blocked-request diagnostics, allowlist, private sessions
+✓ Privacy: Force HTTPS, Do Not Track, Global Privacy Control, WebRTC IP-leak protection,
+  third-party-cookie blocking, opt-in tracking-parameter stripping + "Copy clean link"
+✓ AdGuard DNS-over-HTTPS, proxy support (HTTP/SOCKS) with verification + exit-IP display
+✓ Certificate viewer, permission prompts, inspect element, detached developer tools
+✓ Command palette (Ctrl+K), keyboard shortcut cheat sheet (Ctrl+/)
+✓ Local diagnostics page (zyphora://diagnostics) — versions, filter lists, storage, proxy state
+✓ Encrypted local database (AES-256-GCM via the OS keychain) when safeStorage is available
+✓ Auto-updates through GitHub Releases (Settings → About)
+✓ Secure IPC communication with sender + payload validation on every channel
+✓ TypeScript throughout, unit tests (vitest) + Electron smoke tests (Playwright) in CI
 
-## Keyboard Shortcuts (Phase 2)
+## Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
 | Ctrl+T | New tab |
 | Ctrl+W | Close tab |
-| Ctrl+R, F5 | Reload |
-| Ctrl+F | Find in page |
 | Ctrl+Shift+T | Reopen recently closed tab |
-| Alt+← | Go back |
-| Alt+→ | Go forward |
-| Ctrl+D | Bookmark (future) |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
+| Ctrl+1 … Ctrl+8, Ctrl+9 | Jump to tab N / last tab |
+| Ctrl+R, F5 | Reload |
+| Alt+← / Alt+→ | Back / forward |
+| Ctrl+F | Find in page |
+| Ctrl+D | Bookmark page |
+| Ctrl+L | Focus address bar |
+| Ctrl+K | Command palette |
+| Ctrl+J | Downloads page |
+| Ctrl+P | Print |
+| Ctrl+, | Settings |
+| Ctrl+/, F11, Ctrl +/−/0 | Cheat sheet, fullscreen, zoom |
+| `ddg cats`, `g cats`, … | Search with a specific engine keyword |
 
 ## Planned Features
 
@@ -223,10 +236,16 @@ Main process owns:
 ## Known Limitations
 
 - Private browsing uses temporary per-tab sessions but is not anonymous and does not encrypt traffic.
-- Local history, bookmarks, and settings are not encrypted at rest.
-- Ad blocking starts with Ghostery's ads-only network lists; cosmetic/scriptlet filtering is intentionally disabled for compatibility. See `docs/ADBLOCK.md`.
-- Proxy pools must be supplied through `ZYPHORA_PROXY_LIST`; unreliable proxies are rejected before they can interrupt browsing.
-- No Go integration, fingerprinting resistance, or Web3 support yet.
+- The local database is encrypted with the OS keychain when safeStorage is available; on systems
+  without it, data falls back to plaintext storage (diagnostics shows which mode is active).
+- Ad blocking uses Ghostery's ads-only network lists with YouTube host exemptions for playback
+  stability; cosmetic/scriptlet filtering is intentionally disabled (see `docs/ADBLOCK.md`).
+- WebRTC IP handling and third-party-cookie blocking are Chromium startup policies — changing
+  them in Settings applies on the next launch.
+- Proxy pools are supplied through `ZYPHORA_PROXY_LIST` (`ip:port:user:pass[:type]`, type
+  http/https/socks4/socks5); unreliable proxies are rejected before they can interrupt browsing.
+- Single-window only for now (no Ctrl+N / move-tab-to-new-window), and no fingerprinting
+  resistance, Go backend, or Web3 support yet.
 
 ## Performance Targets
 
@@ -239,16 +258,20 @@ Main process owns:
 ## Testing
 
 ```bash
-# Run tests (Phase 5+)
+# Unit tests (navigation, URL cleaning, bookmarks import/export, crypto, filters)
 npm test
+
+# Typecheck and lint
+npm run typecheck
+npm run lint
+
+# Electron smoke tests (Linux: runs under xvfb; requires a built app)
+npm run build
+npm run test:e2e
 ```
 
-Test coverage includes:
-- URL parsing and normalization
-- Search query detection
-- IPC message validation
-- Tab state management
-- Navigation flow
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, unit tests, a production build and the
+Electron smoke suite on every push and pull request.
 
 ## Contributing
 
@@ -268,6 +291,6 @@ For issues or questions, see the `/docs` folder for detailed architecture, secur
 
 ---
 
-**Status**: Working browser core with embedded web content
-**Next**: Private browsing, complete session policies, and deeper privacy-engine coverage
+**Status**: Feature-complete daily-driver core — tests, CI, packaging, encryption at rest
+**Next**: Multi-window support, per-site settings UI, reader mode, cosmetic filtering rollout
 **Timeline**: Evolving with community input

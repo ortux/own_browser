@@ -102,6 +102,7 @@ export const DiagnosticsPage: React.FC<DiagnosticsPageProps> = ({ onBack }) => {
 
             <Section title="Local data">
               <Row label="Database size" value={formatBytes(info.db.sizeBytes)} />
+              <Row label="Encrypted at rest" value={info.db.encrypted ? 'Yes (AES-256-GCM, OS keychain)' : 'No (safeStorage unavailable)'} />
               <Row label="Database path" value={<span className="font-mono text-xs">{info.db.path}</span>} />
             </Section>
 

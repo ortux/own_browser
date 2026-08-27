@@ -158,7 +158,7 @@ export interface DiagnosticsInfo {
     webrtcPolicy: 'default' | 'public-only' | 'disable';
     blockThirdPartyCookies: boolean;
   };
-  db: { sizeBytes: number; path: string };
+  db: { sizeBytes: number; path: string; encrypted: boolean };
   updates: {
     supported: boolean;
     state: string;

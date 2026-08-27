@@ -10,6 +10,8 @@ import { createRequire } from 'module';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import { encryptBuffer, decryptBuffer, isEncryptedFile } from './secureDb';
+import { getOrCreateDbKey } from './secureDbKey';
 
 const require = createRequire(import.meta.url);
 
@@ -70,6 +72,9 @@ export interface Bookmark {
 
 let _db: SqlDatabase | null = null;
 let _dbPath: string = '';
+let _encPath: string = '';
+/** AES-256 key from the OS keychain, or null when unavailable (plaintext mode). */
+let _key: Buffer | null = null;
 
 /** One-time initialisation — must be awaited before any db call. */
 export async function initDb(): Promise<void> {
@@ -85,10 +90,29 @@ export async function initDb(): Promise<void> {
   const SQL = await initSqlJs({ wasmBinary });
 
   _dbPath = path.join(app.getPath('userData'), 'zyphora.db');
+  _encPath = `${_dbPath}.enc`;
+  _key = getOrCreateDbKey();
 
-  // Restore from disk if the file already exists
+  // Load precedence: encrypted store, then legacy plaintext.
   let data: Buffer | null = null;
-  if (fs.existsSync(_dbPath)) {
+  if (_key && fs.existsSync(_encPath)) {
+    try {
+      const raw = fs.readFileSync(_encPath);
+      if (isEncryptedFile(raw)) {
+        data = decryptBuffer(_key, raw);
+      } else {
+        // Not our format — treat as corrupt rather than feeding garbage to sql.js.
+        throw new Error('encrypted store has an unexpected format');
+      }
+    } catch (error) {
+      // A keychain change or tampered file makes the store unreadable.
+      // Preserve it for diagnosis and continue with a clean database.
+      console.error('[db] encrypted database could not be opened; starting fresh:', error);
+      try { fs.renameSync(_encPath, `${_encPath}.corrupt-${Date.now()}`); } catch { /* best effort */ }
+      data = null;
+    }
+  }
+  if (!data && fs.existsSync(_dbPath)) {
     data = fs.readFileSync(_dbPath);
   }
 
@@ -157,13 +181,31 @@ export async function initDb(): Promise<void> {
   schedulePersist();
 }
 
-/** Write the in-memory database to disk atomically (temp file + rename). */
+/** Write the in-memory database to disk atomically (temp file + rename).
+ * With an OS-keychain key available the store is AES-256-GCM encrypted;
+ * otherwise it falls back to the legacy plaintext file. */
 function persist() {
   if (!_db || !_dbPath) return;
-  const data = _db.export();
+  const data = Buffer.from(_db.export());
+  if (_key) {
+    const tempPath = `${_encPath}.tmp-${process.pid}`;
+    try {
+      fs.writeFileSync(tempPath, encryptBuffer(_key, data));
+      fs.renameSync(tempPath, _encPath);
+      // First successful encrypted write completes the migration: keep the
+      // old plaintext file around (clearly renamed) instead of destroying it.
+      if (fs.existsSync(_dbPath)) {
+        try { fs.renameSync(_dbPath, `${_dbPath}.legacy-plaintext`); } catch { /* best effort */ }
+      }
+    } catch (error) {
+      try { fs.rmSync(tempPath, { force: true }); } catch { /* best effort */ }
+      console.error('[db] could not persist encrypted local data; continuing in memory:', error);
+    }
+    return;
+  }
   const tempPath = `${_dbPath}.tmp-${process.pid}`;
   try {
-    fs.writeFileSync(tempPath, Buffer.from(data));
+    fs.writeFileSync(tempPath, data);
     fs.renameSync(tempPath, _dbPath);
   } catch (error) {
     try { fs.rmSync(tempPath, { force: true }); } catch { /* best effort */ }
@@ -493,10 +535,11 @@ export function setSetting(key: string, value: string): void {
 
 // ── Diagnostics ──────────────────────────────────────────────────────────────
 
-export function getDbDiagnostics(): { sizeBytes: number; path: string } {
+export function getDbDiagnostics(): { sizeBytes: number; path: string; encrypted: boolean } {
   let sizeBytes = 0;
+  const target = _key ? _encPath : _dbPath;
   try {
-    sizeBytes = fs.statSync(_dbPath).size;
+    sizeBytes = fs.statSync(target).size;
   } catch { /* not persisted yet */ }
-  return { sizeBytes, path: _dbPath };
+  return { sizeBytes, path: target, encrypted: _key !== null };
 }

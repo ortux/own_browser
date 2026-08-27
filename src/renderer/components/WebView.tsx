@@ -16,7 +16,9 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   // client-side SPA navigations like ChatGPT's pushState) would force a full
   // reload and reset the session.
   const initialSrc = useRef(tab.url === 'about:blank' ? '' : tab.url).current;
-  const mounted = useRef(false);
+  // Tracks whether the guest webContents has actually attached. Webview methods
+  // such as getURL()/getWebContentsId() throw "must be attached …" until then.
+  const attachedRef = useRef(false);
 
   // Register / unregister with the registry so nav controls work
   useEffect(() => {
@@ -32,13 +34,15 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   // reload. This is what keeps ChatGPT (and similar SPAs) sessions intact.
   useEffect(() => {
     const el = webviewRef.current;
-    if (!el) return;
-    if (!mounted.current) {
-      mounted.current = true;
+    if (!el || !attachedRef.current) return;
+    if (!tab.url || tab.url === 'about:blank') return;
+    let current = '';
+    try {
+      current = el.getURL?.() ?? '';
+    } catch {
+      // Guest not ready yet; the initial `src` already points at the right URL.
       return;
     }
-    if (!tab.url || tab.url === 'about:blank') return;
-    const current = el.getURL?.() ?? '';
     if (current !== tab.url) {
       el.src = tab.url;
     }
@@ -64,6 +68,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
 
     const registerGuestContents = () => {
       try {
+        attachedRef.current = true;
         void window.browserAPI.sendMessage({
           type: 'webview-attached',
           tabId: tab.id,
@@ -73,6 +78,8 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
         // The guest may not have attached yet; did-attach will retry.
       }
     };
+
+    const onDidDetach = () => { attachedRef.current = false; };
 
     const reportNavigationState = () => {
       try {
@@ -161,9 +168,9 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     };
 
     el.addEventListener('did-attach',          registerGuestContents);
+    el.addEventListener('did-detach',          onDidDetach);
     el.addEventListener('did-start-loading',   onLoadStart);
     el.addEventListener('did-stop-loading',    onLoadStop);
-    registerGuestContents();
     el.addEventListener('page-title-updated',  onTitleUpdated  as EventListener);
     el.addEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
     el.addEventListener('found-in-page',        onFoundInPage);
@@ -174,6 +181,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
 
     return () => {
       el.removeEventListener('did-attach',          registerGuestContents);
+      el.removeEventListener('did-detach',          onDidDetach);
       el.removeEventListener('did-start-loading',   onLoadStart);
       el.removeEventListener('did-stop-loading',    onLoadStop);
       el.removeEventListener('page-title-updated',  onTitleUpdated  as EventListener);

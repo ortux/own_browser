@@ -56,7 +56,7 @@ import {
   detachAdblockFromSession,
 } from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
-import { configureSessionPermissions, clearPermissionDecisions } from './permissions';
+import { configureSessionPermissions, clearPermissionDecisions, handlePermissionResponse } from './permissions';
 import { configureAdGuardDns } from './dns';
 import {
   initDownloads,
@@ -277,6 +277,7 @@ function createWindow() {
 
   // Initialize with first tab
   createNewTab();
+
 }
 
 function createNewTab(rawUrl?: string, privateMode = false): string {
@@ -471,6 +472,12 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         if (tab && tab.url === 'about:blank' && !tab.privateMode) {
           tab.privateMode = message.privateMode;
           updateRendererState();
+        }
+        break;
+      }
+      case 'permission-response': {
+        if (typeof message.requestId === 'string' && typeof message.allow === 'boolean') {
+          handlePermissionResponse(message.requestId, message.allow);
         }
         break;
       }
@@ -858,13 +865,15 @@ app.on('web-contents-created', (_event, contents) => {
     attachAdblockToSession(contents.session);
     configureSessionPermissions(contents.session, () => mainWindow);
     attachDownloadsToSession(contents.session);
+    const webviewSession = contents.session;
+    const webviewId = contents.id;
     contents.once('destroyed', () => {
-      forgetProxySession(contents.session);
-      if (contents.session !== session.defaultSession) {
-        detachAdblockFromSession(contents.session);
-        managedSessions.delete(contents.session);
+      forgetProxySession(webviewSession);
+      if (webviewSession !== session.defaultSession) {
+        detachAdblockFromSession(webviewSession);
+        managedSessions.delete(webviewSession);
       }
-      tabByWebContentsId.delete(contents.id);
+      tabByWebContentsId.delete(webviewId);
     });
 
     // A remote page must not be able to navigate a guest into an internal or

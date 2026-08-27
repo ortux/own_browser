@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   ShieldOff,
+  ShieldBan,
   History as HistoryIcon,
   CornerDownLeft,
   Download as DownloadIcon,
@@ -572,7 +573,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           title={blockTrackers ? 'Ad blocker on' : 'Ad blocker off'}
           aria-label="Ad blocker"
         >
-          {blockTrackers ? <ShieldCheck size={16} /> : <ShieldOff size={16} />}
+          {blockTrackers ? <ShieldBan size={16} /> : <ShieldOff size={16} />}
         </button>
 
         {showAdblock && (
@@ -588,7 +589,7 @@ export const NavBar: React.FC<NavBarProps> = ({
                 }`}
               >
                 {blockTrackers ? (
-                  <ShieldCheck size={20} className="text-[var(--accent)]" />
+                  <ShieldBan size={20} className="text-[var(--accent)]" />
                 ) : (
                   <ShieldOff size={20} className="text-[var(--text-faint)]" />
                 )}

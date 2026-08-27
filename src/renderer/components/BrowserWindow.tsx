@@ -3,6 +3,7 @@ import { SidebarTabs } from './SidebarTabs';
 import { TitleBar } from './TitleBar';
 import { NavBar } from './NavBar';
 import { WebView } from './WebView';
+import { PermissionPrompt } from './PermissionPrompt';
 import { NewTabPage } from './NewTabPage';
 import { SettingsPage } from './SettingsPage';
 import { DownloadsPage } from './DownloadsPage';
@@ -272,6 +273,9 @@ export const BrowserWindow: React.FC = () => {
                     <WebView tab={t} />
                   </div>
                 ))}
+
+              {/* Custom permission prompts (camera, mic, location, …) */}
+              <PermissionPrompt />
             </div>
 
             <NavBar

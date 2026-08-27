@@ -38,6 +38,19 @@ const browserAPI = {
     };
   },
 
+  /** Show a custom permission prompt (camera, mic, location, …) in the UI. */
+  onPermissionRequest: (callback: (request: import('../shared/types').PermissionRequest) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, request: import('../shared/types').PermissionRequest) => callback(request);
+    ipcRenderer.on('permission-request', handler);
+    return () => {
+      ipcRenderer.removeListener('permission-request', handler);
+    };
+  },
+
+  /** Send the user's Allow/Block decision for a permission prompt back to main. */
+  respondPermission: (requestId: string, allow: boolean): Promise<unknown> =>
+    ipcRenderer.invoke('browser:message', { type: 'permission-response', requestId, allow }),
+
   /**
    * Navigate to a URL
    */

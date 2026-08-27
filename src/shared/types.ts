@@ -54,14 +54,18 @@ export type RendererToMainMessage =
   | { type: 'create-tab-url'; url: string; privateMode?: boolean }
   // Synchronise network privacy settings from the renderer.
   | { type: 'security-settings'; forceHttps: boolean; doNotTrack: boolean }
-  | { type: 'set-tab-private'; tabId: string; privateMode: boolean };
+  | { type: 'set-tab-private'; tabId: string; privateMode: boolean }
+  // Respond to a permission prompt shown by the renderer (Allow / Block).
+  | { type: 'permission-response'; requestId: string; allow: boolean };
 // IPC Messages from Main to Renderer
 export type MainToRendererMessage =
   | { type: 'state-updated'; state: BrowserState }
   | { type: 'tab-loading'; tabId: string; loading: boolean }
   | { type: 'tab-title-updated'; tabId: string; title: string }
   | { type: 'tab-favicon-updated'; tabId: string; favicon?: string }
-  | { type: 'tab-navigation-state'; tabId: string; canGoBack: boolean; canGoForward: boolean };
+  | { type: 'tab-navigation-state'; tabId: string; canGoBack: boolean; canGoForward: boolean }
+  // Ask the renderer to show a permission prompt for a webview guest.
+  | { type: 'permission-request'; request: PermissionRequest };
 
 // ── Persistence types (mirrored from main/db.ts for use in renderer) ─────────
 
@@ -86,6 +90,15 @@ export interface BlockedRequest {
   url: string;
   type: string;
   timestamp: number;
+}
+
+// A permission request surfaced to the renderer as a custom in-app dialog.
+export interface PermissionRequest {
+  requestId: string;
+  host: string;
+  permission: string;
+  label: string;
+  mediaTypes?: string[];
 }
 
 export interface Download {

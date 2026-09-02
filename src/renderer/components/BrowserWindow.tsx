@@ -3,6 +3,7 @@ import { SidebarTabs } from './SidebarTabs';
 import { TitleBar } from './TitleBar';
 import { NavBar } from './NavBar';
 import { WebView } from './WebView';
+import { useTabSleep } from '../hooks/useTabSleep';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NewTabPage } from './NewTabPage';
 import { SettingsPage } from './SettingsPage';
@@ -65,6 +66,8 @@ export const BrowserWindow: React.FC = () => {
   const restoreSession = useSettingsStore((s) => s.restoreSession);
   const stripTracking = useSettingsStore((s) => s.stripTrackingParams);
   const historyRetentionDays = useSettingsStore((s) => s.historyRetentionDays);
+  const sleepTabs = useSettingsStore((state) => state.sleepTabs);
+  const sleepTabsAfterMinutes = useSettingsStore((state) => state.sleepTabsAfterMinutes);
 
   // ── UI state ──
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -176,6 +179,25 @@ export const BrowserWindow: React.FC = () => {
       }
     },
     [activeTabId]
+  );
+
+  // Idle background tabs are unmounted entirely; hiding a <webview> does not
+  // release its renderer process.
+  const { sleeping, wake } = useTabSleep({
+    tabs,
+    activeTabId,
+    enabled: sleepTabs,
+    idleMinutes: sleepTabsAfterMinutes,
+  });
+
+  // Wake before activating so the webview mounts in the same commit as the
+  // switch, rather than a frame later once the active-tab effect runs.
+  const handleTabClick = React.useCallback(
+    (tabId: string) => {
+      wake(tabId);
+      activateTab(tabId);
+    },
+    [wake, activateTab]
   );
 
   React.useEffect(() => window.browserAPI.onOpenFind(() => setFindOpen(true)), []);
@@ -375,9 +397,10 @@ export const BrowserWindow: React.FC = () => {
       <SidebarTabs
         tabs={tabs}
         activeTabId={activeTabId}
-        onTabClick={activateTab}
+        onTabClick={handleTabClick}
         onTabClose={closeTab}
         onTabToggleMuted={toggleTabMuted}
+        sleepingTabIds={sleeping}
         onTabReorder={reorderTabs}
         onNewTab={createNewBrowserTab}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -430,9 +453,15 @@ export const BrowserWindow: React.FC = () => {
                 </div>
               )}
 
-              {/* Webviews — all mounted, visibility toggled */}
+              {/* Webviews — mounted unless asleep, visibility toggled */}
               {tabs
-                .filter((t) => t.url && t.url !== 'about:blank' && !t.url.startsWith('zyphora://'))
+                .filter(
+                  (t) =>
+                    t.url &&
+                    t.url !== 'about:blank' &&
+                    !t.url.startsWith('zyphora://') &&
+                    !sleeping.has(t.id)
+                )
                 .map((t) => (
                   <div
                     key={t.id}

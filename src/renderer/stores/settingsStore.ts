@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_SLEEP_MINUTES, clampSleepMinutes } from '../../shared/tabSleep';
 import { persist } from 'zustand/middleware';
 import type { BackgroundCategory } from '../lib/backgroundCache';
 import { getApiBaseUrl } from '../lib/config';
@@ -131,6 +132,14 @@ interface SettingsStore {
   /** Strip utm_/gclid/fbclid-style parameters from URLs before navigating. */
   stripTrackingParams: boolean;
   setStripTrackingParams: (enabled: boolean) => void;
+
+  /** Suspend idle background tabs to free their renderer processes. */
+  sleepTabs: boolean;
+  setSleepTabs: (enabled: boolean) => void;
+
+  /** Minutes a background tab must be idle before it is suspended. */
+  sleepTabsAfterMinutes: number;
+  setSleepTabsAfterMinutes: (minutes: number) => void;
 
   /** Days of history to keep. 0 keeps everything. */
   historyRetentionDays: number;
@@ -274,6 +283,13 @@ export const useSettingsStore = create<SettingsStore>()(
 
       stripTrackingParams: true,
       setStripTrackingParams: (enabled) => set({ stripTrackingParams: enabled }),
+
+      sleepTabs: true,
+      setSleepTabs: (enabled) => set({ sleepTabs: enabled }),
+
+      sleepTabsAfterMinutes: DEFAULT_SLEEP_MINUTES,
+      setSleepTabsAfterMinutes: (minutes) =>
+        set({ sleepTabsAfterMinutes: clampSleepMinutes(minutes) }),
 
       historyRetentionDays: 0,
       setHistoryRetentionDays: (days) => set({ historyRetentionDays: days }),

@@ -123,6 +123,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
     setStripTrackingParams,
     historyRetentionDays,
     setHistoryRetentionDays,
+    sleepTabs,
+    setSleepTabs,
+    sleepTabsAfterMinutes,
+    setSleepTabsAfterMinutes,
     signOut,
   } = useSettingsStore();
 
@@ -379,6 +383,42 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                   {restoreSession
                     ? 'Open tabs are saved to this device so they can be restored next launch. Private tabs are never saved.'
                     : 'Zyphora starts with a single new tab. Nothing about your open tabs is written to disk.'}
+                </div>
+              </MdCard>
+
+              <MdCard className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text)]">Sleep idle tabs</div>
+                    <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                      Free the memory used by background tabs you have not looked at in a while.
+                    </div>
+                  </div>
+                  <MdSwitch checked={sleepTabs} onChange={() => setSleepTabs(!sleepTabs)} />
+                </div>
+                {sleepTabs && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-[var(--text-faint)]">Sleep after</span>
+                    {[15, 30, 60, 120].map((minutes) => (
+                      <button
+                        key={minutes}
+                        type="button"
+                        onClick={() => setSleepTabsAfterMinutes(minutes)}
+                        className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                          sleepTabsAfterMinutes === minutes
+                            ? 'border-[var(--border-strong)] bg-[var(--surface-2)] font-medium text-[var(--text)]'
+                            : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--hover)]'
+                        }`}
+                      >
+                        {minutes < 60 ? `${minutes} min` : `${minutes / 60} hr`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="rounded-md bg-[var(--surface-2)] px-3 py-3 text-xs text-[var(--text-faint)]">
+                  {sleepTabs
+                    ? 'A sleeping tab stays in the list and reloads when you click it. Tabs playing audio, pinned tabs, and the tab you are viewing are never slept.'
+                    : 'Every open tab keeps its own renderer process for as long as it stays open.'}
                 </div>
               </MdCard>
 

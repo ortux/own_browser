@@ -125,7 +125,7 @@ the sidebar already renders per-tab affordances to hang it off.
 
 ## Tier 2 — Larger, still clearly worthwhile
 
-### 2.1 Tab sleeping — *medium*
+### 2.1 Tab sleeping — *medium* — ✅ DONE
 
 Named in the README's own "Low Resource Usage" bullet as planned, and currently
 unimplemented (zero hits for sleep/discard/hibernate). `BrowserWindow.tsx`
@@ -182,7 +182,11 @@ standard approach and runs comfortably in the guest context.
    debounce helpers in `src/main/jsonStore.ts`.
 4. ~~**1.6**~~ ✅ done — mute state is owned by the main process and replayed
    on `webview-attached`, so it survives reloads and session restore.
-   **2.1 tab sleeping** is next; it must not silence or discard an audible tab,
-   and `Tab.audible` now gives it the signal to check.
-5. Reassess. By then the sql.js write-amplification question in 1.4 probably
+5. ~~**2.1 tab sleeping**~~ ✅ done — `src/shared/tabSleep.ts` holds the
+   selection rules, `src/renderer/hooks/useTabSleep.ts` owns the timers, and
+   BrowserWindow simply stops mounting a sleeping tab's `<webview>`.
+6. **2.2 pinned tabs** is the natural next step: `Tab.pinned` already exists in
+   the model and is already honoured by session restore and tab sleeping, but
+   nothing in the UI can set it.
+7. Reassess. By then the sql.js write-amplification question in 1.4 probably
    needs a real answer.

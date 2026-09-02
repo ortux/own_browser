@@ -25,6 +25,8 @@ interface SidebarTabsProps {
   onTabReorder: (draggedTabId: string, targetTabId: string) => void;
   /** Flip a tab's mute state. */
   onTabToggleMuted: (tabId: string) => void;
+  /** Tabs currently suspended; shown dimmed until clicked. */
+  sleepingTabIds: ReadonlySet<string>;
   onNewTab: () => void;
   onOpenSettings: () => void;
   onOpenHistory: () => void;
@@ -106,6 +108,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onTabClose,
   onTabReorder,
   onTabToggleMuted,
+  sleepingTabIds,
   onNewTab,
   onOpenSettings,
   onOpenHistory,
@@ -181,7 +184,9 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                   tab.id === activeTabId ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
                 }`}
               >
-                <TabFavicon tab={tab} size={14} />
+                <span className={sleepingTabIds.has(tab.id) ? 'opacity-40' : ''}>
+                  <TabFavicon tab={tab} size={14} />
+                </span>
                 {/* The collapsed rail is too narrow for a real button, so this
                     is a badge only; muting happens in the expanded list. */}
                 {(tab.audible || tab.muted) && (
@@ -306,6 +311,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
             )}
             {filteredTabs.map((tab) => {
               const isActive = tab.id === activeTabId;
+              const isAsleep = sleepingTabIds.has(tab.id);
               return (
                 <div
                   key={tab.id}
@@ -333,10 +339,19 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                       : 'text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]'
                   }`}
                 >
-                  <div className="shrink-0 w-4 h-4 flex items-center justify-center">
+                  <div
+                    className={`shrink-0 w-4 h-4 flex items-center justify-center ${
+                      isAsleep ? 'opacity-40' : ''
+                    }`}
+                  >
                     <TabFavicon tab={tab} size={14} />
                   </div>
-                  <span className="flex-1 truncate text-sm leading-none">
+                  <span
+                    className={`flex-1 truncate text-sm leading-none ${
+                      isAsleep ? 'opacity-50' : ''
+                    }`}
+                    title={isAsleep ? 'Suspended to save memory — click to reload' : undefined}
+                  >
                     {tab.title || 'New Tab'}
                   </span>
                   <TabAudioButton tab={tab} onToggle={() => onTabToggleMuted(tab.id)} />

@@ -46,19 +46,30 @@ function iconFor(req: PermissionRequest): LucideIcon {
     return Camera;
   }
   switch (req.permission) {
-    case 'geolocation': return MapPin;
-    case 'notifications': return Bell;
+    case 'geolocation':
+      return MapPin;
+    case 'notifications':
+      return Bell;
     case 'clipboard-read':
-    case 'clipboard-write': return Clipboard;
-    case 'display-capture': return Monitor;
-    case 'fullscreen': return Maximize2;
-    case 'pointerLock': return MousePointer2;
+    case 'clipboard-write':
+      return Clipboard;
+    case 'display-capture':
+      return Monitor;
+    case 'fullscreen':
+      return Maximize2;
+    case 'pointerLock':
+      return MousePointer2;
     case 'midi':
-    case 'midiSysex': return Usb;
-    case 'usb': return Usb;
-    case 'hid': return Usb;
-    case 'persistent-storage': return HardDrive;
-    default: return FALLBACK_ICON;
+    case 'midiSysex':
+      return Usb;
+    case 'usb':
+      return Usb;
+    case 'hid':
+      return Usb;
+    case 'persistent-storage':
+      return HardDrive;
+    default:
+      return FALLBACK_ICON;
   }
 }
 
@@ -94,10 +105,10 @@ export const PermissionPrompt: React.FC = () => {
         return (
           <div
             key={req.requestId}
-            className="pointer-events-auto w-full bg-[var(--surface)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] overflow-hidden"
+            className="pointer-events-auto w-full bg-[var(--surface)] text-[var(--text)] rounded-md border border-[var(--border)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] overflow-hidden"
           >
             <div className="flex items-start gap-3 p-4">
-              <div className="shrink-0 grid place-items-center w-10 h-10 rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
+              <div className="shrink-0 grid place-items-center w-10 h-10 rounded-full bg-[var(--accent-soft)] text-[var(--accent-fg)]">
                 <Icon size={20} />
               </div>
               <div className="min-w-0 flex-1">
@@ -119,13 +130,13 @@ export const PermissionPrompt: React.FC = () => {
             <div className="flex items-center justify-end gap-2 px-4 pb-3">
               <button
                 onClick={() => resolve(req, false)}
-                className="px-3.5 py-1.5 rounded-lg text-sm font-medium border border-[var(--border-strong)] text-[var(--text)] hover:bg-[var(--hover)] transition-colors"
+                className="px-3.5 py-1.5 rounded-md text-sm font-medium border border-[var(--border-strong)] text-[var(--text)] hover:bg-[var(--hover)] transition-colors"
               >
                 Block
               </button>
               <button
                 onClick={() => resolve(req, true)}
-                className="px-3.5 py-1.5 rounded-lg text-sm font-medium bg-[var(--accent)] text-white hover:opacity-90 transition-opacity inline-flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-md text-sm font-medium bg-[var(--accent)] text-[var(--accent-text)] hover:bg-[var(--accent-hover)] transition-colors inline-flex items-center gap-1.5"
               >
                 <Check size={15} />
                 Allow

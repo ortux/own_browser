@@ -16,7 +16,9 @@ try {
       localStorage.setItem(KEY, JSON.stringify(parsed));
     }
   }
-} catch { /* best-effort */ }
+} catch {
+  /* best-effort */
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 const root = document.getElementById('root');
@@ -30,14 +32,6 @@ ReactDOM.createRoot(root).render(
     <App />
   </React.StrictMode>
 );
-
-// Dismiss preloader once React has painted the first frame
-requestAnimationFrame(() => {
-  requestAnimationFrame(() => {
-    const preloader = document.getElementById('preloader');
-    if (preloader) preloader.classList.add('hidden');
-  });
-});
 
 // Apply the saved theme on startup so it's correct before Settings is opened.
 function applyTheme() {

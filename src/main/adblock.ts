@@ -18,7 +18,10 @@ const blockedBySite = new Map<string, number>();
 const blockedRequestsBySite = new Map<string, BlockedRequest[]>();
 
 const configuredSessions = new Set<Electron.Session>();
-const blockingContexts = new WeakMap<Electron.Session, ReturnType<ElectronBlocker['enableBlockingInSession']>>();
+const blockingContexts = new WeakMap<
+  Electron.Session,
+  ReturnType<ElectronBlocker['enableBlockingInSession']>
+>();
 type DntListener = (
   details: Electron.OnBeforeSendHeadersListenerDetails,
   callback: (response: Electron.BeforeSendResponse) => void
@@ -72,7 +75,11 @@ function isYouTubeHost(value: string): boolean {
 }
 
 function hostFromUrl(value: string): string {
-  try { return new URL(value).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; }
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return '';
+  }
 }
 
 function isAllowedSiteHost(hostname: string): boolean {
@@ -80,7 +87,9 @@ function isAllowedSiteHost(hostname: string): boolean {
   return [...allowedSites].some((site) => host === site || host.endsWith(`.${site}`));
 }
 
-function sourceHost(details: Pick<Electron.OnBeforeRequestListenerDetails, 'webContents' | 'referrer'>): string {
+function sourceHost(
+  details: Pick<Electron.OnBeforeRequestListenerDetails, 'webContents' | 'referrer'>
+): string {
   try {
     return hostFromUrl(details.webContents?.getURL() ?? '') || hostFromUrl(details.referrer);
   } catch {
@@ -88,16 +97,24 @@ function sourceHost(details: Pick<Electron.OnBeforeRequestListenerDetails, 'webC
   }
 }
 
-function isAllowedSiteRequest(details: Pick<Electron.OnBeforeRequestListenerDetails, 'webContents' | 'referrer'>): boolean {
+function isAllowedSiteRequest(
+  details: Pick<Electron.OnBeforeRequestListenerDetails, 'webContents' | 'referrer'>
+): boolean {
   return isAllowedSiteHost(sourceHost(details));
 }
 
 function isProtectedYouTubeRequest(details: Electron.OnBeforeRequestListenerDetails): boolean {
-  return isYouTubeHost(details.url)
-    || isYouTubeHost(details.referrer)
-    || (() => {
-      try { return isYouTubeHost(details.webContents?.getURL() ?? ''); } catch { return false; }
-    })();
+  return (
+    isYouTubeHost(details.url) ||
+    isYouTubeHost(details.referrer) ||
+    (() => {
+      try {
+        return isYouTubeHost(details.webContents?.getURL() ?? '');
+      } catch {
+        return false;
+      }
+    })()
+  );
 }
 
 function cachePath(): string {
@@ -121,7 +138,11 @@ async function writeCachedBlocker(engine: ElectronBlocker): Promise<void> {
     await fs.promises.writeFile(temporary, Buffer.from(engine.serialize()));
     await fs.promises.rename(temporary, target);
   } catch (error) {
-    try { await fs.promises.rm(temporary, { force: true }); } catch { /* best effort */ }
+    try {
+      await fs.promises.rm(temporary, { force: true });
+    } catch {
+      /* best effort */
+    }
     console.warn('[adblock] could not cache Ghostery engine:', error);
   }
 }
@@ -141,7 +162,9 @@ async function buildBlocker(): Promise<ElectronBlocker> {
   let cacheIsFresh = false;
   try {
     cacheIsFresh = Date.now() - (await fs.promises.stat(cachePath())).mtimeMs < CACHE_MAX_AGE;
-  } catch { /* no cache */ }
+  } catch {
+    /* no cache */
+  }
 
   if (cached && cacheIsFresh) return cached;
 
@@ -149,11 +172,7 @@ async function buildBlocker(): Promise<ElectronBlocker> {
     // Use Ghostery's maintained EasyList/uBlock-compatible ad subscriptions.
     // This avoids the incomplete hand-written filter parser and its false
     // positives around normal site URLs.
-    const fresh = await ElectronBlocker.fromLists(
-      fetchFilter,
-      adsLists,
-      BLOCKER_CONFIG,
-    );
+    const fresh = await ElectronBlocker.fromLists(fetchFilter, adsLists, BLOCKER_CONFIG);
     await writeCachedBlocker(fresh);
     return fresh;
   } catch (error) {
@@ -198,7 +217,11 @@ function enableBlockingForSession(ses: Electron.Session): void {
 
 function disableBlockingForSession(ses: Electron.Session): void {
   if (!blocker || !blockingContexts.has(ses)) return;
-  try { blocker.disableBlockingInSession(ses); } catch { /* already disabled */ }
+  try {
+    blocker.disableBlockingInSession(ses);
+  } catch {
+    /* already disabled */
+  }
   blockingContexts.delete(ses);
 }
 
@@ -226,33 +249,50 @@ export function initAdblock(getMainWindow: () => WebContents | null): void {
   mainWindowGetter = getMainWindow;
   attachAdblockToSession(session.defaultSession);
   blockerLoading = buildBlocker();
-  void blockerLoading.then((engine) => {
-    blocker = engine;
-    installYouTubeException(engine);
-    engine.on('request-blocked', (request) => {
-      blockedCount++;
-      const details = request._originalRequestDetails as Electron.OnBeforeRequestListenerDetails | undefined;
-      const site = details?.webContents?.getURL()
-          ? (() => { try { return new URL(details.webContents.getURL()).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; } })()
-        : details?.referrer
-          ? (() => { try { return new URL(details.referrer).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; } })()
-          : '';
-      if (site) {
-        blockedBySite.set(site, (blockedBySite.get(site) ?? 0) + 1);
-        const requests = blockedRequestsBySite.get(site) ?? [];
-        requests.unshift({ url: request.url, type: String(request.type), timestamp: Date.now() });
-        requests.splice(50);
-        blockedRequestsBySite.set(site, requests);
+  void blockerLoading
+    .then((engine) => {
+      blocker = engine;
+      installYouTubeException(engine);
+      engine.on('request-blocked', (request) => {
+        blockedCount++;
+        const details = request._originalRequestDetails as
+          Electron.OnBeforeRequestListenerDetails | undefined;
+        const site = details?.webContents?.getURL()
+          ? (() => {
+              try {
+                return new URL(details.webContents.getURL()).hostname
+                  .toLowerCase()
+                  .replace(/^www\./, '');
+              } catch {
+                return '';
+              }
+            })()
+          : details?.referrer
+            ? (() => {
+                try {
+                  return new URL(details.referrer).hostname.toLowerCase().replace(/^www\./, '');
+                } catch {
+                  return '';
+                }
+              })()
+            : '';
+        if (site) {
+          blockedBySite.set(site, (blockedBySite.get(site) ?? 0) + 1);
+          const requests = blockedRequestsBySite.get(site) ?? [];
+          requests.unshift({ url: request.url, type: String(request.type), timestamp: Date.now() });
+          requests.splice(50);
+          blockedRequestsBySite.set(site, requests);
+        }
+        emitStatsThrottled();
+      });
+      for (const ses of configuredSessions) {
+        if (enabled) enableBlockingForSession(ses);
       }
-      emitStatsThrottled();
+      emitStats();
+    })
+    .catch((error) => {
+      console.error('[adblock] unexpected Ghostery initialization failure:', error);
     });
-    for (const ses of configuredSessions) {
-      if (enabled) enableBlockingForSession(ses);
-    }
-    emitStats();
-  }).catch((error) => {
-    console.error('[adblock] unexpected Ghostery initialization failure:', error);
-  });
 }
 
 export function setAdblockEnabled(value: boolean): void {
@@ -294,7 +334,10 @@ export function resetBlockedStats(): void {
 export function setAllowedSites(sites: string[]): void {
   allowedSites.clear();
   for (const site of sites) {
-    const normalized = site.trim().toLowerCase().replace(/^www\./, '');
+    const normalized = site
+      .trim()
+      .toLowerCase()
+      .replace(/^www\./, '');
     if (/^[a-z\d.-]+$/.test(normalized) && normalized.length <= 253) {
       allowedSites.add(normalized);
     }

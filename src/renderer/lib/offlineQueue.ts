@@ -65,7 +65,7 @@ class OfflineQueue {
    * Notify all listeners
    */
   private notifyListeners(isOnline: boolean): void {
-    this.listeners.forEach(listener => {
+    this.listeners.forEach((listener) => {
       try {
         listener(isOnline);
       } catch (error) {
@@ -120,7 +120,7 @@ class OfflineQueue {
    * Remove operation from queue
    */
   removeOperation(id: string): boolean {
-    const index = this.queue.findIndex(op => op.id === id);
+    const index = this.queue.findIndex((op) => op.id === id);
     if (index > -1) {
       this.queue.splice(index, 1);
       this.saveQueue();
@@ -133,7 +133,7 @@ class OfflineQueue {
    * Mark operation as failed (increment retry count)
    */
   markOperationFailed(id: string, error: string): void {
-    const operation = this.queue.find(op => op.id === id);
+    const operation = this.queue.find((op) => op.id === id);
     if (operation) {
       operation.retries++;
       operation.lastError = error;
@@ -164,7 +164,7 @@ class OfflineQueue {
     oldest?: number;
   } {
     const byType: Record<string, number> = {};
-    this.queue.forEach(op => {
+    this.queue.forEach((op) => {
       byType[op.type] = (byType[op.type] || 0) + 1;
     });
 

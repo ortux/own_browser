@@ -10,11 +10,11 @@ interface HistoryPanelProps {
 function timeAgo(ms: number): string {
   const diff = Date.now() - ms;
   const s = Math.floor(diff / 1000);
-  if (s < 60)  return 'just now';
+  if (s < 60) return 'just now';
   const m = Math.floor(s / 60);
-  if (m < 60)  return `${m}m ago`;
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24)  return `${h}h ago`;
+  if (h < 24) return `${h}h ago`;
   return new Date(ms).toLocaleDateString();
 }
 
@@ -33,7 +33,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ onNavigate, onClose 
           <button
             onClick={clearAll}
             title="Clear all history"
-            className="p-1.5 rounded hover:bg-[var(--hover)] text-[var(--text-faint)] hover:text-red-400 transition-colors"
+            className="p-1.5 rounded hover:bg-[var(--hover)] text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors"
           >
             <RotateCcw size={13} />
           </button>
@@ -48,7 +48,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ onNavigate, onClose 
 
       {/* Search */}
       <div className="px-3 py-2 shrink-0">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--chrome)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--chrome)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
           <Search size={13} className="text-[var(--text-faint)] shrink-0" />
           <input
             type="text"
@@ -68,9 +68,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ onNavigate, onClose 
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {loading && (
-          <p className="text-center py-8 text-xs text-[var(--text-faint)]">Loading…</p>
-        )}
+        {loading && <p className="text-center py-8 text-xs text-[var(--text-faint)]">Loading…</p>}
         {!loading && entries.length === 0 && (
           <p className="text-center py-8 text-xs text-[var(--text-faint)]">
             {query ? 'No results' : 'No history yet'}
@@ -79,16 +77,25 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ onNavigate, onClose 
         {entries.map((entry) => (
           <div
             key={entry.id}
-            className="group flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--hover)] cursor-pointer transition-colors"
+            className="group flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[var(--hover)] cursor-pointer transition-colors"
             onClick={() => onNavigate(entry.url)}
           >
-            {entry.favicon
-              ? <img src={entry.favicon} alt="" className="w-4 h-4 rounded-sm shrink-0"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-              : <div className="w-4 h-4 rounded-sm bg-[var(--border)] shrink-0" />
-            }
+            {entry.favicon ? (
+              <img
+                src={entry.favicon}
+                alt=""
+                className="w-4 h-4 rounded-sm shrink-0"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="w-4 h-4 rounded-sm bg-[var(--border)] shrink-0" />
+            )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-[var(--text)] truncate leading-none">{entry.title || entry.url}</p>
+              <p className="text-sm text-[var(--text)] truncate leading-none">
+                {entry.title || entry.url}
+              </p>
               <p className="text-[11px] text-[var(--text-faint)] truncate mt-0.5">{entry.url}</p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -96,8 +103,11 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ onNavigate, onClose 
                 {timeAgo(entry.visited_at)}
               </span>
               <button
-                onClick={(e) => { e.stopPropagation(); deleteEntry(entry.id); }}
-                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteEntry(entry.id);
+                }}
+                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-[var(--danger)] transition-all"
                 title="Remove"
               >
                 <Trash2 size={12} />

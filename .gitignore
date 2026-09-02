@@ -37,3 +37,5 @@ temp/
 go/pkg/
 core/cmd/browser-core/browser-core
 core/cmd/browser-core/browser-core.exe
+.preview/
+.tmp-*

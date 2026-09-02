@@ -29,7 +29,11 @@ const PERMISSION_LABELS: Record<string, string> = {
 };
 
 function hostFromUrl(value: string): string {
-  try { return new URL(value).hostname.toLowerCase(); } catch { return ''; }
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
 function decisionKey(host: string, permission: string): string {
@@ -52,7 +56,7 @@ function labelFor(permission: string, mediaTypes?: string[]): string {
 /** Install conservative, user-visible permission handling for a session. */
 export function configureSessionPermissions(
   ses: Electron.Session,
-  getWindow: () => Electron.BrowserWindow | null,
+  getWindow: () => Electron.BrowserWindow | null
 ): void {
   if (configuredSessions.has(ses)) return;
   configuredSessions.add(ses);

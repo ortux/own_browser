@@ -39,7 +39,7 @@ export function useBookmarksWithSync() {
       if (q?.trim()) {
         const query = q.toLowerCase();
         data = data.filter(
-          b => b.title.toLowerCase().includes(query) || b.url.toLowerCase().includes(query)
+          (b) => b.title.toLowerCase().includes(query) || b.url.toLowerCase().includes(query)
         );
       }
       if (request === requestNumber.current) {
@@ -74,10 +74,10 @@ export function useBookmarksWithSync() {
       if (response.ok) {
         const backendBookmarks = response.data?.bookmarks ?? [];
         // Merge with local bookmarks
-        setBookmarks(prev => {
-          const localIds = new Set(prev.map(b => b.url));
+        setBookmarks((prev) => {
+          const localIds = new Set(prev.map((b) => b.url));
           const merged = [...prev];
-          backendBookmarks.forEach(backendBookmark => {
+          backendBookmarks.forEach((backendBookmark) => {
             if (!localIds.has(backendBookmark.url)) {
               merged.push({ ...backendBookmark, synced: true });
             }
@@ -114,8 +114,8 @@ export function useBookmarksWithSync() {
 
       // Transform to sync format
       const syncBookmarks = bookmarks
-        .filter(b => !b.synced)
-        .map(b => ({
+        .filter((b) => !b.synced)
+        .map((b) => ({
           bookmark_id: b.bookmark_id || b.id || `bm-${Date.now()}-${Math.random()}`,
           title: b.title || '',
           url: b.url || '',
@@ -135,11 +135,9 @@ export function useBookmarksWithSync() {
       if (response.ok) {
         console.debug('[bookmarks-sync] Synced', response.data?.inserted, 'bookmarks');
         // Mark synced
-        setBookmarks(prev =>
-          prev.map(b =>
-            syncBookmarks.find(sb => sb.url === b.url)
-              ? { ...b, synced: true }
-              : b
+        setBookmarks((prev) =>
+          prev.map((b) =>
+            syncBookmarks.find((sb) => sb.url === b.url) ? { ...b, synced: true } : b
           )
         );
         setLastSyncTime(Date.now());
@@ -170,7 +168,7 @@ export function useBookmarksWithSync() {
 
         // Add to local storage
         await window.browserAPI?.bookmarks?.add?.(newBookmark.url, newBookmark.title);
-        setBookmarks(prev => [...prev, newBookmark]);
+        setBookmarks((prev) => [...prev, newBookmark]);
 
         // Queue for sync
         offlineQueue.addOperation('bookmark', 'add', newBookmark);
@@ -195,7 +193,9 @@ export function useBookmarksWithSync() {
 
       try {
         await window.browserAPI?.bookmarks?.remove?.(bookmarkId);
-        setBookmarks(prev => prev.filter(b => b.id !== bookmarkId && b.bookmark_id !== bookmarkId));
+        setBookmarks((prev) =>
+          prev.filter((b) => b.id !== bookmarkId && b.bookmark_id !== bookmarkId)
+        );
 
         // Queue for sync
         offlineQueue.addOperation('bookmark', 'remove', { id: bookmarkId });

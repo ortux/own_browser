@@ -8,62 +8,135 @@ interface PasswordsPanelProps {
 }
 
 export const PasswordsPanel: React.FC<PasswordsPanelProps> = ({ onClose, onAutofill }) => {
-  const [entries, setEntries]   = useState<SavedPassword[]>([]);
-  const [query, setQuery]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [entries, setEntries] = useState<SavedPassword[]>([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
   const [revealed, setRevealed] = useState<Record<number, string>>({});
-  const [copied, setCopied]     = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (q?: string) => {
     if (!window.browserAPI) return;
     setLoading(true);
+    setError(null);
     try {
       const data = q?.trim()
         ? await window.browserAPI.passwords.search(q.trim())
         : await window.browserAPI.passwords.getAll();
       setEntries(data);
+    } catch (err) {
+      console.error('[passwords] failed to load entries:', err);
+      setError('Could not load saved passwords.');
+      setEntries([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void load(query); }, [query, load]);
+  // Debounce search so each keystroke does not hit the database.
+  useEffect(() => {
+    const id = setTimeout(
+      () => {
+        void load(query);
+      },
+      query ? 180 : 0
+    );
+    return () => clearTimeout(id);
+  }, [query, load]);
 
-  const handleDelete = useCallback(async (id: number) => {
-    await window.browserAPI?.passwords.delete(id);
-    setEntries((prev) => prev.filter((e) => e.id !== id));
-    setRevealed((prev) => { const n = { ...prev }; delete n[id]; return n; });
+  const handleDelete = useCallback(async (entry: SavedPassword) => {
+    if (!window.confirm(`Delete the saved password for ${entry.username}?`)) return;
+    try {
+      await window.browserAPI?.passwords.delete(entry.id);
+      setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      setRevealed((prev) => {
+        const n = { ...prev };
+        delete n[entry.id];
+        return n;
+      });
+    } catch (err) {
+      console.error('[passwords] failed to delete entry:', err);
+      setError('Could not delete that entry.');
+    }
   }, []);
 
-  const handleReveal = useCallback(async (entry: SavedPassword) => {
-    if (revealed[entry.id] !== undefined) {
-      setRevealed((prev) => { const n = { ...prev }; delete n[entry.id]; return n; });
-      return;
-    }
-    const full = await window.browserAPI?.passwords.getById(entry.id);
-    if (full?.password) {
-      setRevealed((prev) => ({ ...prev, [entry.id]: full.password as string }));
-    }
-  }, [revealed]);
+  const handleReveal = useCallback(
+    async (entry: SavedPassword) => {
+      if (revealed[entry.id] !== undefined) {
+        setRevealed((prev) => {
+          const n = { ...prev };
+          delete n[entry.id];
+          return n;
+        });
+        return;
+      }
+      try {
+        const full = await window.browserAPI?.passwords.getById(entry.id);
+        if (full?.password) {
+          setRevealed((prev) => ({ ...prev, [entry.id]: full.password as string }));
+        } else {
+          setError('This password could not be decrypted on this device.');
+        }
+      } catch (err) {
+        console.error('[passwords] failed to reveal entry:', err);
+        setError('Could not read that password.');
+      }
+    },
+    [revealed]
+  );
 
   const handleCopy = useCallback(async (text: string, key: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopied(key);
-    setTimeout(() => setCopied((c) => c === key ? null : c), 1500);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500);
+    } catch (err) {
+      console.error('[passwords] clipboard write failed:', err);
+      setError('Clipboard is unavailable.');
+    }
   }, []);
 
-  const handleAutofill = useCallback(async (entry: SavedPassword) => {
-    const full = await window.browserAPI?.passwords.getById(entry.id);
-    if (full?.password && onAutofill) {
-      onAutofill(entry.username, full.password as string);
-      onClose();
-    }
-  }, [onAutofill, onClose]);
+  /** Copy a password without revealing it on screen first. */
+  const handleCopyPassword = useCallback(
+    async (entry: SavedPassword) => {
+      const secret =
+        revealed[entry.id] ?? (await window.browserAPI?.passwords.getById(entry.id))?.password;
+      if (!secret) {
+        setError('Could not read that password.');
+        return;
+      }
+      await handleCopy(secret, `p-${entry.id}`);
+    },
+    [revealed, handleCopy]
+  );
+
+  const handleAutofill = useCallback(
+    async (entry: SavedPassword) => {
+      if (!onAutofill) return;
+      try {
+        const full = await window.browserAPI?.passwords.getById(entry.id);
+        if (!full?.password) {
+          setError('Could not read that password.');
+          return;
+        }
+        onAutofill(entry.username, full.password);
+        onClose();
+      } catch (err) {
+        console.error('[passwords] autofill failed:', err);
+        setError('Could not fill that credential.');
+      }
+    },
+    [onAutofill, onClose]
+  );
 
   // Group by hostname
   const grouped = entries.reduce<Record<string, SavedPassword[]>>((acc, e) => {
     let host = e.origin;
-    try { host = new URL(e.origin).hostname; } catch { /* keep raw */ }
+    try {
+      host = new URL(e.origin).hostname;
+    } catch {
+      /* keep raw */
+    }
     (acc[host] = acc[host] ?? []).push(e);
     return acc;
   }, {});
@@ -89,7 +162,7 @@ export const PasswordsPanel: React.FC<PasswordsPanelProps> = ({ onClose, onAutof
 
       {/* Search */}
       <div className="px-3 py-2 shrink-0">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--chrome)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--chrome)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
           <Search size={13} className="text-[var(--text-faint)] shrink-0" />
           <input
             type="text"
@@ -100,18 +173,25 @@ export const PasswordsPanel: React.FC<PasswordsPanelProps> = ({ onClose, onAutof
             style={{ WebkitUserSelect: 'text', userSelect: 'text' }}
           />
           {query && (
-            <button onClick={() => setQuery('')} className="text-[var(--text-faint)] hover:text-[var(--text)]">
+            <button
+              onClick={() => setQuery('')}
+              className="text-[var(--text-faint)] hover:text-[var(--text)]"
+            >
               <X size={12} />
             </button>
           )}
         </div>
       </div>
 
+      {error && (
+        <div className="mx-3 mb-2 rounded-md bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger)] shrink-0">
+          {error}
+        </div>
+      )}
+
       {/* List */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {loading && (
-          <p className="text-center py-8 text-xs text-[var(--text-faint)]">Loading…</p>
-        )}
+        {loading && <p className="text-center py-8 text-xs text-[var(--text-faint)]">Loading…</p>}
 
         {!loading && entries.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
@@ -131,11 +211,18 @@ export const PasswordsPanel: React.FC<PasswordsPanelProps> = ({ onClose, onAutof
           <div key={host} className="mb-4">
             {/* Site label */}
             <div className="flex items-center gap-2 px-2 pb-1 mb-0.5">
-              {creds[0].favicon
-                ? <img src={creds[0].favicon} alt="" className="w-3.5 h-3.5 rounded-sm shrink-0"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                : <KeyRound size={11} className="text-[var(--text-faint)] shrink-0" />
-              }
+              {creds[0].favicon ? (
+                <img
+                  src={creds[0].favicon}
+                  alt=""
+                  className="w-3.5 h-3.5 rounded-sm shrink-0"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                <KeyRound size={11} className="text-[var(--text-faint)] shrink-0" />
+              )}
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-faint)] truncate">
                 {host}
               </span>
@@ -144,7 +231,7 @@ export const PasswordsPanel: React.FC<PasswordsPanelProps> = ({ onClose, onAutof
             {creds.map((entry) => (
               <div
                 key={entry.id}
-                className="group mb-1 rounded-xl border border-[var(--border)] bg-[var(--chrome)] px-3 py-2.5 hover:border-[var(--border-strong)] transition-colors"
+                className="group mb-1 rounded-md border border-[var(--border)] bg-[var(--chrome)] px-3 py-2.5 hover:border-[var(--border-strong)] transition-colors"
               >
                 {/* Username row */}
                 <div className="flex items-center gap-2 mb-1.5">
@@ -157,9 +244,11 @@ export const PasswordsPanel: React.FC<PasswordsPanelProps> = ({ onClose, onAutof
                       title="Copy username"
                       className="p-1 rounded hover:bg-[var(--hover)] text-[var(--text-faint)]"
                     >
-                      {copied === `u-${entry.id}`
-                        ? <Check size={12} className="text-green-400" />
-                        : <Copy size={12} />}
+                      {copied === `u-${entry.id}` ? (
+                        <Check size={12} className="text-[var(--success)]" />
+                      ) : (
+                        <Copy size={12} />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -177,30 +266,34 @@ export const PasswordsPanel: React.FC<PasswordsPanelProps> = ({ onClose, onAutof
                     >
                       {revealed[entry.id] ? <EyeOff size={12} /> : <Eye size={12} />}
                     </button>
-                    {revealed[entry.id] && (
-                      <button
-                        onClick={() => handleCopy(revealed[entry.id], `p-${entry.id}`)}
-                        title="Copy password"
-                        className="p-1 rounded hover:bg-[var(--hover)] text-[var(--text-faint)]"
-                      >
-                        {copied === `p-${entry.id}`
-                          ? <Check size={12} className="text-green-400" />
-                          : <Copy size={12} />}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => {
+                        void handleCopyPassword(entry);
+                      }}
+                      title="Copy password"
+                      className="p-1 rounded hover:bg-[var(--hover)] text-[var(--text-faint)]"
+                    >
+                      {copied === `p-${entry.id}` ? (
+                        <Check size={12} className="text-[var(--success)]" />
+                      ) : (
+                        <Copy size={12} />
+                      )}
+                    </button>
                     {onAutofill && (
                       <button
                         onClick={() => handleAutofill(entry)}
                         title="Autofill on page"
-                        className="p-1 rounded hover:bg-[var(--hover)] text-[var(--accent)]"
+                        className="p-1 rounded hover:bg-[var(--hover)] text-[var(--accent-fg)]"
                       >
                         <Check size={12} />
                       </button>
                     )}
                     <button
-                      onClick={() => handleDelete(entry.id)}
+                      onClick={() => {
+                        void handleDelete(entry);
+                      }}
                       title="Delete"
-                      className="p-1 rounded hover:bg-[var(--hover)] text-[var(--text-faint)] hover:text-red-400 transition-colors"
+                      className="p-1 rounded hover:bg-[var(--hover)] text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors"
                     >
                       <Trash2 size={12} />
                     </button>

@@ -30,16 +30,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ onComplete }) =>
 
   return (
     <div>
-      {currentStep === 'device-name' && (
-        <DeviceNameScreen onNext={handleDeviceNameNext} />
-      )}
+      {currentStep === 'device-name' && <DeviceNameScreen onNext={handleDeviceNameNext} />}
 
-      {currentStep === 'terms' && (
-        <TermsOfServiceScreen onNext={handleTermsNext} />
-      )}
+      {currentStep === 'terms' && <TermsOfServiceScreen onNext={handleTermsNext} />}
 
       {currentStep === 'auth' && (
-        <div className="min-h-screen w-full bg-[#090a0b]">
+        <div className="min-h-screen w-full bg-[var(--bg)]">
           <AuthPortal mode="signup" onClose={handleAuthClose} />
         </div>
       )}

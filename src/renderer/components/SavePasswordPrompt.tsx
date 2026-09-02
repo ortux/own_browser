@@ -21,20 +21,37 @@ export const SavePasswordPrompt: React.FC<SavePasswordPromptProps> = ({
   const saveRef = useRef<HTMLButtonElement>(null);
 
   // Auto-focus the Save button so Enter key works immediately
-  useEffect(() => { saveRef.current?.focus(); }, []);
+  useEffect(() => {
+    saveRef.current?.focus();
+  }, []);
 
   // Parse display hostname from origin
   let host = origin;
-  try { host = new URL(origin).hostname; } catch { /* keep raw */ }
+  try {
+    host = new URL(origin).hostname;
+  } catch {
+    /* keep raw */
+  }
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl min-w-0 max-w-sm w-full">
+    <div
+      className="animate-overlay-in flex w-full max-w-sm items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+      style={{ boxShadow: 'var(--shadow-overlay)' }}
+    >
       {/* Icon / favicon */}
       <div className="shrink-0 w-8 h-8 rounded-full bg-[var(--accent-soft)] flex items-center justify-center overflow-hidden">
-        {favicon
-          ? <img src={favicon} alt="" className="w-5 h-5 rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          : <KeyRound size={16} className="text-[var(--accent)]" />
-        }
+        {favicon ? (
+          <img
+            src={favicon}
+            alt=""
+            className="w-5 h-5 rounded"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <KeyRound size={16} className="text-[var(--accent-fg)]" />
+        )}
       </div>
 
       {/* Text */}
@@ -51,14 +68,14 @@ export const SavePasswordPrompt: React.FC<SavePasswordPromptProps> = ({
           ref={saveRef}
           onClick={onSave}
           title="Save"
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
+          className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--accent)] text-[var(--accent-text)] text-xs font-medium hover:bg-[var(--accent-hover)] transition-colors"
         >
           <Check size={13} /> Save
         </button>
         <button
           onClick={onDismiss}
           title="Dismiss"
-          className="p-1.5 rounded-lg hover:bg-[var(--hover)] text-[var(--text-muted)] transition-colors"
+          className="p-1.5 rounded-md hover:bg-[var(--hover)] text-[var(--text-muted)] transition-colors"
         >
           <X size={14} />
         </button>

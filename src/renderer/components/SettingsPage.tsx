@@ -1,5 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe, Plus, X, Shield, Sun, Moon, Monitor, Wifi, WifiOff, RefreshCw, AlertTriangle, Download, FolderOpen, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Image as ImageIcon,
+  Search as SearchIcon,
+  User,
+  Globe,
+  Plus,
+  X,
+  Shield,
+  Sun,
+  Moon,
+  Monitor,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  AlertTriangle,
+  Download,
+  FolderOpen,
+  Trash2,
+} from 'lucide-react';
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useProxy } from '../hooks/useProxy';
 import type { SecuritySettings } from '../stores/settingsStore';
@@ -68,9 +88,7 @@ const MdSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: bo
   >
     <span
       className={`absolute top-1/2 -translate-y-1/2 rounded-full shadow-sm transition-all duration-200 ease-out ${
-        checked
-          ? 'left-[26px] h-5 w-5 bg-white'
-          : 'left-[5px] h-4 w-4 bg-[var(--text-faint)]'
+        checked ? 'left-[26px] h-5 w-5 bg-white' : 'left-[5px] h-4 w-4 bg-[var(--text-faint)]'
       }`}
     />
   </button>
@@ -102,9 +120,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
     signOut,
   } = useSettingsStore();
 
-  const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads'>('general');
+  const [activeSection, setActiveSection] = useState<
+    'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads'
+  >('general');
 
-  const { proxy, proxyEnabled, status: proxyStatus, error: proxyError, fetchAndApply, toggle: toggleProxy } = useProxy();
+  const {
+    proxy,
+    proxyEnabled,
+    status: proxyStatus,
+    error: proxyError,
+    fetchAndApply,
+    toggle: toggleProxy,
+  } = useProxy();
 
   const allEngines = [...SEARCH_ENGINES, ...customSearchEngines];
 
@@ -133,10 +160,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
   // Keep the saved-password count in sync whenever this page is shown.
   useEffect(() => {
     let cancelled = false;
-    void window.browserAPI?.passwords.getAll()
-      .then((entries) => { if (!cancelled) setPasswordCount(entries.length); })
-      .catch(() => { if (!cancelled) setPasswordCount(0); });
-    return () => { cancelled = true; };
+    void window.browserAPI?.passwords
+      .getAll()
+      .then((entries) => {
+        if (!cancelled) setPasswordCount(entries.length);
+      })
+      .catch(() => {
+        if (!cancelled) setPasswordCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [passwordManagerEnabled]);
 
   const openAuthPortal = (mode: AuthPortalMode) => {
@@ -147,9 +181,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
   // and keep the main process in sync whenever it changes.
   useEffect(() => {
     if (!downloadPath) {
-      window.browserAPI.downloads.defaultPath().then((p) => {
-        if (p) setDownloadPath(p);
-      }).catch(() => {});
+      window.browserAPI.downloads
+        .defaultPath()
+        .then((p) => {
+          if (p) setDownloadPath(p);
+        })
+        .catch(() => {});
     }
   }, [downloadPath, setDownloadPath]);
 
@@ -166,7 +203,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
   });
 
   useEffect(() => {
-    window.browserAPI.adblock.stats().then(setAdblockStats).catch(() => {});
+    window.browserAPI.adblock
+      .stats()
+      .then(setAdblockStats)
+      .catch(() => {});
     const unsub = window.browserAPI.onAdblockStats(setAdblockStats);
     return unsub;
   }, []);
@@ -198,7 +238,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
       <aside className="flex w-64 shrink-0 flex-col bg-[var(--surface)] h-full p-3">
         <button
           onClick={onBack}
-          className="mb-4 flex items-center gap-3 rounded-full px-4 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+          className="mb-4 flex items-center gap-3 rounded-md px-4 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
         >
           <ArrowLeft size={18} /> Back
         </button>
@@ -215,9 +255,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               <button
                 key={item.id}
                 onClick={() => setActiveSection(item.id)}
-                className={`group relative flex items-center gap-4 rounded-full px-4 py-2.5 text-sm transition-colors duration-150 ${
+                className={`group relative flex items-center gap-4 rounded-md px-4 py-2.5 text-sm transition-colors duration-150 ${
                   active
-                    ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
+                    ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-fg)]'
                     : 'text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]'
                 }`}
               >
@@ -247,28 +287,40 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                   <>
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-faint)]">Account</p>
-                        <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">{account.name}</h2>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                          Account
+                        </p>
+                        <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">
+                          {account.name}
+                        </h2>
                       </div>
                       <button
                         type="button"
                         onClick={() => signOut()}
-                        className="rounded-full border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                        className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
                       >
                         Sign out
                       </button>
                     </div>
-                    <div className="rounded-2xl bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-muted)]">
+                    <div className="rounded-md bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-muted)]">
                       <div>{account.email}</div>
-                      {account.role && <div className="mt-1 text-xs text-[var(--text-faint)]">Role: {account.role}</div>}
+                      {account.role && (
+                        <div className="mt-1 text-xs text-[var(--text-faint)]">
+                          Role: {account.role}
+                        </div>
+                      )}
                     </div>
                   </>
                 ) : (
                   <>
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-faint)]">Account</p>
-                        <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">Not signed in</h2>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                          Account
+                        </p>
+                        <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">
+                          Not signed in
+                        </h2>
                       </div>
                     </div>
 
@@ -276,25 +328,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                       <button
                         type="button"
                         onClick={() => openAuthPortal('signin')}
-                        className="rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-white transition hover:opacity-95"
+                        className="rounded-md bg-[var(--accent)] px-4 py-3 text-sm font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-hover)]"
                       >
                         Login
                       </button>
                       <button
                         type="button"
                         onClick={() => openAuthPortal('signup')}
-                        className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-sm font-medium text-[var(--text)] transition hover:bg-[var(--hover)]"
+                        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-sm font-medium text-[var(--text)] transition hover:bg-[var(--hover)]"
                       >
                         Sign up
                       </button>
                     </div>
 
-                    <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[11px] text-[var(--text-faint)]">
+                    <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[11px] text-[var(--text-faint)]">
                       Account portal: {authBaseUrl}/auth.html
                     </div>
 
                     {(authStatus === 'error' || authError) && (
-                      <p className="rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-400">{authError}</p>
+                      <p className="rounded-md bg-[var(--danger-soft)] px-3 py-2 text-sm text-[var(--danger)]">
+                        {authError}
+                      </p>
                     )}
                   </>
                 )}
@@ -313,7 +367,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                     onChange={() => setPasswordManagerEnabled(!passwordManagerEnabled)}
                   />
                 </div>
-                <div className="rounded-2xl bg-[var(--surface-2)] px-3 py-3 text-xs text-[var(--text-faint)]">
+                <div className="rounded-md bg-[var(--surface-2)] px-3 py-3 text-xs text-[var(--text-faint)]">
                   {passwordManagerEnabled
                     ? 'Zyphora offers to save logins you submit and can fill them back in. Passwords are encrypted with your operating system keychain and are never captured in private tabs. Reopen a tab for a change to take effect.'
                     : 'Password manager is disabled. No new logins will be captured; anything already saved stays until you remove it.'}
@@ -327,7 +381,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                         ? 'Counting…'
                         : `${passwordCount} saved ${passwordCount === 1 ? 'login' : 'logins'} on this device.`}
                     </div>
-                    {passwordStatus && <p className="mt-2 text-xs text-green-400">{passwordStatus}</p>}
+                    {passwordStatus && (
+                      <p className="mt-2 text-xs text-[var(--success)]">{passwordStatus}</p>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -342,7 +398,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                         setPasswordStatus('Could not delete saved passwords.');
                       }
                     }}
-                    className="rounded-2xl border border-[var(--border)] px-4 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-md border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--danger)] transition hover:bg-[var(--danger-soft)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Delete all
                   </button>
@@ -355,7 +411,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                   <div className="mt-0.5 text-xs text-[var(--text-faint)]">
                     Remove local history, cookies, cache, and site storage from the default session.
                   </div>
-                  {clearDataStatus && <p className="mt-2 text-xs text-green-400">{clearDataStatus}</p>}
+                  {clearDataStatus && (
+                    <p className="mt-2 text-xs text-[var(--success)]">{clearDataStatus}</p>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -373,7 +431,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                       setClearingData(false);
                     }
                   }}
-                  className="flex shrink-0 items-center gap-2 rounded-full border border-red-400/40 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                  className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--danger)]/40 px-3 py-2 text-xs font-medium text-[var(--danger)] transition-colors hover:bg-[var(--danger-soft)] disabled:opacity-50"
                 >
                   <Trash2 size={14} /> {clearingData ? 'Clearing…' : 'Clear data'}
                 </button>
@@ -425,14 +483,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                       <div className="flex items-center gap-1 shrink-0">
                         {isActive && (
                           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent-soft)]">
-                            <Check size={14} className="text-[var(--accent)]" />
+                            <Check size={14} className="text-[var(--accent-fg)]" />
                           </span>
                         )}
                         {isCustom && (
                           <button
                             onClick={() => removeCustomSearchEngine(engine.id)}
                             aria-label={`Remove ${engine.name}`}
-                            className="rounded-full p-1.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--hover)] hover:text-[#ef4444]"
+                            className="rounded-full p-1.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--danger)]"
                           >
                             <X size={14} />
                           </button>
@@ -447,7 +505,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               {!showAdd ? (
                 <button
                   onClick={() => setShowAdd(true)}
-                  className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-[var(--border-strong)] px-4 py-3.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]"
+                  className="flex w-full items-center gap-2 rounded-md border border-dashed border-[var(--border-strong)] px-4 py-3.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-fg)]"
                 >
                   <Plus size={16} /> Add search engine
                 </button>
@@ -466,9 +524,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                     placeholder="https://example.com/search?q=%s"
                     onEnter={handleAddCustom}
                   />
-                  {customError && (
-                    <p className="text-xs text-[#ef4444]">{customError}</p>
-                  )}
+                  {customError && <p className="text-xs text-[var(--danger)]">{customError}</p>}
                   <div className="flex items-center justify-end gap-2 pt-1">
                     <button
                       onClick={() => {
@@ -477,13 +533,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                         setCustomUrl('');
                         setCustomError('');
                       }}
-                      className="rounded-full px-4 py-2 text-sm font-medium text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                      className="rounded-md px-4 py-2 text-sm font-medium text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleAddCustom}
-                      className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                      className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-hover)]"
                     >
                       Add
                     </button>
@@ -506,9 +562,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                       <button
                         key={t.id}
                         onClick={() => setTheme(t.id)}
-                        className={`flex flex-col items-center gap-2.5 rounded-2xl border px-4 py-6 transition-all duration-150 ${
+                        className={`flex flex-col items-center gap-2.5 rounded-md border px-4 py-6 transition-all duration-150 ${
                           active
-                            ? 'border-transparent bg-[var(--accent-soft)] text-[var(--accent)]'
+                            ? 'border-transparent bg-[var(--accent-soft)] text-[var(--accent-fg)]'
                             : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--hover)]'
                         }`}
                       >
@@ -523,34 +579,36 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               <div>
                 <SectionLabel>New tab page</SectionLabel>
                 <div className="grid grid-cols-2 gap-3">
-                  {(
-                    [
-                      {
-                        id: 'minimal' as const,
-                        label: 'Minimal',
-                        desc: 'A static background that follows your theme (dark in dark mode, light in light mode).',
-                      },
-                      {
-                        id: 'full' as const,
-                        label: 'Full',
-                        desc: 'Includes everything: a fresh Pexels background, clock, date, search and more.',
-                      },
-                    ]
-                  ).map((m) => {
+                  {[
+                    {
+                      id: 'minimal' as const,
+                      label: 'Minimal',
+                      desc: 'A static background that follows your theme (dark in dark mode, light in light mode).',
+                    },
+                    {
+                      id: 'full' as const,
+                      label: 'Full',
+                      desc: 'Includes everything: a fresh Pexels background, clock, date, search and more.',
+                    },
+                  ].map((m) => {
                     const active = newTabMode === m.id;
                     return (
                       <button
                         key={m.id}
                         onClick={() => setNewTabMode(m.id)}
-                        className={`flex flex-col items-start gap-2 rounded-2xl border px-4 py-4 text-left transition-all duration-150 ${
+                        className={`flex flex-col items-start gap-2 rounded-md border px-4 py-4 text-left transition-all duration-150 ${
                           active
                             ? 'border-transparent bg-[var(--accent-soft)]'
                             : 'border-[var(--border)] hover:bg-[var(--hover)]'
                         }`}
                       >
                         <span className="flex w-full items-center justify-between text-sm font-medium">
-                          <span className={active ? 'text-[var(--accent)]' : 'text-[var(--text)]'}>{m.label}</span>
-                          {active && <Check size={15} className="text-[var(--accent)]" />}
+                          <span
+                            className={active ? 'text-[var(--accent-fg)]' : 'text-[var(--text)]'}
+                          >
+                            {m.label}
+                          </span>
+                          {active && <Check size={15} className="text-[var(--accent-fg)]" />}
                         </span>
                         <span className="text-xs leading-snug text-[var(--text-faint)]">
                           {m.desc}
@@ -591,8 +649,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               {/* Live ad-blocker summary */}
               <MdCard className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <span className={`flex h-9 w-9 items-center justify-center rounded-full ${adblockStats.enabled ? 'bg-[var(--accent-soft)]' : 'bg-[var(--surface-2)]'}`}>
-                    <Shield size={16} className={adblockStats.enabled ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'} />
+                  <span
+                    className={`flex h-9 w-9 items-center justify-center rounded-full ${adblockStats.enabled ? 'bg-[var(--accent-soft)]' : 'bg-[var(--surface-2)]'}`}
+                  >
+                    <Shield
+                      size={16}
+                      className={
+                        adblockStats.enabled
+                          ? 'text-[var(--accent-fg)]'
+                          : 'text-[var(--text-faint)]'
+                      }
+                    />
                   </span>
                   <span className="text-sm font-medium text-[var(--text)]">
                     {adblockStats.enabled ? 'Ad blocker active' : 'Ad blocker off'}
@@ -603,8 +670,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                 </span>
               </MdCard>
               <p className="px-1 text-xs leading-relaxed text-[var(--text-faint)]">
-                AdGuard DNS blocks known domains first. The local filter engine then blocks
-                matching URLs and resource requests that DNS cannot see.
+                AdGuard DNS blocks known domains first. The local filter engine then blocks matching
+                URLs and resource requests that DNS cannot see.
               </p>
             </div>
           )}
@@ -616,7 +683,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                 <div>
                   <div className="text-sm font-medium text-[var(--text)]">Enable proxy</div>
                   <div className="mt-0.5 text-xs text-[var(--text-faint)]">
-                    Route browser traffic through a configured anonymous proxy. Google uses your direct connection.
+                    Route browser traffic through a configured anonymous proxy. Google uses your
+                    direct connection.
                   </div>
                 </div>
                 <MdSwitch
@@ -629,7 +697,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               {/* Status + info card */}
               {(proxyStatus === 'fetching' || proxyStatus === 'verifying') && (
                 <MdCard className="flex items-center gap-3">
-                  <RefreshCw size={16} className="text-[var(--accent)] animate-spin shrink-0" />
+                  <RefreshCw size={16} className="text-[var(--accent-fg)] animate-spin shrink-0" />
                   <span className="text-sm text-[var(--text-muted)]">
                     {proxyStatus === 'fetching' ? 'Fetching proxy…' : 'Verifying connection…'}
                   </span>
@@ -637,26 +705,29 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               )}
 
               {proxyStatus === 'failed' && proxyError && (
-                <div className="flex items-center gap-3 rounded-2xl bg-red-500/10 px-4 py-3.5">
-                  <AlertTriangle size={16} className="text-red-400 shrink-0" />
+                <div className="flex items-center gap-3 rounded-md bg-[var(--danger-soft)] px-4 py-3.5">
+                  <AlertTriangle size={16} className="text-[var(--danger)] shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-red-400">{proxyError}</p>
-                    <p className="mt-0.5 text-xs text-[var(--text-faint)]">Configured proxies can be unreliable. Check the proxy configuration and try again.</p>
+                    <p className="text-sm text-[var(--danger)]">{proxyError}</p>
+                    <p className="mt-0.5 text-xs text-[var(--text-faint)]">
+                      Configured proxies can be unreliable. Check the proxy configuration and try
+                      again.
+                    </p>
                   </div>
                 </div>
               )}
 
               {proxyEnabled && proxy && proxyStatus === 'active' && (
-                <div className="rounded-2xl bg-[var(--accent-soft)] px-4 py-4 space-y-3">
+                <div className="rounded-md bg-[var(--accent-soft)] px-4 py-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Wifi size={15} className="text-[var(--accent)]" />
+                      <Wifi size={15} className="text-[var(--accent-fg)]" />
                       <span className="text-sm font-medium text-[var(--text)]">Connected</span>
                     </div>
                     <button
                       onClick={fetchAndApply}
                       title="Get a new proxy"
-                      className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
+                      className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
                     >
                       <RefreshCw size={12} /> Rotate
                     </button>
@@ -670,7 +741,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                       { label: 'HTTPS', value: proxy.supportsHttps ? 'Yes' : 'No' },
                       { label: 'Speed', value: `${proxy.speed}s` },
                     ].map(({ label, value }) => (
-                      <div key={label} className="flex justify-between rounded-xl bg-[var(--surface)] px-3 py-2">
+                      <div
+                        key={label}
+                        className="flex justify-between rounded-md bg-[var(--surface)] px-3 py-2"
+                      >
                         <span className="text-[var(--text-faint)]">{label}</span>
                         <span className="font-medium text-[var(--text)]">{value}</span>
                       </div>
@@ -692,9 +766,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               )}
 
               <p className="px-1 text-xs leading-relaxed text-[var(--text-faint)]">
-                Proxies come from the local ZYPHORA_PROXY_LIST configuration. Public proxies
-                may be slow, blocked by some sites, or go offline without notice. Use for
-                light anonymity only — not a substitute for a VPN.
+                Proxies come from the local ZYPHORA_PROXY_LIST configuration. Public proxies may be
+                slow, blocked by some sites, or go offline without notice. Use for light anonymity
+                only — not a substitute for a VPN.
               </p>
             </div>
           )}
@@ -714,14 +788,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                     value={downloadPath}
                     onChange={(e) => setDownloadPath(e.target.value)}
                     placeholder="Default downloads folder"
-                    className="flex-1 rounded-xl bg-[var(--surface-2)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-2 focus:ring-[var(--accent)]"
+                    className="flex-1 rounded-md bg-[var(--surface-2)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-2 focus:ring-[var(--accent)]"
                   />
                   <button
                     onClick={async () => {
-                      const picked = await window.browserAPI.downloads.pickFolder().catch(() => null);
+                      const picked = await window.browserAPI.downloads
+                        .pickFolder()
+                        .catch(() => null);
                       if (picked) setDownloadPath(picked);
                     }}
-                    className="flex items-center gap-1.5 rounded-full bg-[var(--surface-2)] px-4 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                    className="flex items-center gap-1.5 rounded-md bg-[var(--surface-2)] px-4 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
                   >
                     <FolderOpen size={15} /> Browse
                   </button>
@@ -736,7 +812,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                   </span>
                   <button
                     onClick={() => window.browserAPI.downloads.revealFolder().catch(() => {})}
-                    className="text-xs font-medium text-[var(--accent)] hover:underline"
+                    className="text-xs font-medium text-[var(--accent-fg)] hover:underline"
                   >
                     Open folder
                   </button>
@@ -746,12 +822,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               {/* Behaviour */}
               <MdCard className="flex items-center justify-between gap-4">
                 <div>
-                  <div className="text-sm font-medium text-[var(--text)]">Open Downloads page on new download</div>
+                  <div className="text-sm font-medium text-[var(--text)]">
+                    Open Downloads page on new download
+                  </div>
                   <div className="mt-0.5 text-xs text-[var(--text-faint)]">
                     Automatically switch to the Downloads page whenever a download starts.
                   </div>
                 </div>
-                <MdSwitch checked={openDownloadsOnStart} onChange={() => setOpenDownloadsOnStart(!openDownloadsOnStart)} />
+                <MdSwitch
+                  checked={openDownloadsOnStart}
+                  onChange={() => setOpenDownloadsOnStart(!openDownloadsOnStart)}
+                />
               </MdCard>
             </div>
           )}
@@ -773,9 +854,7 @@ function MdCard({
   padded?: boolean;
 }) {
   return (
-    <div
-      className={`rounded-2xl bg-[var(--surface)] shadow-sm ${padded ? 'p-4' : ''} ${className}`}
-    >
+    <div className={`rounded-md bg-[var(--surface)] shadow-sm ${padded ? 'p-4' : ''} ${className}`}>
       {children}
     </div>
   );
@@ -811,7 +890,7 @@ function MdField({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && onEnter?.()}
         placeholder={placeholder}
-        className="w-full rounded-xl bg-[var(--surface-2)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-2 focus:ring-[var(--accent)]"
+        className="w-full rounded-md bg-[var(--surface-2)] px-3.5 py-2.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-2 focus:ring-[var(--accent)]"
       />
     </label>
   );

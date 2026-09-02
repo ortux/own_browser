@@ -53,7 +53,7 @@ export const FindBar: React.FC<FindBarProps> = ({ tabId, onClose }) => {
   };
 
   return (
-    <div className="absolute right-4 top-4 z-30 flex w-[360px] items-center gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-[0_8px_30px_rgba(0,0,0,0.4)]">
+    <div className="absolute right-4 top-4 z-30 flex w-[360px] items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 shadow-[0_8px_30px_rgba(0,0,0,0.4)]">
       <input
         ref={inputRef}
         value={query}
@@ -80,7 +80,7 @@ export const FindBar: React.FC<FindBarProps> = ({ tabId, onClose }) => {
         onClick={() => step(false)}
         disabled={!query}
         title="Previous match"
-        className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] disabled:opacity-30"
+        className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] disabled:opacity-30"
       >
         <ChevronUp size={16} />
       </button>
@@ -89,7 +89,7 @@ export const FindBar: React.FC<FindBarProps> = ({ tabId, onClose }) => {
         onClick={() => step(true)}
         disabled={!query}
         title="Next match"
-        className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] disabled:opacity-30"
+        className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] disabled:opacity-30"
       >
         <ChevronDown size={16} />
       </button>
@@ -97,7 +97,7 @@ export const FindBar: React.FC<FindBarProps> = ({ tabId, onClose }) => {
         type="button"
         onClick={close}
         title="Close find bar"
-        className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+        className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
       >
         <X size={16} />
       </button>

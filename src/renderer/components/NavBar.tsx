@@ -58,7 +58,11 @@ function displayUrl(url: string): string {
 
 // ── History suggestion helpers ──────────────────────────────────────────────
 function domainOf(url: string): string {
-  try { return new URL(url).hostname; } catch { return url; }
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
@@ -98,10 +102,10 @@ export const NavBar: React.FC<NavBarProps> = ({
     [blockTrackers, setSecurityFlag]
   );
   // ── History suggestions ──
-  const [history, setHistory]           = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const suggestionRequest = useRef(0);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeIdx, setActiveIdx]       = useState(-1);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // ── Live downloads indicator ──
@@ -110,7 +114,10 @@ export const NavBar: React.FC<NavBarProps> = ({
     const update = (list: Download[]) => {
       setActiveDownloads(list.filter((d) => d.state === 'progressing'));
     };
-    window.browserAPI.downloads.list().then(update).catch(() => {});
+    window.browserAPI.downloads
+      .list()
+      .then(update)
+      .catch(() => {});
     const unsub = window.browserAPI.downloads.onUpdated(update);
     return unsub;
   }, []);
@@ -133,7 +140,9 @@ export const NavBar: React.FC<NavBarProps> = ({
   useEffect(() => {
     setActiveIdx(-1);
     if (!isFocused) return;
-    const timer = setTimeout(() => { void loadSuggestions(input); }, 120);
+    const timer = setTimeout(() => {
+      void loadSuggestions(input);
+    }, 120);
     return () => clearTimeout(timer);
   }, [input, isFocused, loadSuggestions]);
 
@@ -151,17 +160,20 @@ export const NavBar: React.FC<NavBarProps> = ({
     return out;
   }, [history]);
 
-  const openSuggestion = useCallback((entry: HistoryEntry) => {
-    // Navigate to the root domain (e.g. youtube.com) rather than the exact
-    // page that was visited (e.g. a specific video), so clicking a suggestion
-    // lands you on the site's home page.
-    const root = `https://${domainOf(entry.url)}`;
-    onNavigate(root);
-    setIsFocused(false);
-    setShowSuggestions(false);
-    setInput(root);
-    searchRef.current?.blur();
-  }, [onNavigate]);
+  const openSuggestion = useCallback(
+    (entry: HistoryEntry) => {
+      // Navigate to the root domain (e.g. youtube.com) rather than the exact
+      // page that was visited (e.g. a specific video), so clicking a suggestion
+      // lands you on the site's home page.
+      const root = `https://${domainOf(entry.url)}`;
+      onNavigate(root);
+      setIsFocused(false);
+      setShowSuggestions(false);
+      setInput(root);
+      searchRef.current?.blur();
+    },
+    [onNavigate]
+  );
 
   const isLoading = activeTab?.loading;
 
@@ -194,18 +206,22 @@ export const NavBar: React.FC<NavBarProps> = ({
     Promise.all([
       window.browserAPI.adblock.siteStatus(siteKey),
       window.browserAPI.adblock.siteDetails(siteKey),
-    ]).then(([status, details]) => {
-      if (!cancelled) {
-        setSiteBlockedCount(status.blocked);
-        setBlockedRequests(details);
-      }
-    }).catch(() => {
-      if (!cancelled) {
-        setSiteBlockedCount(0);
-        setBlockedRequests([]);
-      }
-    });
-    return () => { cancelled = true; };
+    ])
+      .then(([status, details]) => {
+        if (!cancelled) {
+          setSiteBlockedCount(status.blocked);
+          setBlockedRequests(details);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSiteBlockedCount(0);
+          setBlockedRequests([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [siteKey, activeTab?.id, blockTrackers]);
 
   const toggleSiteProtection = () => {
@@ -261,10 +277,10 @@ export const NavBar: React.FC<NavBarProps> = ({
 
   const shieldColor =
     certStatus === 'secure'
-      ? 'text-green-400 hover:text-green-300'
+      ? 'text-[var(--success)] hover:text-[var(--success)]'
       : certStatus === 'pending' || certStatus === 'unknown'
         ? 'text-[var(--text-faint)]'
-        : 'text-red-400 hover:text-red-300';
+        : 'text-[var(--danger)] hover:text-[var(--danger)]';
   const ShieldIcon =
     certStatus === 'secure'
       ? ShieldCheck
@@ -362,7 +378,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       <button
         onClick={onBack}
         disabled={!activeTab?.canGoBack}
-        className="p-2 rounded-lg hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
+        className="p-2 rounded-md hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
         title="Back (Alt+Left)"
       >
         <ChevronLeft size={18} />
@@ -371,7 +387,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       <button
         onClick={onForward}
         disabled={!activeTab?.canGoForward}
-        className="p-2 rounded-lg hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
+        className="p-2 rounded-md hover:bg-[var(--hover)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
         title="Forward (Alt+Right)"
       >
         <ChevronRight size={18} />
@@ -380,7 +396,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       {isLoading ? (
         <button
           onClick={onStop}
-          className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
+          className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
           title="Stop"
         >
           <X size={18} />
@@ -388,7 +404,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       ) : (
         <button
           onClick={onReload}
-          className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
+          className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
           title="Reload (Ctrl+R)"
         >
           <RotateCcw size={16} />
@@ -398,7 +414,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       {/* Home button */}
       <button
         onClick={onHome}
-        className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)]"
+        className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)]"
         title="Home (new tab)"
       >
         <Home size={16} />
@@ -406,169 +422,170 @@ export const NavBar: React.FC<NavBarProps> = ({
 
       {/* Address / search bar */}
       <div className="relative flex-1 mx-1">
-      <div
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all
-          ${isFocused
-            ? 'bg-[var(--surface-2)] border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.25)]'
-            : 'bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--hover)] hover:border-[var(--border-strong)]'
-          }`}
-      >
-        {/* Lock / search / shield — merged security affordance.
-            Home (new tab): search icon. On a real site: shield that toggles
-            the certificate details. */}
-        <div className="relative shrink-0 flex items-center">
-          {showSearchIcon ? (
-            <Search size={14} className="text-[var(--text-faint)]" />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowCert((v) => !v)}
-              className={`flex items-center justify-center rounded-full p-1 transition-colors hover:bg-[var(--hover)] ${shieldColor}`}
-              title={shieldTitle}
-              aria-label="Connection security"
-            >
-              <ShieldIcon size={15} />
-            </button>
-          )}
-
-          {showCert && !showSearchIcon && (
-            <div
-              className="absolute bottom-full left-0 mb-2 w-80 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-4 text-sm z-50"
-              style={{ animation: 'popIn 160ms ease-out' }}
-              onMouseDown={(e) => e.preventDefault()}
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <span
-                  className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                    certStatus === 'secure' ? 'bg-[var(--accent-soft)]' : 'bg-[var(--surface-2)]'
-                  }`}
-                >
-                  <ShieldIcon size={20} className={shieldColor} />
-                </span>
-                <div>
-                  <div className="font-semibold leading-tight text-[var(--text)]">
-                    Connection security
-                  </div>
-                  <div className="text-xs text-[var(--text-faint)]">{shieldTitle}</div>
-                </div>
-              </div>
-
-              {certStatus === 'insecure' ? (
-                <p className="text-[var(--text-muted)] leading-relaxed">
-                  This site is not using HTTPS. Your connection is not encrypted and
-                  could be intercepted by third parties.
-                </p>
-              ) : cert && cert.present ? (
-                <dl className="space-y-3">
-                  <Row label="Issued to" value={cert.subject || '—'} />
-                  <Row label="Issuer" value={cert.issuer || '—'} />
-                  <Row
-                    label="Valid from"
-                    value={cert.validFrom ? new Date(cert.validFrom).toLocaleString() : '—'}
-                  />
-                  <Row
-                    label="Valid to"
-                    value={cert.validTo ? new Date(cert.validTo).toLocaleString() : '—'}
-                  />
-                  <Row label="Serial number" value={cert.serialNumber || '—'} mono />
-                  <Row label="Fingerprint" value={cert.fingerprint || '—'} mono />
-                  {certStatus === 'invalid' && cert.error && (
-                    <p className="text-xs text-red-400">Error: {cert.error}</p>
-                  )}
-                </dl>
-              ) : (
-                <p className="text-[var(--text-muted)]">Certificate details unavailable.</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <input
-          ref={searchRef}
-          type="text"
-          value={isFocused ? input : displayUrl(input)}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          placeholder={`Search with ${engine.name} or enter URL…`}
-          className="flex-1 bg-transparent outline-none text-sm min-w-0 text-[var(--text)] placeholder-[var(--text-faint)]"
-          spellCheck={false}
-          autoComplete="off"
-        />
-
-        {/* Loading indicator inside bar */}
-        {isLoading && !isFocused && (
-          <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin shrink-0" />
-        )}
-      </div>
-
-      {/* History suggestions tooltip/dialog — opens upward (bar sits at the bottom) */}
-      {showSuggestions && isFocused && suggestions.length > 0 && (
         <div
-          className="absolute bottom-full left-0 right-0 mb-2 max-h-80 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-1.5 z-50"
-          onMouseDown={(e) => e.preventDefault()}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-md border transition-all
+       ${
+         isFocused
+           ? 'bg-[var(--surface-2)] border-[var(--border-strong)]'
+           : 'bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--hover)] hover:border-[var(--border-strong)]'
+       }`}
         >
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
-            {input.trim() ? 'Suggestions from history' : 'Recent domains'}
-          </div>
-          {suggestions.map((s, i) => (
-            <button
-              key={s.id}
-              type="button"
-              onMouseEnter={() => setActiveIdx(i)}
-              onClick={() => openSuggestion(s)}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors duration-150 ${
-                i === activeIdx ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
-              }`}
-            >
-              {s.favicon ? (
-                <img
-                  src={s.favicon}
-                  alt=""
-                  className="h-5 w-5 shrink-0 rounded-sm"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-              ) : (
-                <Globe size={18} className="shrink-0 text-[var(--text-faint)]" />
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-[var(--text)]">
-                  {domainOf(s.url)}
+          {/* Lock / search / shield — merged security affordance.
+        Home (new tab): search icon. On a real site: shield that toggles
+        the certificate details. */}
+          <div className="relative shrink-0 flex items-center">
+            {showSearchIcon ? (
+              <Search size={14} className="text-[var(--text-faint)]" />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowCert((v) => !v)}
+                className={`flex items-center justify-center rounded-full p-1 transition-colors hover:bg-[var(--hover)] ${shieldColor}`}
+                title={shieldTitle}
+                aria-label="Connection security"
+              >
+                <ShieldIcon size={15} />
+              </button>
+            )}
+
+            {showCert && !showSearchIcon && (
+              <div
+                className="absolute bottom-full left-0 mb-2 w-80 rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-4 text-sm z-50"
+                style={{ animation: 'popIn 160ms ease-out' }}
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <span
+                    className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                      certStatus === 'secure' ? 'bg-[var(--accent-soft)]' : 'bg-[var(--surface-2)]'
+                    }`}
+                  >
+                    <ShieldIcon size={20} className={shieldColor} />
+                  </span>
+                  <div>
+                    <div className="font-semibold leading-tight text-[var(--text)]">
+                      Connection security
+                    </div>
+                    <div className="text-xs text-[var(--text-faint)]">{shieldTitle}</div>
+                  </div>
                 </div>
-                {s.title && s.title !== domainOf(s.url) && (
-                  <div className="truncate text-xs text-[var(--text-muted)]">{s.title}</div>
+
+                {certStatus === 'insecure' ? (
+                  <p className="text-[var(--text-muted)] leading-relaxed">
+                    This site is not using HTTPS. Your connection is not encrypted and could be
+                    intercepted by third parties.
+                  </p>
+                ) : cert && cert.present ? (
+                  <dl className="space-y-3">
+                    <Row label="Issued to" value={cert.subject || '—'} />
+                    <Row label="Issuer" value={cert.issuer || '—'} />
+                    <Row
+                      label="Valid from"
+                      value={cert.validFrom ? new Date(cert.validFrom).toLocaleString() : '—'}
+                    />
+                    <Row
+                      label="Valid to"
+                      value={cert.validTo ? new Date(cert.validTo).toLocaleString() : '—'}
+                    />
+                    <Row label="Serial number" value={cert.serialNumber || '—'} mono />
+                    <Row label="Fingerprint" value={cert.fingerprint || '—'} mono />
+                    {certStatus === 'invalid' && cert.error && (
+                      <p className="text-xs text-[var(--danger)]">Error: {cert.error}</p>
+                    )}
+                  </dl>
+                ) : (
+                  <p className="text-[var(--text-muted)]">Certificate details unavailable.</p>
                 )}
               </div>
-              {i === activeIdx && (
-                <CornerDownLeft size={14} className="shrink-0 text-[var(--text-faint)]" />
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {showSuggestions && isFocused && suggestions.length === 0 && (
-        <div
-          className="absolute bottom-full left-0 right-0 mb-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-3 z-50"
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <div className="flex items-center gap-2 px-2 text-sm text-[var(--text-muted)]">
-            <HistoryIcon size={14} />
-            {input.trim() ? 'No matches in your history' : 'No history yet'}
+            )}
           </div>
+
+          <input
+            ref={searchRef}
+            type="text"
+            value={isFocused ? input : displayUrl(input)}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            placeholder={`Search with ${engine.name} or enter URL…`}
+            className="flex-1 bg-transparent outline-none text-sm min-w-0 text-[var(--text)] placeholder-[var(--text-faint)]"
+            spellCheck={false}
+            autoComplete="off"
+          />
+
+          {/* Loading indicator inside bar */}
+          {isLoading && !isFocused && (
+            <div className="w-3 h-3 rounded-full border-2 border-[var(--text-faint)] border-t-transparent animate-spin shrink-0" />
+          )}
         </div>
-      )}
+
+        {/* History suggestions tooltip/dialog — opens upward (bar sits at the bottom) */}
+        {showSuggestions && isFocused && suggestions.length > 0 && (
+          <div
+            className="absolute bottom-full left-0 right-0 mb-2 max-h-80 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-1.5 z-50"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
+              {input.trim() ? 'Suggestions from history' : 'Recent domains'}
+            </div>
+            {suggestions.map((s, i) => (
+              <button
+                key={s.id}
+                type="button"
+                onMouseEnter={() => setActiveIdx(i)}
+                onClick={() => openSuggestion(s)}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors duration-150 ${
+                  i === activeIdx ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
+                }`}
+              >
+                {s.favicon ? (
+                  <img
+                    src={s.favicon}
+                    alt=""
+                    className="h-5 w-5 shrink-0 rounded-sm"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <Globe size={18} className="shrink-0 text-[var(--text-faint)]" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-[var(--text)]">
+                    {domainOf(s.url)}
+                  </div>
+                  {s.title && s.title !== domainOf(s.url) && (
+                    <div className="truncate text-xs text-[var(--text-muted)]">{s.title}</div>
+                  )}
+                </div>
+                {i === activeIdx && (
+                  <CornerDownLeft size={14} className="shrink-0 text-[var(--text-faint)]" />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {showSuggestions && isFocused && suggestions.length === 0 && (
+          <div
+            className="absolute bottom-full left-0 right-0 mb-2 rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-3 z-50"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <div className="flex items-center gap-2 px-2 text-sm text-[var(--text-muted)]">
+              <HistoryIcon size={14} />
+              {input.trim() ? 'No matches in your history' : 'No history yet'}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Ad blocker toggle */}
       <div className="relative shrink-0">
         <button
           onClick={() => setShowAdblock((v) => !v)}
-          className={`p-2 rounded-lg hover:bg-[var(--hover)] transition-colors ${
-            blockTrackers ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'
+          className={`p-2 rounded-md hover:bg-[var(--hover)] transition-colors ${
+            blockTrackers ? 'text-[var(--accent-fg)]' : 'text-[var(--text-faint)]'
           }`}
           title={blockTrackers ? 'Ad blocker on' : 'Ad blocker off'}
           aria-label="Ad blocker"
@@ -578,7 +595,7 @@ export const NavBar: React.FC<NavBarProps> = ({
 
         {showAdblock && (
           <div
-            className="absolute bottom-full right-0 mb-2 w-72 rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-4 text-sm z-50"
+            className="absolute bottom-full right-0 mb-2 w-72 rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-4 text-sm z-50"
             style={{ animation: 'popIn 160ms ease-out' }}
             onMouseDown={(e) => e.preventDefault()}
           >
@@ -589,7 +606,7 @@ export const NavBar: React.FC<NavBarProps> = ({
                 }`}
               >
                 {blockTrackers ? (
-                  <ShieldBan size={20} className="text-[var(--accent)]" />
+                  <ShieldBan size={20} className="text-[var(--accent-fg)]" />
                 ) : (
                   <ShieldOff size={20} className="text-[var(--text-faint)]" />
                 )}
@@ -602,7 +619,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 rounded-xl bg-[var(--surface-2)] px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3 rounded-md bg-[var(--surface-2)] px-3 py-2.5">
               <span className="text-[var(--text)]">Block trackers &amp; ads</span>
               <button
                 type="button"
@@ -622,7 +639,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               </button>
             </div>
 
-            <div className="mt-3 rounded-xl bg-[var(--surface-2)] px-3 py-2.5">
+            <div className="mt-3 rounded-md bg-[var(--surface-2)] px-3 py-2.5">
               <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate text-xs text-[var(--text-muted)]">
                   {siteKey || 'Current site'}
@@ -631,7 +648,7 @@ export const NavBar: React.FC<NavBarProps> = ({
                   type="button"
                   onClick={toggleSiteProtection}
                   disabled={!siteKey}
-                  className="shrink-0 text-xs font-medium text-[var(--accent)] hover:underline disabled:opacity-40"
+                  className="shrink-0 text-xs font-medium text-[var(--accent-fg)] hover:underline disabled:opacity-40"
                 >
                   {siteAllowed ? 'Enable here' : 'Disable on site'}
                 </button>
@@ -646,7 +663,11 @@ export const NavBar: React.FC<NavBarProps> = ({
               {blockedRequests.length > 0 && (
                 <div className="mt-2 max-h-24 space-y-1 overflow-y-auto border-t border-[var(--border)] pt-2">
                   {blockedRequests.slice(0, 8).map((request, index) => (
-                    <div key={`${request.timestamp}-${index}`} className="truncate text-[10px] text-[var(--text-faint)]" title={request.url}>
+                    <div
+                      key={`${request.timestamp}-${index}`}
+                      className="truncate text-[10px] text-[var(--text-faint)]"
+                      title={request.url}
+                    >
                       <span className="mr-1 rounded bg-[var(--surface)] px-1">{request.type}</span>
                       {request.url}
                     </div>
@@ -667,17 +688,14 @@ export const NavBar: React.FC<NavBarProps> = ({
       {/* Bookmark */}
       <button
         onClick={onBookmark}
-        className={`p-2 rounded-lg hover:bg-[var(--hover)] transition-colors ${
+        className={`p-2 rounded-md hover:bg-[var(--hover)] transition-colors ${
           isBookmarked
             ? 'text-yellow-400 hover:text-yellow-300'
             : 'text-[var(--text-muted)] hover:text-[var(--text)]'
         }`}
         title={isBookmarked ? 'Remove bookmark (Ctrl+D)' : 'Bookmark (Ctrl+D)'}
       >
-        <Star
-          size={16}
-          fill={isBookmarked ? 'currentColor' : 'none'}
-        />
+        <Star size={16} fill={isBookmarked ? 'currentColor' : 'none'} />
       </button>
 
       {/* Live download indicator — shows while anything is downloading */}
@@ -695,9 +713,9 @@ export const NavBar: React.FC<NavBarProps> = ({
             <button
               onClick={onOpenDownloads}
               title="Open Downloads"
-              className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 hover:bg-[var(--hover)] transition-colors max-w-[220px]"
+              className="flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-[var(--hover)] transition-colors max-w-[220px]"
             >
-              <DownloadIcon size={15} className="shrink-0 text-[var(--accent)] animate-pulse" />
+              <DownloadIcon size={15} className="shrink-0 text-[var(--accent-fg)] animate-pulse" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2 text-[11px] leading-none">
                   <span className="truncate text-[var(--text-muted)]">
@@ -725,7 +743,6 @@ export const NavBar: React.FC<NavBarProps> = ({
         })()}
 
       {/* Account / menu */}
-       
     </div>
   );
 };

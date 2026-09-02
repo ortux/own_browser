@@ -38,7 +38,7 @@ export const BookmarksPanel: React.FC<BookmarksPanelProps> = ({ onNavigate, onCl
 
       {/* Search */}
       <div className="px-3 py-2 shrink-0">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--chrome)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--chrome)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
           <Search size={13} className="text-[var(--text-faint)] shrink-0" />
           <input
             type="text"
@@ -66,22 +66,34 @@ export const BookmarksPanel: React.FC<BookmarksPanelProps> = ({ onNavigate, onCl
         {filtered.map((bm: BookmarkType) => (
           <div
             key={bm.id}
-            className="group flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--hover)] cursor-pointer transition-colors"
+            className="group flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[var(--hover)] cursor-pointer transition-colors"
             onClick={() => onNavigate(bm.url)}
           >
-            {bm.favicon
-              ? <img src={bm.favicon} alt="" className="w-4 h-4 rounded-sm shrink-0"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-              : <Bookmark size={14} className="text-[var(--text-faint)] shrink-0" />
-            }
+            {bm.favicon ? (
+              <img
+                src={bm.favicon}
+                alt=""
+                className="w-4 h-4 rounded-sm shrink-0"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <Bookmark size={14} className="text-[var(--text-faint)] shrink-0" />
+            )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-[var(--text)] truncate leading-none">{bm.title || bm.url}</p>
+              <p className="text-sm text-[var(--text)] truncate leading-none">
+                {bm.title || bm.url}
+              </p>
               <p className="text-[11px] text-[var(--text-faint)] truncate mt-0.5">{bm.url}</p>
             </div>
             <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
-                onClick={(e) => { e.stopPropagation(); onNavigate(bm.url); }}
-                className="p-0.5 rounded hover:text-[var(--accent)] transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigate(bm.url);
+                }}
+                className="p-0.5 rounded hover:text-[var(--accent-fg)] transition-colors"
                 title="Open"
               >
                 <ExternalLink size={12} />
@@ -93,7 +105,7 @@ export const BookmarksPanel: React.FC<BookmarksPanelProps> = ({ onNavigate, onCl
                     console.error('[bookmarks] failed to remove bookmark:', error);
                   });
                 }}
-                className="p-0.5 rounded hover:text-red-400 transition-colors"
+                className="p-0.5 rounded hover:text-[var(--danger)] transition-colors"
                 title="Remove bookmark"
               >
                 <Trash2 size={12} />

@@ -32,11 +32,13 @@ interface SidebarTabsProps {
 }
 
 const COLLAPSED_W = 48;
-const EXPANDED_W  = 240;
+const EXPANDED_W = 240;
 
 // ── Avatar component ─────────────────────────────────────────────────────────
 const Avatar: React.FC<{ name: string; image?: string; size?: number }> = ({
-  name, image, size = 28,
+  name,
+  image,
+  size = 28,
 }) => {
   const initials = name
     .split(' ')
@@ -57,7 +59,7 @@ const Avatar: React.FC<{ name: string; image?: string; size?: number }> = ({
   }
   return (
     <div
-      className="rounded-full bg-[var(--accent)] text-white flex items-center justify-center text-[11px] font-semibold shrink-0"
+      className="rounded-full bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center text-[11px] font-semibold shrink-0"
       style={{ width: size, height: size }}
     >
       {initials || <User size={12} />}
@@ -88,9 +90,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
     const q = tabSearch.toLowerCase().trim();
     if (!q) return tabs;
     return tabs.filter(
-      (t) =>
-        (t.title || 'New Tab').toLowerCase().includes(q) ||
-        t.url.toLowerCase().includes(q)
+      (t) => (t.title || 'New Tab').toLowerCase().includes(q) || t.url.toLowerCase().includes(q)
     );
   }, [tabs, tabSearch]);
 
@@ -99,7 +99,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
       key={label}
       onClick={onClick}
       title={label}
-      className="flex items-center justify-center w-full py-2.5 text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)] rounded-lg transition-colors"
+      className="flex items-center justify-center w-full py-2.5 text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)] rounded-md transition-colors"
     >
       {icon}
     </button>
@@ -110,7 +110,10 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
       className="flex flex-col h-full bg-[var(--chrome)] border-r border-[var(--border)] shrink-0 select-none z-10 overflow-hidden transition-[width] duration-200 ease-in-out"
       style={{ width: expanded ? `${EXPANDED_W}px` : `${COLLAPSED_W}px` }}
       onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => { setExpanded(false); setTabSearch(''); }}
+      onMouseLeave={() => {
+        setExpanded(false);
+        setTabSearch('');
+      }}
     >
       {/* Drag region */}
       <div
@@ -121,11 +124,11 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
       {/* ══════════ COLLAPSED ══════════ */}
       {!expanded && (
         <div className="flex flex-col flex-1 px-1.5 py-2 gap-0.5 overflow-hidden">
-          {iconBtn(<Plus size={16} />,     'New Tab',    onNewTab)}
-          {iconBtn(<Layers size={15} />,   'Tab Groups')}
-          {iconBtn(<Bookmark size={15} />,  'Bookmarks',        onOpenBookmarks)}
-          {iconBtn(<History size={15} />,    'History',           onOpenHistory)}
-          {iconBtn(<RotateCcw size={15} />,  'Recently closed',   onOpenRecentlyClosed)}
+          {iconBtn(<Plus size={16} />, 'New Tab', onNewTab)}
+          {iconBtn(<Layers size={15} />, 'Tab Groups')}
+          {iconBtn(<Bookmark size={15} />, 'Bookmarks', onOpenBookmarks)}
+          {iconBtn(<History size={15} />, 'History', onOpenHistory)}
+          {iconBtn(<RotateCcw size={15} />, 'Recently closed', onOpenRecentlyClosed)}
           {onOpenPasswords && iconBtn(<KeyRound size={15} />, 'Passwords', onOpenPasswords)}
 
           <div className="my-1 h-px bg-[var(--border)] mx-1" />
@@ -137,7 +140,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                 key={tab.id}
                 onClick={() => onTabClick(tab.id)}
                 title={tab.title || 'New Tab'}
-                className={`flex items-center justify-center w-full py-2 rounded-lg transition-colors ${
+                className={`flex items-center justify-center w-full py-2 rounded-md transition-colors ${
                   tab.id === activeTabId ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
                 }`}
               >
@@ -151,12 +154,17 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
             <button
               onClick={onOpenSettings}
               title={account ? account.name : 'Profile'}
-              className="flex items-center justify-center w-full py-2 rounded-lg hover:bg-[var(--hover)] transition-colors"
+              className="flex items-center justify-center w-full py-2 rounded-md hover:bg-[var(--hover)] transition-colors"
             >
-              {account
-                ? <Avatar name={account.name ?? account.email ?? 'User'} image={account.image} size={22} />
-                : <User size={15} className="text-[var(--text-muted)]" />
-              }
+              {account ? (
+                <Avatar
+                  name={account.name ?? account.email ?? 'User'}
+                  image={account.image}
+                  size={22}
+                />
+              ) : (
+                <User size={15} className="text-[var(--text-muted)]" />
+              )}
             </button>
             {iconBtn(<Settings size={15} />, 'Settings', onOpenSettings)}
           </div>
@@ -170,24 +178,46 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
           <div className="px-2 pt-2 pb-1 shrink-0 space-y-0.5">
             <button
               onClick={onNewTab}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium bg-[var(--hover)] text-[var(--text)] transition-colors"
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm font-medium bg-[var(--hover)] text-[var(--text)] transition-colors"
             >
               <Plus size={15} className="shrink-0 opacity-70" />
               New Tab
             </button>
-            {([
-              { icon: <Layers size={14} />,   label: 'Tab Groups',  onClick: undefined as (() => void) | undefined },
-              { icon: <Bookmark size={14} />, label: 'Bookmarks',       onClick: onOpenBookmarks as (() => void) | undefined },
-              { icon: <History size={14} />,  label: 'History',          onClick: onOpenHistory as (() => void) | undefined },
-              { icon: <RotateCcw size={14} />, label: 'Recently closed', onClick: onOpenRecentlyClosed as (() => void) | undefined },
+            {[
+              {
+                icon: <Layers size={14} />,
+                label: 'Tab Groups',
+                onClick: undefined as (() => void) | undefined,
+              },
+              {
+                icon: <Bookmark size={14} />,
+                label: 'Bookmarks',
+                onClick: onOpenBookmarks as (() => void) | undefined,
+              },
+              {
+                icon: <History size={14} />,
+                label: 'History',
+                onClick: onOpenHistory as (() => void) | undefined,
+              },
+              {
+                icon: <RotateCcw size={14} />,
+                label: 'Recently closed',
+                onClick: onOpenRecentlyClosed as (() => void) | undefined,
+              },
               ...(onOpenPasswords
-                ? [{ icon: <KeyRound size={14} />, label: 'Passwords', onClick: onOpenPasswords as (() => void) | undefined }]
+                ? [
+                    {
+                      icon: <KeyRound size={14} />,
+                      label: 'Passwords',
+                      onClick: onOpenPasswords as (() => void) | undefined,
+                    },
+                  ]
                 : []),
-            ]).map(({ icon, label, onClick }) => (
+            ].map(({ icon, label, onClick }) => (
               <button
                 key={label}
                 onClick={onClick}
-                className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
+                className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
               >
                 <span className="shrink-0 opacity-70">{icon}</span>
                 {label}
@@ -199,7 +229,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
 
           {/* Tab search */}
           <div className="px-2 pb-1 shrink-0">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
               <Search size={13} className="text-[var(--text-faint)] shrink-0" />
               <input
                 type="text"
@@ -210,8 +240,10 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                 style={{ WebkitUserSelect: 'text', userSelect: 'text' }}
               />
               {tabSearch && (
-                <button onClick={() => setTabSearch('')}
-                  className="text-[var(--text-faint)] hover:text-[var(--text)]">
+                <button
+                  onClick={() => setTabSearch('')}
+                  className="text-[var(--text-faint)] hover:text-[var(--text)]"
+                >
                   <X size={12} />
                 </button>
               )}
@@ -256,7 +288,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                     setDraggedTabId(null);
                   }}
                   onDragEnd={() => setDraggedTabId(null)}
-                  className={`group flex items-center gap-2.5 px-3 py-2 my-0.5 rounded-lg cursor-pointer transition-colors ${
+                  className={`group flex items-center gap-2.5 px-3 py-2 my-0.5 rounded-md cursor-pointer transition-colors ${
                     isActive
                       ? 'bg-[var(--hover)] text-[var(--text)]'
                       : 'text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]'
@@ -269,7 +301,10 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                     {tab.title || 'New Tab'}
                   </span>
                   <button
-                    onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTabClose(tab.id);
+                    }}
                     className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--border-strong)] transition-all"
                     title="Close tab"
                   >
@@ -282,20 +317,22 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
 
           {/* ── Bottom footer: profile + settings ── */}
           <div className="shrink-0 border-t border-[var(--border)] px-2 py-2 space-y-1">
-
             {/* Profile row */}
             <button
               onClick={onOpenSettings}
-              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg hover:bg-[var(--hover)] transition-colors group"
+              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md hover:bg-[var(--hover)] transition-colors group"
             >
-              {account
-                ? <Avatar name={account.name ?? account.email ?? 'User'} image={account.image} size={26} />
-                : (
-                  <div className="w-[26px] h-[26px] rounded-full border border-[var(--border)] flex items-center justify-center shrink-0">
-                    <User size={13} className="text-[var(--text-muted)]" />
-                  </div>
-                )
-              }
+              {account ? (
+                <Avatar
+                  name={account.name ?? account.email ?? 'User'}
+                  image={account.image}
+                  size={26}
+                />
+              ) : (
+                <div className="w-[26px] h-[26px] rounded-full border border-[var(--border)] flex items-center justify-center shrink-0">
+                  <User size={13} className="text-[var(--text-muted)]" />
+                </div>
+              )}
               <div className="flex-1 text-left min-w-0">
                 <p className="text-sm font-medium text-[var(--text)] truncate leading-none">
                   {account ? account.name : 'Guest'}
@@ -304,13 +341,16 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                   {account ? 'Signed in' : 'Not signed in'}
                 </p>
               </div>
-              <ChevronDown size={13} className="shrink-0 text-[var(--text-faint)] opacity-0 group-hover:opacity-100 transition-opacity" />
+              <ChevronDown
+                size={13}
+                className="shrink-0 text-[var(--text-faint)] opacity-0 group-hover:opacity-100 transition-opacity"
+              />
             </button>
 
             {/* Settings */}
             <button
               onClick={onOpenSettings}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
             >
               <Settings size={14} className="shrink-0 opacity-70" />
               <span className="font-medium">Settings</span>

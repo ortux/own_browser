@@ -14,6 +14,10 @@ interface AuthPortalProps {
 
 const API_BASE = getApiBaseUrl();
 
+/** Every text field in this form shares one appearance. */
+const FIELD_CLASS =
+  'w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] transition-colors focus:border-[var(--text-faint)] focus:outline-none';
+
 export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
   const [currentMode, setCurrentMode] = useState<AuthPortalMode>(mode);
   const [name, setName] = useState('');
@@ -26,10 +30,18 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
   const [showDeviceModal, setShowDeviceModal] = useState(false);
   const [authTokens, setAuthTokens] = useState<{ access_token: string } | null>(null);
 
-  const applySocialCallback = async (payload: { tokens: { access_token: string; refresh_token: string; token_type?: string; expires_in: number }; user: { id?: number; email?: string; name?: string; role?: string; created_at?: string } }) => {
+  const applySocialCallback = async (payload: {
+    tokens: {
+      access_token: string;
+      refresh_token: string;
+      token_type?: string;
+      expires_in: number;
+    };
+    user: { id?: number; email?: string; name?: string; role?: string; created_at?: string };
+  }) => {
     // Save tokens using secure token manager
     saveTokens(payload.tokens);
-    
+
     // Update settings store with user info
     await useSettingsStore.getState().applyAuthSession(payload);
     setAuthTokens({ access_token: payload.tokens.access_token });
@@ -52,8 +64,9 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
     const handleMessage = async (event: MessageEvent) => {
       const data = event.data;
       if (!data || typeof data !== 'object') return;
-      if (event.origin && event.origin !== window.location.origin && event.origin !== 'null') return;
-      
+      if (event.origin && event.origin !== window.location.origin && event.origin !== 'null')
+        return;
+
       // Handle OAuth callback from popup
       if (data.type === 'zyphora-oauth-callback' && data.tokens && data.user) {
         await applySocialCallback(data);
@@ -70,9 +83,10 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
   );
 
   const subtitle = useMemo(
-    () => (currentMode === 'signin'
-      ? 'Continue to your synchronized browser profile.'
-      : 'Start syncing your browser profile securely.'),
+    () =>
+      currentMode === 'signin'
+        ? 'Continue to your synchronized browser profile.'
+        : 'Start syncing your browser profile securely.',
     [currentMode]
   );
 
@@ -95,9 +109,10 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
     try {
       const baseUrl = useSettingsStore.getState().authBaseUrl || API_BASE;
       const endpoint = `${baseUrl}/auth/${currentMode === 'signup' ? 'register' : 'login'}`;
-      const payload = currentMode === 'signup'
-        ? { email: email.trim(), password, name: name.trim() || undefined }
-        : { email: email.trim(), password };
+      const payload =
+        currentMode === 'signup'
+          ? { email: email.trim(), password, name: name.trim() || undefined }
+          : { email: email.trim(), password };
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -129,7 +144,11 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      setStatus(message.includes('Failed to fetch') ? `Cannot reach the backend at ${useSettingsStore.getState().authBaseUrl}.` : message);
+      setStatus(
+        message.includes('Failed to fetch')
+          ? `Cannot reach the backend at ${useSettingsStore.getState().authBaseUrl}.`
+          : message
+      );
     } finally {
       setLoading(false);
     }
@@ -141,17 +160,19 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
 
     try {
       const baseUrl = useSettingsStore.getState().authBaseUrl || API_BASE;
-      
+
       // Execute OAuth flow (handles popup and callback)
       const callbackPayload = await executeOAuthFlow(provider, baseUrl);
-      
+
       // Apply the authentication session
       await applySocialCallback(callbackPayload);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start social sign-in.';
-      setStatus(message.includes('Failed to fetch')
-        ? `Cannot reach the auth backend at ${useSettingsStore.getState().authBaseUrl || API_BASE}.`
-        : message);
+      setStatus(
+        message.includes('Failed to fetch')
+          ? `Cannot reach the auth backend at ${useSettingsStore.getState().authBaseUrl || API_BASE}.`
+          : message
+      );
     } finally {
       setSocialLoading(null);
     }
@@ -170,157 +191,144 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
   };
 
   return (
-    <div className="h-full w-full bg-[#090a0b] text-white">
-      <div className="grid h-full w-full grid-cols-1 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="hidden border-r border-white/10 bg-[#111315] p-10 lg:flex lg:flex-col lg:justify-between">
+    <div className="h-full w-full overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
+      <div className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center px-6 py-10">
+        <div className="mb-7 flex items-start justify-between gap-4">
           <div>
-            <div className="mb-10 flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center bg-[#c9f36b] font-mono text-sm font-medium text-[#090a0b]">Z</span>
-              <span className="font-mono text-xs tracking-[0.28em] text-white">ZYPHORA</span>
-            </div>
-            <p className="mb-5 font-mono text-[10px] uppercase tracking-[0.24em] text-[#c9f36b]">Private by design</p>
-            <h1 className="max-w-sm text-4xl font-extrabold leading-[1.08] tracking-[-0.04em]">Your web,<br />in sync.</h1>
-            <p className="mt-6 max-w-xs text-sm leading-7 text-zinc-400">One secure home for your browsing history, preferences, and every device you use.</p>
+            <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">{subtitle}</p>
           </div>
-          <div className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-            <span className="h-2 w-2 rounded-full bg-[#c9f36b]" /> End-to-end account control
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="-mr-1 shrink-0 rounded-md px-2 py-1 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+          >
+            Close
+          </button>
         </div>
 
-        <div className="flex flex-col px-6 py-5 sm:px-10 sm:py-8">
-          <div className="mb-8 flex items-center justify-between">
-            <div className="flex items-center gap-3 lg:hidden">
-              <span className="flex h-8 w-8 items-center justify-center bg-[#c9f36b] font-mono text-sm font-medium text-[#090a0b]">Z</span>
-              <span className="font-mono text-[10px] tracking-[0.24em]">ZYPHORA</span>
-            </div>
+        {/* Mode switch */}
+        <div className="mb-6 grid grid-cols-2 border-b border-[var(--border)]">
+          {(['signin', 'signup'] as const).map((mode) => (
             <button
+              key={mode}
               type="button"
-              onClick={onClose}
-              className="ml-auto rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5"
+              onClick={() => setCurrentMode(mode)}
+              className={`-mb-px border-b-2 pb-2.5 text-sm font-medium transition-colors ${
+                currentMode === mode
+                  ? 'border-[var(--text)] text-[var(--text)]'
+                  : 'border-transparent text-[var(--text-faint)] hover:text-[var(--text-muted)]'
+              }`}
             >
-              Close
+              {mode === 'signin' ? 'Sign in' : 'Create account'}
             </button>
-          </div>
+          ))}
+        </div>
 
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold tracking-[-0.04em]">{title}</h2>
-            <p className="mt-2 text-sm text-zinc-500">{subtitle}</p>
-          </div>
+        {/* Social providers */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => void handleSocialClick('google')}
+            disabled={socialLoading !== null}
+            className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] disabled:cursor-wait disabled:opacity-50"
+          >
+            {socialLoading === 'google' ? 'Opening…' : 'Google'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSocialClick('github')}
+            disabled={socialLoading !== null}
+            className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] disabled:cursor-wait disabled:opacity-50"
+          >
+            {socialLoading === 'github' ? 'Opening…' : 'GitHub'}
+          </button>
+        </div>
 
-          <div className="mb-7 grid grid-cols-2 border-b border-white/10">
-            <button
-              type="button"
-              onClick={() => setCurrentMode('signin')}
-              className={`border-b-2 pb-3 text-sm font-semibold ${currentMode === 'signin' ? 'border-[#c9f36b] text-white' : 'border-transparent text-zinc-600'}`}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentMode('signup')}
-              className={`border-b-2 pb-3 text-sm font-semibold ${currentMode === 'signup' ? 'border-[#c9f36b] text-white' : 'border-transparent text-zinc-600'}`}
-            >
-              Create account
-            </button>
-          </div>
+        <div className="my-5 flex items-center gap-3 text-xs text-[var(--text-faint)]">
+          <span className="h-px flex-1 bg-[var(--border)]" />
+          or
+          <span className="h-px flex-1 bg-[var(--border)]" />
+        </div>
 
-          <div className="mb-6 space-y-3">
-            <div className="flex items-center gap-3 text-[10px] font-mono uppercase tracking-[0.22em] text-zinc-600">
-              <span className="h-px flex-1 bg-white/10" />
-              <span>Or continue with</span>
-              <span className="h-px flex-1 bg-white/10" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => void handleSocialClick('google')}
-                disabled={socialLoading !== null}
-                className="flex items-center justify-center border border-white/10 bg-[#090a0b] px-3 py-2.5 text-xs font-semibold text-white transition hover:border-[#c9f36b] hover:text-[#c9f36b] disabled:cursor-wait disabled:opacity-60"
-              >
-                {socialLoading === 'google' ? 'Opening Google...' : 'Google'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSocialClick('github')}
-                disabled={socialLoading !== null}
-                className="flex items-center justify-center border border-white/10 bg-[#090a0b] px-3 py-2.5 text-xs font-semibold text-white transition hover:border-[#c9f36b] hover:text-[#c9f36b] disabled:cursor-wait disabled:opacity-60"
-              >
-                {socialLoading === 'github' ? 'Opening GitHub...' : 'GitHub'}
-              </button>
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {currentMode === 'signup' && (
-              <div>
-                <label htmlFor="zyphora-name" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">Display name</label>
-                <input
-                  id="zyphora-name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  className="w-full border border-white/10 bg-[#090a0b] px-4 py-3.5 text-sm text-white placeholder:text-zinc-700 focus:border-[#c9f36b] focus:outline-none focus:ring-2 focus:ring-[#c9f36b]/20"
-                  placeholder="Your name"
-                  autoComplete="name"
-                />
-              </div>
-            )}
-
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {currentMode === 'signup' && (
             <div>
-              <label htmlFor="zyphora-email" className="mb-2 block font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">Email address</label>
+              <label htmlFor="zyphora-name" className="mb-1.5 block text-sm font-medium">
+                Name
+              </label>
               <input
-                id="zyphora-email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="w-full border border-white/10 bg-[#090a0b] px-4 py-3.5 text-sm text-white placeholder:text-zinc-700 focus:border-[#c9f36b] focus:outline-none focus:ring-2 focus:ring-[#c9f36b]/20"
-                placeholder="you@example.com"
-                autoComplete="email"
+                id="zyphora-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className={FIELD_CLASS}
+                placeholder="Your name"
+                autoComplete="name"
               />
             </div>
+          )}
 
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <label htmlFor="zyphora-password" className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">Password</label>
-                <span className="font-mono text-[10px] text-zinc-700">12+ characters</span>
-              </div>
-              <div className="relative">
-                <input
-                  id="zyphora-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="w-full border border-white/10 bg-[#090a0b] px-4 py-3.5 pr-16 text-sm text-white placeholder:text-zinc-700 focus:border-[#c9f36b] focus:outline-none focus:ring-2 focus:ring-[#c9f36b]/20"
-                  placeholder="Enter your password"
-                  autoComplete={currentMode === 'signin' ? 'current-password' : 'new-password'}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 px-2 font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-[#c9f36b]"
-                >
-                  {showPassword ? 'Hide' : 'Show'}
-                </button>
-              </div>
+          <div>
+            <label htmlFor="zyphora-email" className="mb-1.5 block text-sm font-medium">
+              Email
+            </label>
+            <input
+              id="zyphora-email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className={FIELD_CLASS}
+              placeholder="you@example.com"
+              autoComplete="email"
+            />
+          </div>
+
+          <div>
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <label htmlFor="zyphora-password" className="text-sm font-medium">
+                Password
+              </label>
+              {currentMode === 'signup' && (
+                <span className="text-xs text-[var(--text-faint)]">12+ characters</span>
+              )}
             </div>
+            <div className="relative">
+              <input
+                id="zyphora-password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className={`${FIELD_CLASS} pr-14`}
+                placeholder="Enter your password"
+                autoComplete={currentMode === 'signin' ? 'current-password' : 'new-password'}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((value) => !value)}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </div>
 
-            {status && (
-              <p className="rounded border border-red-400/20 bg-red-400/5 px-4 py-3 text-xs leading-5 text-red-300">
-                {status}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-3 bg-[#c9f36b] px-5 py-4 text-sm font-bold text-[#090a0b] transition hover:bg-white disabled:cursor-wait disabled:opacity-60"
+          {status && (
+            <p
+              role="alert"
+              className="rounded-md bg-[var(--danger-soft)] px-3 py-2 text-sm leading-relaxed text-[var(--danger)]"
             >
-              <span>{loading ? 'Connecting...' : currentMode === 'signin' ? 'Sign in to Zyphora' : 'Create my account'}</span>
-              <span aria-hidden="true">-&gt;</span>
-            </button>
-          </form>
+              {status}
+            </p>
+          )}
 
-          <p className="mt-8 text-center font-mono text-[10px] leading-5 tracking-wide text-zinc-600">By continuing, you agree to keep your account secure.</p>
-        </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-wait disabled:opacity-60"
+          >
+            {loading ? 'Connecting…' : currentMode === 'signin' ? 'Sign in' : 'Create account'}
+          </button>
+        </form>
       </div>
 
       <DeviceNameModal

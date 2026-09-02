@@ -33,7 +33,7 @@ function formatLastSeen(dateString: string): string {
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
-  
+
   return date.toLocaleDateString();
 }
 
@@ -59,10 +59,9 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
       setLoading(true);
       setError(null);
 
-      const response = await apiClient.get<{ devices: Device[] }>(
-        '/api/v1/devices',
-        { requireAuth: true }
-      );
+      const response = await apiClient.get<{ devices: Device[] }>('/api/v1/devices', {
+        requireAuth: true,
+      });
 
       if (response.ok && response.data?.devices) {
         setDevices(response.data.devices);
@@ -87,9 +86,7 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
       );
 
       if (response.ok) {
-        setDevices(devices.map(d => 
-          d.id === deviceId ? { ...d, name: newName.trim() } : d
-        ));
+        setDevices(devices.map((d) => (d.id === deviceId ? { ...d, name: newName.trim() } : d)));
         setRenaming(null);
         setNewName('');
       } else {
@@ -104,13 +101,10 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
     if (!confirm('Are you sure you want to unlink this device?')) return;
 
     try {
-      const response = await apiClient.delete(
-        `/api/v1/devices/${deviceId}`,
-        { requireAuth: true }
-      );
+      const response = await apiClient.delete(`/api/v1/devices/${deviceId}`, { requireAuth: true });
 
       if (response.ok) {
-        setDevices(devices.filter(d => d.id !== deviceId));
+        setDevices(devices.filter((d) => d.id !== deviceId));
         setSelectedDevice(null);
       } else {
         setError(response.error || 'Failed to delete device');
@@ -145,14 +139,14 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
         {loading && (
           <div className="flex items-center justify-center h-64">
             <div className="flex flex-col items-center gap-3">
-              <Loader size={32} className="animate-spin text-[var(--accent)]" />
+              <Loader size={32} className="animate-spin text-[var(--accent-fg)]" />
               <p className="text-[var(--text-muted)]">Loading devices...</p>
             </div>
           </div>
         )}
 
         {error && (
-          <div className="m-6 p-4 bg-red-900/20 border border-red-700/50 rounded text-red-200">
+          <div className="m-6 p-4 bg-[var(--danger-soft)] border border-[var(--danger)]/40/50 rounded text-[var(--danger)]">
             {error}
           </div>
         )}
@@ -176,7 +170,7 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
               return (
                 <div
                   key={device.id}
-                  className={`border rounded-lg p-4 transition-colors ${
+                  className={`border rounded-md p-4 transition-colors ${
                     selectedDevice === device.id
                       ? 'border-[var(--accent)] bg-[var(--accent)]/5'
                       : 'border-[var(--border)] hover:border-[var(--accent)]/50'
@@ -186,7 +180,7 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-4 flex-1">
                       <div className="mt-1">
-                        <Icon size={24} className="text-[var(--accent)]" />
+                        <Icon size={24} className="text-[var(--accent-fg)]" />
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -219,11 +213,9 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
                         ) : (
                           <>
                             <div className="flex items-center gap-2">
-                              <h3 className="font-semibold text-base">
-                                {device.name}
-                              </h3>
+                              <h3 className="font-semibold text-base">{device.name}</h3>
                               {isCurrentDevice && (
-                                <span className="px-2 py-0.5 bg-[var(--accent)]/20 text-[var(--accent)] text-xs font-medium rounded">
+                                <span className="px-2 py-0.5 bg-[var(--accent)]/20 text-[var(--accent-fg)] text-xs font-medium rounded">
                                   This device
                                 </span>
                               )}
@@ -251,7 +243,7 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
                         </button>
                         <button
                           onClick={() => handleDelete(device.id)}
-                          className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
+                          className="p-2 text-[var(--danger)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] rounded transition-colors"
                           title="Unlink device"
                         >
                           <Trash2 size={18} />
@@ -276,8 +268,9 @@ export const DevicesPage: React.FC<DevicesPageProps> = ({ onBack }) => {
       {!loading && devices.length > 0 && (
         <div className="border-t border-[var(--border)] px-6 py-4 bg-[var(--surface)] text-sm text-[var(--text-muted)]">
           <p>
-            You have <strong>{devices.length}</strong> device{devices.length !== 1 ? 's' : ''} synced to your account.
-            Your browsing history, bookmarks, and settings are shared across all registered devices.
+            You have <strong>{devices.length}</strong> device{devices.length !== 1 ? 's' : ''}{' '}
+            synced to your account. Your browsing history, bookmarks, and settings are shared across
+            all registered devices.
           </p>
         </div>
       )}

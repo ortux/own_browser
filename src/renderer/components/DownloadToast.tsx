@@ -35,12 +35,14 @@ export const DownloadToast: React.FC<DownloadToastProps> = ({ onOpenDownloads })
         if (prev.length === 0) return prev;
         const map = new Map(list.map((d) => [d.id, d]));
         let changed = false;
-        const next = prev.filter((toast) => map.has(toast.id)).map((t) => {
-          const d = map.get(t.id);
-          if (!d) return t;
-          if (d.percent !== t.percent || d.state !== t.state) changed = true;
-          return { ...t, percent: d.percent, state: d.state };
-        });
+        const next = prev
+          .filter((toast) => map.has(toast.id))
+          .map((t) => {
+            const d = map.get(t.id);
+            if (!d) return t;
+            if (d.percent !== t.percent || d.state !== t.state) changed = true;
+            return { ...t, percent: d.percent, state: d.state };
+          });
         if (next.length !== prev.length) changed = true;
         return changed ? next : prev;
       });
@@ -76,29 +78,27 @@ export const DownloadToast: React.FC<DownloadToastProps> = ({ onOpenDownloads })
           <div
             key={t.id}
             onClick={onOpenDownloads}
-            className="pointer-events-auto cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg px-3.5 py-3 flex items-center gap-3"
+            className="pointer-events-auto cursor-pointer rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-lg px-3.5 py-3 flex items-center gap-3"
             style={{ animation: 'toastIn 260ms cubic-bezier(0.22, 1, 0.36, 1)' }}
           >
             {finished ? (
               failed ? (
-                <XCircle size={22} className="shrink-0 text-[#ef4444]" />
+                <XCircle size={22} className="shrink-0 text-[var(--danger)]" />
               ) : t.state === 'canceled' ? (
                 <AlertCircle size={22} className="shrink-0 text-[var(--text-faint)]" />
               ) : (
-                <CheckCircle2 size={22} className="shrink-0 text-green-400" />
+                <CheckCircle2 size={22} className="shrink-0 text-[var(--success)]" />
               )
             ) : (
               <Download
                 size={22}
-                className="shrink-0 text-[var(--accent)]"
+                className="shrink-0 text-[var(--accent-fg)]"
                 style={{ animation: 'toastPulse 1.1s ease-in-out infinite' }}
               />
             )}
 
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-[var(--text)] truncate">
-                {t.filename}
-              </div>
+              <div className="text-sm font-medium text-[var(--text)] truncate">{t.filename}</div>
               <div className="text-xs text-[var(--text-faint)]">
                 {finished
                   ? failed

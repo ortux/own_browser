@@ -5,7 +5,7 @@ import appIcon from '../../../public/icon.png';
 export const TitleBar: React.FC = () => {
   const minimize = () => window.browserAPI?.minimizeWindow();
   const maximize = () => window.browserAPI?.maximizeWindow();
-  const close    = () => window.browserAPI?.closeWindow();
+  const close = () => window.browserAPI?.closeWindow();
 
   return (
     <div
@@ -26,12 +26,7 @@ export const TitleBar: React.FC = () => {
           className="shrink-0 rounded"
           draggable={false}
         />
-        <span
-          className="text-[13px] font-semibold tracking-wide text-[var(--text)]"
-          style={{ fontFamily: '"Poppins", sans-serif', letterSpacing: '0.06em' }}
-        >
-          Zyphora
-        </span>
+        <span className="text-[13px] font-medium text-[var(--text)]">Zyphora</span>
       </div>
 
       {/* Drag spacer */}
@@ -58,7 +53,7 @@ export const TitleBar: React.FC = () => {
         </button>
         <button
           onClick={close}
-          className="flex items-center justify-center w-12 h-full text-[var(--text-muted)] hover:text-white hover:bg-red-600 transition-colors"
+          className="flex items-center justify-center w-12 h-full text-[var(--text-muted)] hover:bg-[#c42b1c] hover:text-white transition-colors"
           title="Close"
         >
           <X size={14} />

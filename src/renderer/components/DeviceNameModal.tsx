@@ -7,11 +7,7 @@ interface DeviceNameModalProps {
   isOpen: boolean;
 }
 
-export const DeviceNameModal: React.FC<DeviceNameModalProps> = ({
-  onSubmit,
-  onClose,
-  isOpen,
-}) => {
+export const DeviceNameModal: React.FC<DeviceNameModalProps> = ({ onSubmit, onClose, isOpen }) => {
   const [deviceName, setDeviceName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -45,68 +41,77 @@ export const DeviceNameModal: React.FC<DeviceNameModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#111315] p-8 shadow-2xl">
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-white">Name This Device</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="device-modal-title"
+        className="animate-overlay-in w-full max-w-sm rounded-md border border-[var(--border)] bg-[var(--surface)] p-6"
+        style={{ boxShadow: 'var(--shadow-overlay)' }}
+      >
+        <div className="mb-1 flex items-start justify-between gap-4">
+          <h2 id="device-modal-title" className="text-base font-semibold text-[var(--text)]">
+            Name this device
+          </h2>
           <button
             onClick={onClose}
             disabled={loading}
-            className="rounded-lg p-1 hover:bg-white/10 disabled:opacity-50"
+            aria-label="Close"
+            className="-mr-1 -mt-0.5 rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] disabled:opacity-40"
           >
-            <X size={20} className="text-white" />
+            <X size={16} />
           </button>
         </div>
 
-        <p className="mb-6 text-sm text-zinc-400">
-          Give your device a memorable name so you can identify it when syncing browsing history and settings.
+        <p className="mb-5 text-sm leading-relaxed text-[var(--text-muted)]">
+          Used to identify this computer when syncing history and settings.
         </p>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="deviceName" className="mb-2 block font-mono text-xs uppercase tracking-wider text-zinc-500">
-              Device Name
-            </label>
-            <input
-              id="deviceName"
-              type="text"
-              value={deviceName}
-              onChange={(e) => {
-                setDeviceName(e.target.value);
-                setError('');
-              }}
-              placeholder="e.g., My MacBook Pro"
-              disabled={loading}
-              className="w-full rounded-lg border border-white/10 bg-[#090a0b] px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:border-[#c9f36b] focus:outline-none focus:ring-2 focus:ring-[#c9f36b]/20 disabled:opacity-50"
-              maxLength={64}
-            />
-            <div className="mt-1 flex items-center justify-between">
-              <span className="text-xs text-zinc-600">{deviceName.length}/64 characters</span>
-            </div>
-          </div>
+        <form onSubmit={handleSubmit}>
+          <label
+            htmlFor="deviceName"
+            className="mb-1.5 block text-sm font-medium text-[var(--text)]"
+          >
+            Device name
+          </label>
+          <input
+            id="deviceName"
+            type="text"
+            value={deviceName}
+            onChange={(e) => {
+              setDeviceName(e.target.value);
+              setError('');
+            }}
+            placeholder="Work laptop"
+            disabled={loading}
+            maxLength={64}
+            autoFocus
+            aria-invalid={Boolean(error)}
+            className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] transition-colors focus:border-[var(--text-faint)] focus:outline-none disabled:opacity-50"
+          />
 
           {error && (
-            <div className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            <p role="alert" className="mt-2 text-sm text-[var(--danger)]">
               {error}
-            </div>
+            </p>
           )}
 
-          <div className="flex gap-2 pt-2">
+          <div className="mt-5 flex justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="flex-1 rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-300 transition hover:bg-white/5 disabled:opacity-50"
+              className="rounded-md border border-[var(--border-strong)] px-3 py-2 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] disabled:opacity-40"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading || !deviceName.trim()}
-              className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-[#c9f36b] px-4 py-2.5 text-sm font-medium text-[#090a0b] transition hover:bg-[#b8e05c] disabled:opacity-50"
+              className="flex items-center gap-2 rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40"
             >
-              {loading && <Loader2 size={16} className="animate-spin" />}
-              {loading ? 'Registering...' : 'Continue'}
+              {loading && <Loader2 size={14} className="animate-spin" />}
+              {loading ? 'Registering…' : 'Continue'}
             </button>
           </div>
         </form>

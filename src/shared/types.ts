@@ -61,6 +61,11 @@ export type RendererToMainMessage =
   // Mute or unmute a tab's audio. Owned by main so the state survives the
   // guest webContents being torn down and re-created.
   | { type: 'set-tab-muted'; tabId: string; muted: boolean }
+  // Pin or unpin a tab. Pinned tabs sort to the front and resist closing.
+  | { type: 'set-tab-pinned'; tabId: string; pinned: boolean }
+  // Move a tab to another tab's position. Order is owned by the main process,
+  // since it is what session restore persists.
+  | { type: 'reorder-tabs'; draggedTabId: string; targetTabId: string }
   // Open a new tab directly at a given URL (used for internal pages like downloads)
   | { type: 'create-tab-url'; url: string; privateMode?: boolean }
   // Synchronise network privacy settings from the renderer.

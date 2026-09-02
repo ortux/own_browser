@@ -1,3 +1,4 @@
+import { sortPinnedFirst, reorderTabs as reorderTabList, setPinned } from '../shared/tabOrder';
 import {
   app,
   BrowserWindow,
@@ -185,6 +186,10 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
       );
     case 'set-tab-muted':
       return isBoundedString(value.tabId, 200) && typeof value.muted === 'boolean';
+    case 'set-tab-pinned':
+      return isBoundedString(value.tabId, 200) && typeof value.pinned === 'boolean';
+    case 'reorder-tabs':
+      return isBoundedString(value.draggedTabId, 200) && isBoundedString(value.targetTabId, 200);
     case 'webview-attached':
       return (
         isBoundedString(value.tabId, 200) &&
@@ -385,6 +390,10 @@ function restoreOpenTabs(): boolean {
 
   if (!restoredIds.length) return false;
 
+  // A session saved before pinning existed, or edited by hand, may interleave
+  // pinned and unpinned tabs. Normalise before showing the strip.
+  applyTabOrder(sortPinnedFirst([...tabs.values()]));
+
   activeTabId = restoredIds[Math.min(saved.activeIndex, restoredIds.length - 1)];
   updateRendererState();
   return true;
@@ -489,6 +498,16 @@ function restoreClosedTab(index = 0): string {
 
 function getClosedTabs(): Tab[] {
   return closedTabs.map((tab) => ({ ...tab }));
+}
+
+/**
+ * Rewrite the tab Map to match `ordered`. The Map's insertion order *is* the
+ * tab strip order, and it is what getState() and session capture both read.
+ */
+function applyTabOrder(ordered: Tab[]): void {
+  if (ordered.length !== tabs.size) return;
+  tabs.clear();
+  for (const tab of ordered) tabs.set(tab.id, tab);
 }
 
 function getState(): BrowserState {
@@ -626,6 +645,19 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
           if (wc && !wc.isDestroyed()) wc.setAudioMuted(true);
         }
       }
+      break;
+    }
+    case 'set-tab-pinned': {
+      const tab = tabs.get(message.tabId);
+      if (!tab || tab.pinned === message.pinned) break;
+      applyTabOrder(setPinned([...tabs.values()], message.tabId, message.pinned));
+      updateRendererState();
+      break;
+    }
+    case 'reorder-tabs': {
+      const next = reorderTabList([...tabs.values()], message.draggedTabId, message.targetTabId);
+      applyTabOrder(next);
+      updateRendererState();
       break;
     }
     case 'set-tab-muted': {

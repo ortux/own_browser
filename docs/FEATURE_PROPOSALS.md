@@ -135,7 +135,7 @@ mounts **every** tab's `<webview>` simultaneously and toggles visibility with
 This is the difference between the browser being usable with many tabs and not.
 Suspend after N minutes idle, skipping tabs playing audio (needs 1.6 first).
 
-### 2.2 Pinned tabs — *small-medium*
+### 2.2 Pinned tabs — *small-medium* — ✅ DONE
 
 `pinned` appears twice in the tree but is not a real feature. The sidebar
 already supports drag-reorder (`onTabReorder`), so the model change is small:
@@ -185,8 +185,11 @@ standard approach and runs comfortably in the guest context.
 5. ~~**2.1 tab sleeping**~~ ✅ done — `src/shared/tabSleep.ts` holds the
    selection rules, `src/renderer/hooks/useTabSleep.ts` owns the timers, and
    BrowserWindow simply stops mounting a sleeping tab's `<webview>`.
-6. **2.2 pinned tabs** is the natural next step: `Tab.pinned` already exists in
-   the model and is already honoured by session restore and tab sleeping, but
-   nothing in the UI can set it.
-7. Reassess. By then the sql.js write-amplification question in 1.4 probably
+6. ~~**2.2 pinned tabs**~~ ✅ done — `src/shared/tabOrder.ts`. This also moved
+   tab *ordering* into the main process: `reorderTabs` previously mutated only
+   the renderer store, so any drag was silently reverted by the next
+   `state-updated` broadcast.
+7. **2.3 tab groups** or **2.5 reader mode** next; 2.4 (E2E password sync) is
+   the only genuinely large item left.
+8. Reassess. By then the sql.js write-amplification question in 1.4 probably
    needs a real answer.

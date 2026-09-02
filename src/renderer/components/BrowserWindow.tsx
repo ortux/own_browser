@@ -87,6 +87,8 @@ export const BrowserWindow: React.FC = () => {
     closeTab,
     activateTab,
     toggleTabMuted,
+    toggleTabPinned,
+    reorderTabs,
     goBack,
     goForward,
     reload,
@@ -100,7 +102,6 @@ export const BrowserWindow: React.FC = () => {
     () => createTab(privateByDefault),
     [createTab, privateByDefault]
   );
-  const reorderTabs = useBrowserStore((s) => s.reorderTabs);
 
   // ── Navigation ── (defined before any callback that calls it)
   const handleNavigate = useCallback(
@@ -210,7 +211,10 @@ export const BrowserWindow: React.FC = () => {
         createNewBrowserTab();
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
         e.preventDefault();
-        if (activeTabId) closeTab(activeTabId);
+        // A pinned tab ignores Ctrl+W; that is most of the point of pinning.
+        // Closing it requires unpinning first, or the explicit close button.
+        const current = tabs.find((t) => t.id === activeTabId);
+        if (activeTabId && !current?.pinned) closeTab(activeTabId);
       } else if (((e.ctrlKey || e.metaKey) && e.key === 'r') || e.key === 'F5') {
         e.preventDefault();
         reload();
@@ -223,6 +227,11 @@ export const BrowserWindow: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
         e.preventDefault();
         resetZoom();
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'p' || e.key === 'P')) {
+        // Alt+P, not Ctrl+Shift+P: the latter already opens the passwords
+        // panel, and Ctrl+P is print.
+        e.preventDefault();
+        if (activeTabId) toggleTabPinned(activeTabId);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
         // Mute/unmute the current tab, as in Firefox.
         e.preventDefault();
@@ -283,7 +292,9 @@ export const BrowserWindow: React.FC = () => {
     createNewBrowserTab,
     createTabWithUrl,
     closeTab,
+    tabs,
     toggleTabMuted,
+    toggleTabPinned,
     reload,
     restoreClosedTab,
     zoom,
@@ -401,6 +412,7 @@ export const BrowserWindow: React.FC = () => {
         onTabClose={closeTab}
         onTabToggleMuted={toggleTabMuted}
         sleepingTabIds={sleeping}
+        onTabTogglePinned={toggleTabPinned}
         onTabReorder={reorderTabs}
         onNewTab={createNewBrowserTab}
         onOpenSettings={() => setSettingsOpen(true)}

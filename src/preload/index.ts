@@ -105,6 +105,20 @@ const browserAPI = {
   },
 
   /**
+   * Pin or unpin a tab.
+   */
+  setTabPinned: (tabId: string, pinned: boolean) => {
+    return browserAPI.sendMessage({ type: 'set-tab-pinned', tabId, pinned });
+  },
+
+  /**
+   * Move a tab to another tab's position.
+   */
+  reorderTabs: (draggedTabId: string, targetTabId: string) => {
+    return browserAPI.sendMessage({ type: 'reorder-tabs', draggedTabId, targetTabId });
+  },
+
+  /**
    * Duplicate a tab
    */
   duplicateTab: (tabId: string) => {

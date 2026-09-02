@@ -12,6 +12,8 @@ import {
   KeyRound,
   Volume2,
   VolumeX,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -27,6 +29,8 @@ interface SidebarTabsProps {
   onTabToggleMuted: (tabId: string) => void;
   /** Tabs currently suspended; shown dimmed until clicked. */
   sleepingTabIds: ReadonlySet<string>;
+  /** Pin or unpin a tab. Pinned tabs sort first and resist Ctrl+W. */
+  onTabTogglePinned: (tabId: string) => void;
   onNewTab: () => void;
   onOpenSettings: () => void;
   onOpenHistory: () => void;
@@ -109,6 +113,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onTabReorder,
   onTabToggleMuted,
   sleepingTabIds,
+  onTabTogglePinned,
   onNewTab,
   onOpenSettings,
   onOpenHistory,
@@ -189,6 +194,11 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                 </span>
                 {/* The collapsed rail is too narrow for a real button, so this
                     is a badge only; muting happens in the expanded list. */}
+                {tab.pinned && (
+                  <span className="absolute left-1 top-1 text-[var(--text-faint)]">
+                    <Pin size={8} />
+                  </span>
+                )}
                 {(tab.audible || tab.muted) && (
                   <span className="absolute bottom-1 right-1.5 flex h-3 w-3 items-center justify-center rounded-full bg-[var(--chrome)] text-[var(--text-muted)]">
                     {tab.muted ? <VolumeX size={9} /> : <Volume2 size={9} />}
@@ -309,63 +319,88 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                 No tabs match
               </p>
             )}
-            {filteredTabs.map((tab) => {
+            {filteredTabs.map((tab, index) => {
               const isActive = tab.id === activeTabId;
               const isAsleep = sleepingTabIds.has(tab.id);
+              // Pinned tabs are a contiguous block at the top, so the boundary
+              // is wherever the first unpinned tab appears.
+              const startsUnpinned =
+                !tab.pinned && index > 0 && filteredTabs[index - 1].pinned === true;
               return (
-                <div
-                  key={tab.id}
-                  draggable
-                  onClick={() => onTabClick(tab.id)}
-                  onDragStart={(event) => {
-                    setDraggedTabId(tab.id);
-                    event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData('text/plain', tab.id);
-                  }}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = 'move';
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const draggedId = event.dataTransfer.getData('text/plain') || draggedTabId;
-                    if (draggedId) onTabReorder(draggedId, tab.id);
-                    setDraggedTabId(null);
-                  }}
-                  onDragEnd={() => setDraggedTabId(null)}
-                  className={`group flex items-center gap-2.5 px-3 py-2 my-0.5 rounded-md cursor-pointer transition-colors ${
-                    isActive
-                      ? 'bg-[var(--hover)] text-[var(--text)]'
-                      : 'text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]'
-                  }`}
-                >
+                <React.Fragment key={tab.id}>
+                  {startsUnpinned && <div className="mx-3 my-1 h-px bg-[var(--border)]" />}
                   <div
-                    className={`shrink-0 w-4 h-4 flex items-center justify-center ${
-                      isAsleep ? 'opacity-40' : ''
-                    }`}
-                  >
-                    <TabFavicon tab={tab} size={14} />
-                  </div>
-                  <span
-                    className={`flex-1 truncate text-sm leading-none ${
-                      isAsleep ? 'opacity-50' : ''
-                    }`}
-                    title={isAsleep ? 'Suspended to save memory — click to reload' : undefined}
-                  >
-                    {tab.title || 'New Tab'}
-                  </span>
-                  <TabAudioButton tab={tab} onToggle={() => onTabToggleMuted(tab.id)} />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTabClose(tab.id);
+                    draggable
+                    onClick={() => onTabClick(tab.id)}
+                    onDragStart={(event) => {
+                      setDraggedTabId(tab.id);
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', tab.id);
                     }}
-                    className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--border-strong)] transition-all"
-                    title="Close tab"
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const draggedId = event.dataTransfer.getData('text/plain') || draggedTabId;
+                      if (draggedId) onTabReorder(draggedId, tab.id);
+                      setDraggedTabId(null);
+                    }}
+                    onDragEnd={() => setDraggedTabId(null)}
+                    className={`group flex items-center gap-2.5 px-3 py-2 my-0.5 rounded-md cursor-pointer transition-colors ${
+                      isActive
+                        ? 'bg-[var(--hover)] text-[var(--text)]'
+                        : 'text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]'
+                    }`}
                   >
-                    <X size={12} />
-                  </button>
-                </div>
+                    <div
+                      className={`shrink-0 w-4 h-4 flex items-center justify-center ${
+                        isAsleep ? 'opacity-40' : ''
+                      }`}
+                    >
+                      <TabFavicon tab={tab} size={14} />
+                    </div>
+                    <span
+                      className={`flex-1 truncate text-sm leading-none ${
+                        isAsleep ? 'opacity-50' : ''
+                      }`}
+                      title={isAsleep ? 'Suspended to save memory — click to reload' : undefined}
+                    >
+                      {tab.title || 'New Tab'}
+                    </span>
+                    <TabAudioButton tab={tab} onToggle={() => onTabToggleMuted(tab.id)} />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTabTogglePinned(tab.id);
+                      }}
+                      className={`shrink-0 rounded p-0.5 transition-all hover:bg-[var(--border-strong)] ${
+                        tab.pinned
+                          ? 'text-[var(--text-muted)]'
+                          : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={tab.pinned ? 'Unpin tab' : 'Pin tab'}
+                      aria-label={tab.pinned ? 'Unpin tab' : 'Pin tab'}
+                    >
+                      {tab.pinned ? <PinOff size={12} /> : <Pin size={12} />}
+                    </button>
+                    {/* A pinned tab has no close button; unpin it first. This is
+                      what makes pinning protective rather than decorative. */}
+                    {!tab.pinned && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTabClose(tab.id);
+                        }}
+                        className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--border-strong)] transition-all"
+                        title="Close tab"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </React.Fragment>
               );
             })}
           </div>

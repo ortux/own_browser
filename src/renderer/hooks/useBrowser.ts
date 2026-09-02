@@ -67,6 +67,22 @@ export const useBrowser = () => {
     window.browserAPI?.setTabMuted(tabId, !tab.muted);
   }, []);
 
+  /** Flip a tab's pinned state, reading the current value from the store. */
+  const toggleTabPinned = useCallback((tabId: string) => {
+    const tab = useBrowserStore.getState().tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    window.browserAPI?.setTabPinned(tabId, !tab.pinned);
+  }, []);
+
+  /**
+   * Reordering goes through main because the tab Map's insertion order is the
+   * real strip order and is what session restore persists; a renderer-only
+   * swap is overwritten by the next state broadcast.
+   */
+  const reorderTabs = useCallback((draggedTabId: string, targetTabId: string) => {
+    window.browserAPI?.reorderTabs(draggedTabId, targetTabId);
+  }, []);
+
   const duplicateTab = useCallback(() => {
     if (store.activeTabId) {
       window.browserAPI?.duplicateTab(store.activeTabId);
@@ -145,6 +161,8 @@ export const useBrowser = () => {
     duplicateTab,
     setTabMuted,
     toggleTabMuted,
+    toggleTabPinned,
+    reorderTabs,
     restoreClosedTab,
     zoom,
     resetZoom,

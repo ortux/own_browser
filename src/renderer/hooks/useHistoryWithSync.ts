@@ -64,15 +64,15 @@ export function useHistoryWithSync() {
       if (response.ok) {
         const backendEvents = response.data?.events ?? [];
         // Merge with local entries, marking backend entries as synced
-        setEntries(prev => {
+        setEntries((prev) => {
           const merged = [...prev];
-          backendEvents.forEach(backendEntry => {
-            if (!merged.find(e => e.id === backendEntry.id)) {
+          backendEvents.forEach((backendEntry) => {
+            if (!merged.find((e) => e.id === backendEntry.id)) {
               merged.push({ ...backendEntry, synced: true });
             }
           });
-          return merged.sort((a, b) => 
-            new Date(b.visited_at).getTime() - new Date(a.visited_at).getTime()
+          return merged.sort(
+            (a, b) => new Date(b.visited_at).getTime() - new Date(a.visited_at).getTime()
           );
         });
         setLastSyncTime(Date.now());
@@ -104,14 +104,14 @@ export function useHistoryWithSync() {
       setSyncError(null);
 
       // Get unsynced entries
-      const unsyncedEntries = entries.filter(e => !e.synced);
+      const unsyncedEntries = entries.filter((e) => !e.synced);
       if (unsyncedEntries.length === 0) {
         console.debug('[history-sync] No entries to sync');
         return true;
       }
 
       // Transform to sync format
-      const events = unsyncedEntries.map(entry => ({
+      const events = unsyncedEntries.map((entry) => ({
         client_event_id: `${entry.id}`,
         url: entry.url,
         title: entry.title || '',
@@ -127,11 +127,9 @@ export function useHistoryWithSync() {
       if (response.ok && response.data?.inserted) {
         console.debug('[history-sync] Synced', response.data.inserted, 'entries');
         // Mark synced entries
-        setEntries(prev =>
-          prev.map(e =>
-            unsyncedEntries.find(ue => ue.id === e.id)
-              ? { ...e, synced: true }
-              : e
+        setEntries((prev) =>
+          prev.map((e) =>
+            unsyncedEntries.find((ue) => ue.id === e.id) ? { ...e, synced: true } : e
           )
         );
         setLastSyncTime(Date.now());
@@ -151,21 +149,24 @@ export function useHistoryWithSync() {
   }, [account, entries]);
 
   // Delete entry locally and queue for sync
-  const deleteEntry = useCallback(async (id: number) => {
-    try {
-      await window.browserAPI?.history.delete(id);
-      setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = useCallback(
+    async (id: number) => {
+      try {
+        await window.browserAPI?.history.delete(id);
+        setEntries((prev) => prev.filter((e) => e.id !== id));
 
-      // Queue deletion for sync
-      offlineQueue.addOperation('history', 'remove', { id });
-      
-      if (account) {
-        syncToBackend();
+        // Queue deletion for sync
+        offlineQueue.addOperation('history', 'remove', { id });
+
+        if (account) {
+          syncToBackend();
+        }
+      } catch (error) {
+        console.error('[history] failed to delete entry:', error);
       }
-    } catch (error) {
-      console.error('[history] failed to delete entry:', error);
-    }
-  }, [account, syncToBackend]);
+    },
+    [account, syncToBackend]
+  );
 
   // Clear all history
   const clearAll = useCallback(async () => {

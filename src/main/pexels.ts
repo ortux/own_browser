@@ -89,9 +89,7 @@ export function registerPexelsHandlers(
     }
 
     const pool =
-      category && CATEGORY_QUERIES[category]
-        ? CATEGORY_QUERIES[category]
-        : FALLBACK_QUERIES;
+      category && CATEGORY_QUERIES[category] ? CATEGORY_QUERIES[category] : FALLBACK_QUERIES;
 
     const query = pool[Math.floor(Math.random() * pool.length)];
 
@@ -108,7 +106,7 @@ export function registerPexelsHandlers(
         console.warn(`[Pexels] API responded ${res.status}`);
         return null;
       }
-      const data = await res.json() as PexelsSearchResponse;
+      const data = (await res.json()) as PexelsSearchResponse;
       const photos = Array.isArray(data.photos) ? data.photos.filter(isPexelsPhoto) : [];
       if (photos.length === 0) return null;
 

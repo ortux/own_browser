@@ -3,11 +3,18 @@ import type { RendererToMainMessage, BrowserState } from '../shared/types';
 
 /**
  * SECURITY: Preload script - the only bridge between untrusted renderer and main process
- * 
+ *
  * This exposes a minimal, validated API to the renderer process.
  * NO raw Node.js modules, NO filesystem access, NO shell access.
  * All communication is validated and type-safe.
  */
+
+/**
+ * Resolved once, synchronously, before the renderer runs. Injecting this later
+ * (e.g. from a dom-ready hook) races the first <webview> mount and silently
+ * disables password capture on the first page load.
+ */
+const capturePreloadPath: string = ipcRenderer.sendSync('passwords:capture-preload-path') ?? '';
 
 const browserAPI = {
   /**
@@ -39,8 +46,13 @@ const browserAPI = {
   },
 
   /** Show a custom permission prompt (camera, mic, location, …) in the UI. */
-  onPermissionRequest: (callback: (request: import('../shared/types').PermissionRequest) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, request: import('../shared/types').PermissionRequest) => {
+  onPermissionRequest: (
+    callback: (request: import('../shared/types').PermissionRequest) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      request: import('../shared/types').PermissionRequest
+    ) => {
       callback(request);
     };
     ipcRenderer.on('permission-request', handler);
@@ -83,6 +95,27 @@ const browserAPI = {
    */
   activateTab: (tabId: string) => {
     return browserAPI.sendMessage({ type: 'activate-tab', tabId });
+  },
+
+  /**
+   * Mute or unmute a tab's audio.
+   */
+  setTabMuted: (tabId: string, muted: boolean) => {
+    return browserAPI.sendMessage({ type: 'set-tab-muted', tabId, muted });
+  },
+
+  /**
+   * Pin or unpin a tab.
+   */
+  setTabPinned: (tabId: string, pinned: boolean) => {
+    return browserAPI.sendMessage({ type: 'set-tab-pinned', tabId, pinned });
+  },
+
+  /**
+   * Move a tab to another tab's position.
+   */
+  reorderTabs: (draggedTabId: string, targetTabId: string) => {
+    return browserAPI.sendMessage({ type: 'reorder-tabs', draggedTabId, targetTabId });
   },
 
   /**
@@ -132,7 +165,7 @@ const browserAPI = {
    */
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
-  closeWindow:    () => ipcRenderer.send('window:close'),
+  closeWindow: () => ipcRenderer.send('window:close'),
 
   /**
    * Fetch a random background image from the Pexels API.
@@ -144,67 +177,121 @@ const browserAPI = {
 
   /** History */
   history: {
-    get:    ():                    Promise<import('../shared/types').HistoryEntry[]> =>
+    get: (): Promise<import('../shared/types').HistoryEntry[]> =>
       ipcRenderer.invoke('db:history:get'),
-    search: (query: string):       Promise<import('../shared/types').HistoryEntry[]> =>
+    search: (query: string): Promise<import('../shared/types').HistoryEntry[]> =>
       ipcRenderer.invoke('db:history:search', query),
-    delete: (id: number):          Promise<void> =>
-      ipcRenderer.invoke('db:history:delete', id),
-    clear:  ():                    Promise<void> =>
-      ipcRenderer.invoke('db:history:clear'),
+    delete: (id: number): Promise<void> => ipcRenderer.invoke('db:history:delete', id),
+    clear: (): Promise<void> => ipcRenderer.invoke('db:history:clear'),
+    /** Retention in days; 0 keeps everything. Prunes immediately. */
+    setRetention: (days: number): Promise<{ removed: number }> =>
+      ipcRenderer.invoke('browser:message', { type: 'history-retention', days }),
   },
 
   /** Bookmarks */
   bookmarks: {
-    get:    ():                                          Promise<import('../shared/types').Bookmark[]> =>
+    get: (): Promise<import('../shared/types').Bookmark[]> =>
       ipcRenderer.invoke('db:bookmarks:get'),
-    search: (query: string):                             Promise<import('../shared/types').Bookmark[]> =>
+    search: (query: string): Promise<import('../shared/types').Bookmark[]> =>
       ipcRenderer.invoke('db:bookmarks:search', query),
-    add:    (url: string, title: string, favicon?: string): Promise<import('../shared/types').Bookmark> =>
+    add: (
+      url: string,
+      title: string,
+      favicon?: string
+    ): Promise<import('../shared/types').Bookmark> =>
       ipcRenderer.invoke('db:bookmarks:add', url, title, favicon),
-    remove: (url: string):                               Promise<void> =>
-      ipcRenderer.invoke('db:bookmarks:remove', url),
-    is:     (url: string):                               Promise<boolean> =>
-      ipcRenderer.invoke('db:bookmarks:is', url),
+    remove: (url: string): Promise<void> => ipcRenderer.invoke('db:bookmarks:remove', url),
+    is: (url: string): Promise<boolean> => ipcRenderer.invoke('db:bookmarks:is', url),
   },
 
   /** Passwords */
   passwords: {
-    getAll:       ():                                                                    Promise<import('../shared/types').SavedPassword[]> =>
+    getAll: (): Promise<import('../shared/types').SavedPassword[]> =>
       ipcRenderer.invoke('db:passwords:get-all'),
-    getForOrigin: (origin: string):                                                      Promise<import('../shared/types').SavedPassword[]> =>
+    getForOrigin: (origin: string): Promise<import('../shared/types').SavedPassword[]> =>
       ipcRenderer.invoke('db:passwords:get-for-origin', origin),
-    getById:      (id: number):                                                          Promise<import('../shared/types').SavedPassword | null> =>
+    getById: (id: number): Promise<import('../shared/types').SavedPassword | null> =>
       ipcRenderer.invoke('db:passwords:get-by-id', id),
-    save:         (origin: string, username: string, password: string, title: string, favicon?: string): Promise<import('../shared/types').SavedPassword> =>
+    save: (
+      origin: string,
+      username: string,
+      password: string,
+      title: string,
+      favicon?: string
+    ): Promise<import('../shared/types').SavedPassword> =>
       ipcRenderer.invoke('db:passwords:save', origin, username, password, title, favicon),
-    delete:       (id: number):                                                          Promise<void> =>
-      ipcRenderer.invoke('db:passwords:delete', id),
-    clear:        ():                                                                    Promise<void> =>
-      ipcRenderer.invoke('db:passwords:clear'),
-    search:       (query: string):                                                       Promise<import('../shared/types').SavedPassword[]> =>
+    delete: (id: number): Promise<void> => ipcRenderer.invoke('db:passwords:delete', id),
+    clear: (): Promise<void> => ipcRenderer.invoke('db:passwords:clear'),
+    search: (query: string): Promise<import('../shared/types').SavedPassword[]> =>
       ipcRenderer.invoke('db:passwords:search', query),
     /** Called by the renderer when user confirms "Save password". */
-    onSavePrompt: (callback: (data: { origin: string; username: string; password: string; title: string; favicon?: string }) => void) => {
-      const handler = (_e: Electron.IpcRendererEvent, data: { origin: string; username: string; password: string; title: string; favicon?: string }) => callback(data);
+    onSavePrompt: (
+      callback: (data: {
+        origin: string;
+        username: string;
+        password: string;
+        title: string;
+        favicon?: string;
+      }) => void
+    ) => {
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        data: {
+          origin: string;
+          username: string;
+          password: string;
+          title: string;
+          favicon?: string;
+        }
+      ) => callback(data);
       ipcRenderer.on('save-password-prompt', handler);
-      return () => ipcRenderer.removeListener('save-password-prompt', handler);
+      return () => {
+        ipcRenderer.removeListener('save-password-prompt', handler);
+      };
     },
-    /** Inject autofill credentials into the focused webview. */
-    autofill: (tabId: string, username: string, password: string): Promise<unknown> =>
-      ipcRenderer.invoke('browser:message', { type: 'autofill-credentials', tabId, username, password }),
+    /** Inject autofill credentials into the given tab's webview. */
+    autofill: (
+      tabId: string,
+      username: string,
+      password: string
+    ): Promise<{ ok: boolean; reason?: string }> =>
+      ipcRenderer.invoke('browser:message', {
+        type: 'autofill-credentials',
+        tabId,
+        username,
+        password,
+      }),
+    /**
+     * Absolute path of the guest preload that captures logins. Resolved in the
+     * main process at startup, so the renderer never touches Node APIs and the
+     * value is available synchronously on first render.
+     */
+    capturePreloadPath: (): string => capturePreloadPath,
   },
 
   /** Proxy */
   proxy: {
-    fetch:  (): Promise<import('../renderer/stores/settingsStore').ProxyInfo> =>
+    fetch: (): Promise<import('../renderer/stores/settingsStore').ProxyInfo> =>
       ipcRenderer.invoke('proxy:fetch'),
-    apply:  (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<void> =>
+    apply: (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<void> =>
       ipcRenderer.invoke('proxy:apply', proxy),
-    clear:  (): Promise<void> =>
-      ipcRenderer.invoke('proxy:clear'),
+    clear: (): Promise<void> => ipcRenderer.invoke('proxy:clear'),
     verify: (proxy: import('../renderer/stores/settingsStore').ProxyInfo): Promise<boolean> =>
       ipcRenderer.invoke('proxy:verify', proxy),
+  },
+
+  /** Per-site zoom, remembered across navigations and restarts. */
+  zoom: {
+    get: (url: string): Promise<{ factor: number }> =>
+      ipcRenderer.invoke('browser:message', { type: 'zoom-get', url }),
+    set: (url: string, factor: number): Promise<{ factor: number }> =>
+      ipcRenderer.invoke('browser:message', { type: 'zoom-set', url, factor }),
+  },
+
+  /** Restore the previous tab strip on next launch. */
+  session: {
+    setRestoreEnabled: (enabled: boolean): Promise<unknown> =>
+      ipcRenderer.invoke('browser:message', { type: 'session-restore-setting', enabled }),
   },
 
   /** Network privacy policy */
@@ -215,10 +302,8 @@ const browserAPI = {
 
   /** Ad blocker */
   adblock: {
-    set:   (enabled: boolean): Promise<boolean> =>
-      ipcRenderer.invoke('adblock:set', enabled),
-    get:   (): Promise<boolean> =>
-      ipcRenderer.invoke('adblock:get'),
+    set: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke('adblock:set', enabled),
+    get: (): Promise<boolean> => ipcRenderer.invoke('adblock:get'),
     stats: (): Promise<{ enabled: boolean; blocked: number }> =>
       ipcRenderer.invoke('adblock:stats'),
     setAllowlist: (sites: string[]): Promise<void> =>
@@ -231,7 +316,10 @@ const browserAPI = {
 
   /** Subscribe to live ad-blocker stats (blocked count + enabled state). */
   onAdblockStats: (callback: (stats: { enabled: boolean; blocked: number }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, stats: { enabled: boolean; blocked: number }) => callback(stats);
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      stats: { enabled: boolean; blocked: number }
+    ) => callback(stats);
     ipcRenderer.on('adblock:stats', handler);
     return () => {
       ipcRenderer.removeListener('adblock:stats', handler);
@@ -241,31 +329,23 @@ const browserAPI = {
   // ── Downloads ──────────────────────────────────────────────────────────────
 
   downloads: {
-    list: ():       Promise<import('../shared/types').Download[]> =>
-      ipcRenderer.invoke('download:list'),
-    setPath: (p: string): Promise<void> =>
-      ipcRenderer.invoke('download:set-path', p),
-    defaultPath: (): Promise<string> =>
-      ipcRenderer.invoke('download:default-path'),
-    pickFolder: (): Promise<string | null> =>
-      ipcRenderer.invoke('download:pick-folder'),
-    cancel: (id: string): Promise<void> =>
-      ipcRenderer.invoke('download:cancel', id),
-    retry: (id: string): Promise<void> =>
-      ipcRenderer.invoke('download:retry', id),
-    remove: (id: string): Promise<void> =>
-      ipcRenderer.invoke('download:remove', id),
-    clear: ():  Promise<void> =>
-      ipcRenderer.invoke('download:clear'),
-    open: (id: string): Promise<void> =>
-      ipcRenderer.invoke('download:open', id),
-    show: (id: string): Promise<void> =>
-      ipcRenderer.invoke('download:show', id),
-    revealFolder: (): Promise<void> =>
-      ipcRenderer.invoke('download:reveal-folder'),
+    list: (): Promise<import('../shared/types').Download[]> => ipcRenderer.invoke('download:list'),
+    setPath: (p: string): Promise<void> => ipcRenderer.invoke('download:set-path', p),
+    defaultPath: (): Promise<string> => ipcRenderer.invoke('download:default-path'),
+    pickFolder: (): Promise<string | null> => ipcRenderer.invoke('download:pick-folder'),
+    cancel: (id: string): Promise<void> => ipcRenderer.invoke('download:cancel', id),
+    retry: (id: string): Promise<void> => ipcRenderer.invoke('download:retry', id),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke('download:remove', id),
+    clear: (): Promise<void> => ipcRenderer.invoke('download:clear'),
+    open: (id: string): Promise<void> => ipcRenderer.invoke('download:open', id),
+    show: (id: string): Promise<void> => ipcRenderer.invoke('download:show', id),
+    revealFolder: (): Promise<void> => ipcRenderer.invoke('download:reveal-folder'),
     /** Live updates: receives the full download list on every change. */
     onUpdated: (callback: (list: import('../shared/types').Download[]) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, list: import('../shared/types').Download[]) => callback(list);
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        list: import('../shared/types').Download[]
+      ) => callback(list);
       ipcRenderer.on('download:updated', handler);
       return () => {
         ipcRenderer.removeListener('download:updated', handler);
@@ -273,7 +353,8 @@ const browserAPI = {
     },
     /** Fired once when a new download begins. */
     onStarted: (callback: (d: import('../shared/types').Download) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, d: import('../shared/types').Download) => callback(d);
+      const handler = (_event: Electron.IpcRendererEvent, d: import('../shared/types').Download) =>
+        callback(d);
       ipcRenderer.on('download:started', handler);
       return () => {
         ipcRenderer.removeListener('download:started', handler);
@@ -294,8 +375,7 @@ const browserAPI = {
 
   /** Open external URLs in the default browser. */
   shell: {
-    openExternal: (url: string): Promise<void> =>
-      ipcRenderer.invoke('shell:open-external', url),
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
   },
 };
 

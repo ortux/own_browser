@@ -39,10 +39,7 @@ export function forgetProxySession(ses: Electron.Session): void {
 /**
  * Apply proxy config to a single session instance.
  */
-async function applyToSession(
-  ses: Electron.Session,
-  proxyRules: string
-): Promise<void> {
+async function applyToSession(ses: Electron.Session, proxyRules: string): Promise<void> {
   await ses.setProxy({
     // Credentials are handled by the app-level login event below. Chromium
     // does not accept credentials embedded in proxyRules.
@@ -59,7 +56,9 @@ async function applyToSession(
 export function fetchProxy(): ProxyInfo {
   const proxies = configuredProxyList();
   if (proxies.length === 0) {
-    throw new Error('No proxy configured. Set ZYPHORA_PROXY_LIST to ip:port:user:password entries.');
+    throw new Error(
+      'No proxy configured. Set ZYPHORA_PROXY_LIST to ip:port:user:password entries.'
+    );
   }
   const raw = proxies[Math.floor(Math.random() * proxies.length)];
   const { ip, port, user, pass } = parseProxy(raw);
@@ -88,9 +87,7 @@ export function fetchProxy(): ProxyInfo {
 /** Apply proxy to ALL active sessions (default session + any webview partitions). */
 export async function applyProxy(proxy: ProxyInfo): Promise<void> {
   const credentials = credentialsByProxy.get(proxy.ipPort);
-  const nextAuth = credentials?.user
-    ? { user: credentials.user, pass: credentials.pass }
-    : null;
+  const nextAuth = credentials?.user ? { user: credentials.user, pass: credentials.pass } : null;
   const nextRules = `http://${proxy.ipPort}`;
   const previousAuth = currentAuth;
   const previousRules = lastProxyRules;
@@ -132,9 +129,7 @@ export async function clearProxy(): Promise<void> {
   lastProxyRules = null;
 
   knownSessions.add(session.defaultSession);
-  await Promise.all(
-    [...knownSessions].map((ses) => ses.setProxy({ proxyRules: 'direct://' }))
-  );
+  await Promise.all([...knownSessions].map((ses) => ses.setProxy({ proxyRules: 'direct://' })));
 }
 
 /** Verify the proxy through Electron's session network stack. */
@@ -149,7 +144,7 @@ export async function verifyProxy(_proxy: ProxyInfo): Promise<boolean> {
       signal: controller.signal,
     });
     if (!res.ok) return false;
-    const body = await res.json() as { ip?: unknown };
+    const body = (await res.json()) as { ip?: unknown };
     return typeof body.ip === 'string' && body.ip.length > 0;
   } catch {
     return false;
@@ -181,7 +176,9 @@ export function initProxyAutoApply() {
   app.on('session-created', (ses) => {
     knownSessions.add(ses);
     if (lastProxyRules) {
-      applyToSession(ses, lastProxyRules).catch(() => { /* best-effort */ });
+      applyToSession(ses, lastProxyRules).catch(() => {
+        /* best-effort */
+      });
     }
   });
 }

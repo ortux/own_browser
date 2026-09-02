@@ -13,13 +13,15 @@ export const RecentlyClosedPanel: React.FC<RecentlyClosedPanelProps> = ({ onRest
   const load = useCallback(async () => {
     try {
       const result = await window.browserAPI.sendMessage({ type: 'get-closed-tabs' });
-      setTabs(Array.isArray(result) ? result as Tab[] : []);
+      setTabs(Array.isArray(result) ? (result as Tab[]) : []);
     } catch {
       setTabs([]);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <div className="flex h-full flex-col border-l border-[var(--border)] bg-[var(--surface)]">
@@ -39,19 +41,28 @@ export const RecentlyClosedPanel: React.FC<RecentlyClosedPanelProps> = ({ onRest
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {tabs.length === 0 ? (
-          <p className="py-8 text-center text-xs text-[var(--text-faint)]">No recently closed tabs</p>
+          <p className="py-8 text-center text-xs text-[var(--text-faint)]">
+            No recently closed tabs
+          </p>
         ) : (
           tabs.map((tab, index) => (
             <button
               key={`${tab.id}-${index}`}
-              onClick={async () => { await onRestore(index); await load(); }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--hover)]"
+              onClick={async () => {
+                await onRestore(index);
+                await load();
+              }}
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors hover:bg-[var(--hover)]"
               title={tab.url}
             >
               <Globe size={15} className="shrink-0 text-[var(--text-faint)]" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm text-[var(--text)]">{tab.title || 'New Tab'}</span>
-                <span className="block truncate text-[11px] text-[var(--text-faint)]">{tab.url}</span>
+                <span className="block truncate text-sm text-[var(--text)]">
+                  {tab.title || 'New Tab'}
+                </span>
+                <span className="block truncate text-[11px] text-[var(--text-faint)]">
+                  {tab.url}
+                </span>
               </span>
               <RotateCcw size={13} className="shrink-0 text-[var(--text-faint)]" />
             </button>

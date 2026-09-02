@@ -24,7 +24,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       <button
         onClick={onBack}
         disabled={!activeTab?.canGoBack}
-        className="p-2 rounded-lg hover:bg-[var(--hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
+        className="p-2 rounded-md hover:bg-[var(--hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
         title="Go back (Alt+Left)"
       >
         <ChevronLeft size={18} />
@@ -33,7 +33,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       <button
         onClick={onForward}
         disabled={!activeTab?.canGoForward}
-        className="p-2 rounded-lg hover:bg-[var(--hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
+        className="p-2 rounded-md hover:bg-[var(--hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[var(--text-muted)]"
         title="Go forward (Alt+Right)"
       >
         <ChevronRight size={18} />
@@ -44,7 +44,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       {activeTab?.loading ? (
         <button
           onClick={onStop}
-          className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
+          className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
           title="Stop loading"
         >
           <X size={18} />
@@ -52,7 +52,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       ) : (
         <button
           onClick={onReload}
-          className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
+          className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
           title="Reload (Ctrl+R)"
         >
           <RotateCcw size={18} />
@@ -66,7 +66,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
       <button
         onClick={onOpenSettings}
-        className="p-2 rounded-lg hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
+        className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)]"
         title="Settings"
       >
         <User size={18} />

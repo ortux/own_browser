@@ -16,7 +16,7 @@ export async function syncHistoryWithDevice(options: SyncHistoryOptions = {}) {
     const store = useSettingsStore.getState();
     const { deviceKey } = store;
     const tokens = localStorage.getItem('zyphora_tokens');
-    
+
     if (!tokens || !deviceKey) {
       console.debug('[sync] Skipping history sync: no auth tokens or device key');
       return;
@@ -47,10 +47,7 @@ export async function syncHistoryWithDevice(options: SyncHistoryOptions = {}) {
 
     if (batch) {
       // Send all events in one request
-      const result = await authApi.syncHistory(
-        { device_key: deviceKey, events },
-        access_token
-      );
+      const result = await authApi.syncHistory({ device_key: deviceKey, events }, access_token);
       console.debug('[sync] History synced:', result);
       return result;
     }
@@ -59,19 +56,16 @@ export async function syncHistoryWithDevice(options: SyncHistoryOptions = {}) {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const result = await authApi.syncHistory(
-          { device_key: deviceKey, events },
-          access_token
-        );
+        const result = await authApi.syncHistory({ device_key: deviceKey, events }, access_token);
         console.debug('[sync] History synced successfully on attempt', attempt + 1);
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         console.warn(`[sync] Attempt ${attempt + 1} failed:`, lastError.message);
-        
+
         if (attempt < maxRetries - 1) {
           // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
         }
       }
     }

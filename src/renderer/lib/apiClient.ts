@@ -33,12 +33,7 @@ export class ApiClient {
     path: string,
     options: ApiRequestOptions = {}
   ): Promise<ApiResponse<T>> {
-    const {
-      requireAuth = true,
-      baseUrl = this.baseUrl,
-      retries = 1,
-      ...fetchOptions
-    } = options;
+    const { requireAuth = true, baseUrl = this.baseUrl, retries = 1, ...fetchOptions } = options;
 
     let lastError: Error | null = null;
 
@@ -104,9 +99,7 @@ export class ApiClient {
         // Don't retry on network errors immediately
         if (attempt < retries) {
           // Exponential backoff: 1s, 2s, 4s, etc.
-          await new Promise(resolve =>
-            setTimeout(resolve, Math.pow(2, attempt) * 1000)
-          );
+          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
         }
       }
     }
@@ -121,10 +114,7 @@ export class ApiClient {
   /**
    * GET request
    */
-  async get<T = unknown>(
-    path: string,
-    options: ApiRequestOptions = {}
-  ): Promise<ApiResponse<T>> {
+  async get<T = unknown>(path: string, options: ApiRequestOptions = {}): Promise<ApiResponse<T>> {
     return this.request<T>(path, { ...options, method: 'GET' });
   }
 

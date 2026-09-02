@@ -30,13 +30,13 @@ function formatBytes(n: number): string {
 function statusMeta(d: Download): { label: string; icon: React.ElementType; tone: string } {
   switch (d.state) {
     case 'completed':
-      return { label: 'Completed', icon: CheckCircle2, tone: 'text-green-400' };
+      return { label: 'Completed', icon: CheckCircle2, tone: 'text-[var(--success)]' };
     case 'interrupted':
-      return { label: 'Failed', icon: AlertCircle, tone: 'text-[#ef4444]' };
+      return { label: 'Failed', icon: AlertCircle, tone: 'text-[var(--danger)]' };
     case 'canceled':
       return { label: 'Canceled', icon: XCircle, tone: 'text-[var(--text-faint)]' };
     default:
-      return { label: 'Downloading', icon: DownloadIcon, tone: 'text-[var(--accent)]' };
+      return { label: 'Downloading', icon: DownloadIcon, tone: 'text-[var(--accent-fg)]' };
   }
 }
 
@@ -59,7 +59,11 @@ export const DownloadsPage: React.FC = () => {
     return unsub;
   }, [refresh]);
 
-  const handleClear = () => window.browserAPI.downloads.clear().then(refresh).catch(() => {});
+  const handleClear = () =>
+    window.browserAPI.downloads
+      .clear()
+      .then(refresh)
+      .catch(() => {});
 
   return (
     <div className="h-full w-full overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
@@ -67,7 +71,7 @@ export const DownloadsPage: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <DownloadIcon size={26} className="text-[var(--accent)]" />
+            <DownloadIcon size={26} className="text-[var(--accent-fg)]" />
             <div>
               <h1 className="text-2xl font-semibold">Downloads</h1>
               <p className="text-xs text-[var(--text-faint)]">
@@ -78,7 +82,7 @@ export const DownloadsPage: React.FC = () => {
           {downloads.length > 0 && (
             <button
               onClick={handleClear}
-              className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+              className="flex items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
             >
               <Trash2 size={15} /> Clear list
             </button>
@@ -87,7 +91,7 @@ export const DownloadsPage: React.FC = () => {
 
         {/* List */}
         {downloads.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--border)] py-16 text-[var(--text-faint)]">
+          <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-[var(--border)] py-16 text-[var(--text-faint)]">
             <DownloadIcon size={32} />
             <p className="text-sm">No downloads yet</p>
             <p className="text-xs">
@@ -111,9 +115,9 @@ export const DownloadsPage: React.FC = () => {
               return (
                 <div
                   key={d.id}
-                  className="flex items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 transition-colors hover:border-[var(--border-strong)]"
+                  className="flex items-center gap-4 rounded-md border border-[var(--border)] bg-[var(--surface)] p-4 transition-colors hover:border-[var(--border-strong)]"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-2)]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--surface-2)]">
                     <File size={18} className="text-[var(--text-muted)]" />
                   </div>
 
@@ -154,7 +158,7 @@ export const DownloadsPage: React.FC = () => {
                       <button
                         onClick={() => window.browserAPI.downloads.cancel(d.id).catch(() => {})}
                         title="Cancel"
-                        className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                        className="rounded-md p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
                       >
                         <Ban size={16} />
                       </button>
@@ -163,7 +167,7 @@ export const DownloadsPage: React.FC = () => {
                       <button
                         onClick={() => window.browserAPI.downloads.retry(d.id).catch(() => {})}
                         title="Retry download"
-                        className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                        className="rounded-md p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
                       >
                         <RotateCcw size={16} />
                       </button>
@@ -173,14 +177,14 @@ export const DownloadsPage: React.FC = () => {
                         <button
                           onClick={() => window.browserAPI.downloads.open(d.id).catch(() => {})}
                           title="Open file"
-                          className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                          className="rounded-md p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
                         >
                           <ExternalLink size={16} />
                         </button>
                         <button
                           onClick={() => window.browserAPI.downloads.show(d.id).catch(() => {})}
                           title="Show in folder"
-                          className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                          className="rounded-md p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
                         >
                           <FolderOpen size={16} />
                         </button>
@@ -188,10 +192,13 @@ export const DownloadsPage: React.FC = () => {
                     )}
                     <button
                       onClick={() =>
-                        window.browserAPI.downloads.remove(d.id).then(refresh).catch(() => {})
+                        window.browserAPI.downloads
+                          .remove(d.id)
+                          .then(refresh)
+                          .catch(() => {})
                       }
                       title="Remove from list"
-                      className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[#ef4444]"
+                      className="rounded-md p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--danger)]"
                     >
                       <X size={16} />
                     </button>

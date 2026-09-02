@@ -22,19 +22,18 @@ test('Ghostery blocks an ad resource', () => {
 test('Ghostery exceptions override an ad rule', () => {
   const engine = FiltersEngine.parse('||ads.example^\n@@||ads.example/allowed.js');
   assert.equal(engine.match(request()).match, true);
-  assert.equal(
-    engine.match(request({ url: 'https://ads.example/allowed.js' })).match,
-    false
-  );
+  assert.equal(engine.match(request({ url: 'https://ads.example/allowed.js' })).match, false);
 });
 
 test('ordinary content is allowed', () => {
   const engine = FiltersEngine.parse('||ads.example^');
   assert.equal(
-    engine.match(request({
-      url: 'https://cdn.example.org/app.js',
-      sourceUrl: 'https://news.example/article',
-    })).match,
+    engine.match(
+      request({
+        url: 'https://cdn.example.org/app.js',
+        sourceUrl: 'https://news.example/article',
+      })
+    ).match,
     false
   );
 });

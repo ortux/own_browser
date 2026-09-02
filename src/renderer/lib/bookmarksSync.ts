@@ -41,7 +41,7 @@ export async function syncBookmarksWithDevice() {
     }
 
     // Transform to sync format
-    const syncBookmarks = bookmarks.map(bm => ({
+    const syncBookmarks = bookmarks.map((bm) => ({
       bookmark_id: bm.id || `bm-${Date.now()}-${Math.random()}`,
       title: bm.title || '',
       url: bm.url || '',
@@ -75,10 +75,9 @@ export async function getBookmarksFromBackend(
   limit: number = 500
 ): Promise<BookmarkEntry[] | null> {
   try {
-    const response = await apiClient.get(
-      `/api/v1/sync/bookmarks?limit=${limit}`,
-      { requireAuth: true }
-    );
+    const response = await apiClient.get(`/api/v1/sync/bookmarks?limit=${limit}`, {
+      requireAuth: true,
+    });
 
     if (response.ok && response.data) {
       const data = response.data as { bookmarks: BookmarkEntry[] };
@@ -95,16 +94,10 @@ export async function getBookmarksFromBackend(
 /**
  * Add bookmark locally (synced to backend separately)
  */
-export async function addBookmark(
-  url: string,
-  title: string
-): Promise<BookmarkEntry | null> {
+export async function addBookmark(url: string, title: string): Promise<BookmarkEntry | null> {
   try {
     // Add to browser API
-    const bookmark = await window.browserAPI.bookmarks?.add?.(
-      url,
-      title || new URL(url).hostname
-    );
+    const bookmark = await window.browserAPI.bookmarks?.add?.(url, title || new URL(url).hostname);
 
     if (!bookmark) {
       throw new Error('Failed to add bookmark');
@@ -144,7 +137,7 @@ export async function removeBookmark(bookmarkId: string): Promise<boolean> {
  */
 export function initBookmarksSync(interval: number = 5 * 60 * 1000): () => void {
   const syncInterval = setInterval(() => {
-    syncBookmarksWithDevice().catch(error => {
+    syncBookmarksWithDevice().catch((error) => {
       console.warn('[bookmarks-sync] Auto-sync error:', error);
     });
   }, interval);

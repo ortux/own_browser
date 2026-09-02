@@ -56,6 +56,33 @@ export const useBrowser = () => {
     window.browserAPI?.activateTab(tabId);
   }, []);
 
+  const setTabMuted = useCallback((tabId: string, muted: boolean) => {
+    window.browserAPI?.setTabMuted(tabId, muted);
+  }, []);
+
+  /** Flip a tab's mute state; reads the tab from the store to find the current one. */
+  const toggleTabMuted = useCallback((tabId: string) => {
+    const tab = useBrowserStore.getState().tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    window.browserAPI?.setTabMuted(tabId, !tab.muted);
+  }, []);
+
+  /** Flip a tab's pinned state, reading the current value from the store. */
+  const toggleTabPinned = useCallback((tabId: string) => {
+    const tab = useBrowserStore.getState().tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    window.browserAPI?.setTabPinned(tabId, !tab.pinned);
+  }, []);
+
+  /**
+   * Reordering goes through main because the tab Map's insertion order is the
+   * real strip order and is what session restore persists; a renderer-only
+   * swap is overwritten by the next state broadcast.
+   */
+  const reorderTabs = useCallback((draggedTabId: string, targetTabId: string) => {
+    window.browserAPI?.reorderTabs(draggedTabId, targetTabId);
+  }, []);
+
   const duplicateTab = useCallback(() => {
     if (store.activeTabId) {
       window.browserAPI?.duplicateTab(store.activeTabId);
@@ -87,16 +114,34 @@ export const useBrowser = () => {
     if (wv) wv.stop();
   }, [store.activeTabId]);
 
-  const zoom = useCallback((delta: number) => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (!wv) return;
-    wv.setZoomFactor(Math.min(3, Math.max(0.5, wv.getZoomFactor() + delta)));
-  }, [store.activeTabId]);
+  // Zoom is stored per origin in the main process, so it survives both the
+  // next navigation and a restart. The webview is updated immediately and the
+  // level is written back for the site currently loaded in it.
+  const applyZoom = useCallback(
+    (compute: (current: number) => number) => {
+      const tabId = store.activeTabId;
+      const wv = webviewRegistry.get(tabId);
+      if (!wv) return;
 
-  const resetZoom = useCallback(() => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (wv) wv.setZoomFactor(1);
-  }, [store.activeTabId]);
+      const next = Math.min(3, Math.max(0.5, compute(wv.getZoomFactor())));
+      wv.setZoomFactor(next);
+
+      let url = '';
+      try {
+        url = wv.getURL();
+      } catch {
+        // Guest not attached yet; nothing worth remembering.
+        return;
+      }
+      if (!url || url === 'about:blank') return;
+      void window.browserAPI.zoom.set(url, next).catch(() => {});
+    },
+    [store.activeTabId]
+  );
+
+  const zoom = useCallback((delta: number) => applyZoom((current) => current + delta), [applyZoom]);
+
+  const resetZoom = useCallback(() => applyZoom(() => 1), [applyZoom]);
 
   const printPage = useCallback(() => {
     const wv = webviewRegistry.get(store.activeTabId);
@@ -114,6 +159,10 @@ export const useBrowser = () => {
     reload,
     stop,
     duplicateTab,
+    setTabMuted,
+    toggleTabMuted,
+    toggleTabPinned,
+    reorderTabs,
     restoreClosedTab,
     zoom,
     resetZoom,

@@ -1,90 +1,91 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300..700;1,300..700&display=swap');
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/*
+ * Zyphora design tokens.
+ *
+ * The UI is chrome around someone else's content, so it stays quiet: a
+ * near-neutral graphite palette, one restrained accent reserved for focus
+ * rings and primary actions, and a small set of radii and shadows. Anything
+ * that competes with the page being viewed is a bug.
+ */
 
 @theme {
-  --font-sans: 'Poppins', sans-serif;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
 /* ── Theme tokens (toggled via [data-theme] on <html>) ── */
 :root,
 [data-theme='dark'] {
-  --bg: #0f0f12;
-  --chrome: #171717;
-  --surface: #141417;
-  --surface-2: #1a1a1f;
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.2);
-  --hover: rgba(255, 255, 255, 0.08);
-  --text: #ededed;
-  --text-muted: #b8b8bd;
-  --text-faint: #6e6e73;
-  --accent: #2563eb;
-  --accent-soft: rgba(37, 99, 235, 0.12);
-  --scrollbar: #3a3a3e;
-  --scrollbar-hover: #4a4a4f;
+  --bg: #141416;
+  --chrome: #1b1b1e;
+  --surface: #202024;
+  --surface-2: #26262b;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.06);
+  --active: rgba(255, 255, 255, 0.1);
+  --text: #ececee;
+  --text-muted: #a1a1a8;
+  --text-faint: #71717a;
+
+  /* Accent: a desaturated graphite-blue. Present, never loud. */
+  --accent: #5b6472;
+  --accent-hover: #6b7482;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(255, 255, 255, 0.07);
+  /*
+   * Foreground counterpart to --accent. The accent itself is a mid graphite
+   * chosen to carry white button text; used as *text* on a dark surface it
+   * would not clear contrast, so emphasis text uses this instead.
+   */
+  --accent-fg: #e4e4e7;
+  --focus-ring: rgba(255, 255, 255, 0.28);
+
+  --danger: #d4685f;
+  --danger-soft: rgba(212, 104, 95, 0.13);
+  --success: #6f9e77;
+
+  --scrollbar: rgba(255, 255, 255, 0.14);
+  --scrollbar-hover: rgba(255, 255, 255, 0.24);
+
+  --shadow-overlay: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 
 [data-theme='light'] {
-  --bg: #f4f4f7;
+  --bg: #f6f6f7;
   --chrome: #ffffff;
   --surface: #ffffff;
-  --surface-2: #ececf1;
-  --border: rgba(0, 0, 0, 0.12);
-  --border-strong: rgba(0, 0, 0, 0.22);
-  --hover: rgba(0, 0, 0, 0.05);
-  --text: #1a1a1f;
-  --text-muted: #5a5a5f;
-  --text-faint: #8a8a8f;
-  --accent: #2563eb;
-  --accent-soft: rgba(37, 99, 235, 0.14);
-  --scrollbar: #cbd5e1;
-  --scrollbar-hover: #94a3b8;
+  --surface-2: #f1f1f3;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.18);
+  --hover: rgba(0, 0, 0, 0.045);
+  --active: rgba(0, 0, 0, 0.075);
+  --text: #1c1c1f;
+  --text-muted: #5b5b63;
+  --text-faint: #8a8a93;
+
+  --accent: #3f4854;
+  --accent-hover: #333b45;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(0, 0, 0, 0.05);
+  /* See the dark-theme note above. */
+  --accent-fg: #2a3038;
+  --focus-ring: rgba(0, 0, 0, 0.32);
+
+  --danger: #b4453c;
+  --danger-soft: rgba(180, 69, 60, 0.1);
+  --success: #3f7a4a;
+
+  --scrollbar: rgba(0, 0, 0, 0.18);
+  --scrollbar-hover: rgba(0, 0, 0, 0.3);
+
+  --shadow-overlay: 0 8px 28px rgba(0, 0, 0, 0.14);
 }
 
-@keyframes pageEnter {
-  from {
-    opacity: 0;
-    transform: scale(0.99);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* Download toast — slides up + fades in from the bottom-right */
-@keyframes toastIn {
-  from {
-    opacity: 0;
-    transform: translateY(16px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes toastPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
-/* Material dialog — subtle scale + fade in */
-@keyframes popIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
+/* ── Base ── */
 
 * {
   -webkit-user-select: none;
@@ -101,8 +102,9 @@ textarea,
 body {
   margin: 0;
   padding: 0;
-  font-family: 'Poppins', sans-serif;
-  font-optical-sizing: auto;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg);
@@ -115,10 +117,21 @@ body {
   flex-direction: column;
 }
 
-/* Custom scrollbar */
+/*
+ * A single visible focus treatment for keyboard users. Pointer interaction
+ * does not draw a ring, so the chrome stays calm during normal browsing.
+ */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+/* ── Scrollbars ── */
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -127,9 +140,43 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar);
-  border-radius: 4px;
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-hover);
+  background-clip: content-box;
+}
+
+/* ── Motion ── */
+
+/*
+ * Overlays get one short fade. Anything longer reads as a loading delay the
+ * user did not ask for.
+ */
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-overlay-in {
+  animation: overlayIn 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

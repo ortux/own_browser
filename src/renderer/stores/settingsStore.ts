@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_SLEEP_MINUTES, clampSleepMinutes } from '../../shared/tabSleep';
 import { persist } from 'zustand/middleware';
 import type { BackgroundCategory } from '../lib/backgroundCache';
 import { getApiBaseUrl } from '../lib/config';
@@ -17,11 +18,11 @@ export interface ProxyInfo {
   port: string;
   ipPort: string;
   country: string;
-  type: string;           // "http" | "socks4" | "socks5"
-  proxyLevel: string;     // "anonymous" | "elite" | "transparent"
+  type: string; // "http" | "socks4" | "socks5"
+  proxyLevel: string; // "anonymous" | "elite" | "transparent"
   supportsHttps: boolean;
-  speed: number;          // seconds
-  fetchedAt: number;      // unix ms
+  speed: number; // seconds
+  fetchedAt: number; // unix ms
 }
 
 export interface SecuritySettings {
@@ -128,6 +129,27 @@ interface SettingsStore {
   signUp: (email: string, password: string, name?: string) => Promise<void>;
   applyAuthSession: (payload: { tokens: AuthTokens; user: AuthUser }) => Promise<void>;
 
+  /** Strip utm_/gclid/fbclid-style parameters from URLs before navigating. */
+  stripTrackingParams: boolean;
+  setStripTrackingParams: (enabled: boolean) => void;
+
+  /** Suspend idle background tabs to free their renderer processes. */
+  sleepTabs: boolean;
+  setSleepTabs: (enabled: boolean) => void;
+
+  /** Minutes a background tab must be idle before it is suspended. */
+  sleepTabsAfterMinutes: number;
+  setSleepTabsAfterMinutes: (minutes: number) => void;
+
+  /** Days of history to keep. 0 keeps everything. */
+  historyRetentionDays: number;
+  setHistoryRetentionDays: (days: number) => void;
+
+  // Startup
+  /** Reopen the previous tabs on launch instead of a single blank tab. */
+  restoreSession: boolean;
+  setRestoreSession: (enabled: boolean) => void;
+
   // New-tab mode
   newTabMode: 'minimal' | 'full';
   backgroundCategory: BackgroundCategory;
@@ -156,11 +178,12 @@ function sanitizeProxy(value: unknown): ProxyInfo | null {
   if (!value || typeof value !== 'object') return null;
   const proxy = value as Partial<ProxyInfo>;
   if (
-    typeof proxy.ip !== 'string'
-    || typeof proxy.port !== 'string'
-    || typeof proxy.ipPort !== 'string'
-    || proxy.ipPort !== `${proxy.ip}:${proxy.port}`
-  ) return null;
+    typeof proxy.ip !== 'string' ||
+    typeof proxy.port !== 'string' ||
+    typeof proxy.ipPort !== 'string' ||
+    proxy.ipPort !== `${proxy.ip}:${proxy.port}`
+  )
+    return null;
   return {
     ip: proxy.ip,
     port: proxy.port,
@@ -170,9 +193,8 @@ function sanitizeProxy(value: unknown): ProxyInfo | null {
     proxyLevel: typeof proxy.proxyLevel === 'string' ? proxy.proxyLevel : 'unknown',
     supportsHttps: proxy.supportsHttps === true,
     speed: typeof proxy.speed === 'number' && Number.isFinite(proxy.speed) ? proxy.speed : 0,
-    fetchedAt: typeof proxy.fetchedAt === 'number' && Number.isFinite(proxy.fetchedAt)
-      ? proxy.fetchedAt
-      : 0,
+    fetchedAt:
+      typeof proxy.fetchedAt === 'number' && Number.isFinite(proxy.fetchedAt) ? proxy.fetchedAt : 0,
   };
 }
 
@@ -213,7 +235,8 @@ export const useSettingsStore = create<SettingsStore>()(
           return false;
         }
         const engine: SearchEngine = {
-          id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,          name: name.trim() || 'Custom',
+          id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: name.trim() || 'Custom',
           url: trimmed,
           shortcut: '',
         };
@@ -240,7 +263,11 @@ export const useSettingsStore = create<SettingsStore>()(
       setSecurityFlag: (flag, value) =>
         set((s) => ({ security: { ...s.security, [flag]: value } })),
       setAdblockAllowlist: (sites) =>
-        set({ adblockAllowlist: [...new Set(sites.map((site) => site.toLowerCase().replace(/^www\./, '')))] }),
+        set({
+          adblockAllowlist: [
+            ...new Set(sites.map((site) => site.toLowerCase().replace(/^www\./, ''))),
+          ],
+        }),
 
       theme: 'dark',
       setTheme: (theme) => set({ theme }),
@@ -253,6 +280,22 @@ export const useSettingsStore = create<SettingsStore>()(
       chooseGuest: () => set({ guestMode: true }),
       completeOnboarding: () => set({ onboardingCompleted: true }),
       agreeToTerms: () => set({}),
+
+      stripTrackingParams: true,
+      setStripTrackingParams: (enabled) => set({ stripTrackingParams: enabled }),
+
+      sleepTabs: true,
+      setSleepTabs: (enabled) => set({ sleepTabs: enabled }),
+
+      sleepTabsAfterMinutes: DEFAULT_SLEEP_MINUTES,
+      setSleepTabsAfterMinutes: (minutes) =>
+        set({ sleepTabsAfterMinutes: clampSleepMinutes(minutes) }),
+
+      historyRetentionDays: 0,
+      setHistoryRetentionDays: (days) => set({ historyRetentionDays: days }),
+
+      restoreSession: false,
+      setRestoreSession: (enabled) => set({ restoreSession: enabled }),
 
       newTabMode: 'full',
       backgroundCategory: 'random',
@@ -293,12 +336,12 @@ export const useSettingsStore = create<SettingsStore>()(
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data?.error || 'Login failed');
-          
+
           // Save tokens using secure token manager
           if (data?.tokens) {
             saveTokens(data.tokens);
           }
-          
+
           await get().applyAuthSession(data);
           set({ authStatus: 'authenticated', authError: null });
         } catch (error) {
@@ -319,12 +362,12 @@ export const useSettingsStore = create<SettingsStore>()(
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data?.error || 'Registration failed');
-          
+
           // Save tokens using secure token manager
           if (data?.tokens) {
             saveTokens(data.tokens);
           }
-          
+
           await get().applyAuthSession(data);
           set({ authStatus: 'authenticated', authError: null });
         } catch (error) {
@@ -349,7 +392,7 @@ export const useSettingsStore = create<SettingsStore>()(
         const stored = localStorage.getItem('zyphora_device_key');
         if (stored) return stored;
         const generated = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-          .map(b => b.toString(16).padStart(2, '0'))
+          .map((b) => b.toString(16).padStart(2, '0'))
           .join('');
         localStorage.setItem('zyphora_device_key', generated);
         return generated;
@@ -367,7 +410,7 @@ export const useSettingsStore = create<SettingsStore>()(
           }
           if (!deviceKey) {
             deviceKey = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-              .map(b => b.toString(16).padStart(2, '0'))
+              .map((b) => b.toString(16).padStart(2, '0'))
               .join('');
             localStorage.setItem('zyphora_device_key', deviceKey);
             set({ deviceKey });
@@ -381,7 +424,7 @@ export const useSettingsStore = create<SettingsStore>()(
               mode: 'cors',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
+                Authorization: `Bearer ${token}`,
               },
               body: JSON.stringify({
                 device_key: deviceKey,

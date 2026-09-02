@@ -3,6 +3,7 @@ import type { Tab } from '../../shared/types';
 import { webviewRegistry } from '../stores/webviewRegistry';
 import { applySponsorBlock } from '../lib/sponsorBlock';
 import { isAllowedNavigationUrl } from '../../shared/navigation';
+import { useSettingsStore } from '../stores/settingsStore';
 
 interface WebViewProps {
   tab: Tab;
@@ -19,6 +20,16 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   // Tracks whether the guest webContents has actually attached. Webview methods
   // such as getURL()/getWebContentsId() throw "must be attached …" until then.
   const attachedRef = useRef(false);
+  // Resolved by the preload bridge before first render, so capture works on the
+  // very first page load. Never attached to private tabs.
+  const capturePreloadPath = useRef(
+    window.browserAPI?.passwords.capturePreloadPath() || undefined
+  ).current;
+  // Capturing is only ever attempted when the user enabled the manager and the
+  // tab is not private. Read once per mount: changing `preload` on a live
+  // <webview> has no effect until it reloads anyway.
+  const captureEnabled = useRef(useSettingsStore.getState().passwordManagerEnabled).current;
+  const capturePreload = !tab.privateMode && captureEnabled ? capturePreloadPath : undefined;
 
   // Register / unregister with the registry so nav controls work
   useEffect(() => {
@@ -97,7 +108,9 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       }
     };
 
-    const onDidDetach = () => { attachedRef.current = false; };
+    const onDidDetach = () => {
+      attachedRef.current = false;
+    };
 
     const reportNavigationState = () => {
       try {
@@ -135,12 +148,6 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       }
     };
 
-    const onLoadStop = reportNavigationState;
-    const onLoadStopWithPM = () => {
-      reportNavigationState();
-      if (!tab.privateMode) injectPasswordCapture();
-    };
-
     const onTitleUpdated = (e: Electron.PageTitleUpdatedEvent) => {
       window.browserAPI.sendMessage({
         type: 'webview-title-updated',
@@ -163,7 +170,36 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       webviewRegistry.emitFind(tab.id, e);
     };
 
-    const onDidNavigate = reportNavigationState;
+    // Re-apply the site's saved zoom on every navigation. Chromium resets the
+    // zoom factor per navigation, so this has to run each time rather than
+    // once at attach.
+    const applySavedZoom = () => {
+      let url = '';
+      try {
+        url = el.getURL();
+      } catch {
+        return;
+      }
+      if (!url || url === 'about:blank') return;
+      void window.browserAPI.zoom
+        .get(url)
+        .then(({ factor }) => {
+          // The tab may have navigated again while this was in flight.
+          try {
+            if (el.getURL() === url && el.getZoomFactor() !== factor) {
+              el.setZoomFactor(factor);
+            }
+          } catch {
+            /* guest went away */
+          }
+        })
+        .catch(() => {});
+    };
+
+    const onDidNavigate = () => {
+      reportNavigationState();
+      applySavedZoom();
+    };
 
     const onRenderProcessGone = (event: Electron.RenderProcessGoneEvent) => {
       const reason = event.details?.reason || 'unknown reason';
@@ -189,34 +225,36 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: false });
     };
 
-    el.addEventListener('did-attach',          registerGuestContents);
-    el.addEventListener('did-detach',          onDidDetach);
-    el.addEventListener('did-start-loading',   onLoadStart);
-    el.addEventListener('did-stop-loading',    reportNavigationState);
-    el.addEventListener('page-title-updated',  onTitleUpdated  as EventListener);
-    el.addEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
-    el.addEventListener('found-in-page',       onFoundInPage);
-    el.addEventListener('did-navigate',        onDidNavigate);
-    el.addEventListener('did-navigate-in-page',onDidNavigate);
-    el.addEventListener('did-fail-load',       onDidFailLoad   as EventListener);
+    el.addEventListener('did-attach', registerGuestContents);
+    el.addEventListener('did-detach', onDidDetach);
+    el.addEventListener('did-start-loading', onLoadStart);
+    el.addEventListener('did-stop-loading', reportNavigationState);
+    el.addEventListener('dom-ready', applySavedZoom);
+    el.addEventListener('page-title-updated', onTitleUpdated as EventListener);
+    el.addEventListener('page-favicon-updated', onFaviconUpdated as EventListener);
+    el.addEventListener('found-in-page', onFoundInPage);
+    el.addEventListener('did-navigate', onDidNavigate);
+    el.addEventListener('did-navigate-in-page', onDidNavigate);
+    el.addEventListener('did-fail-load', onDidFailLoad as EventListener);
     el.addEventListener('render-process-gone', onRenderProcessGone);
-    el.addEventListener('ipc-message',         onIpcMessage    as EventListener);
+    el.addEventListener('ipc-message', onIpcMessage as EventListener);
 
     return () => {
-      el.removeEventListener('did-attach',          registerGuestContents);
-      el.removeEventListener('did-detach',          onDidDetach);
-      el.removeEventListener('did-start-loading',   onLoadStart);
-      el.removeEventListener('did-stop-loading',    reportNavigationState);
-      el.removeEventListener('page-title-updated',  onTitleUpdated  as EventListener);
-      el.removeEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
-      el.removeEventListener('found-in-page',       onFoundInPage);
-      el.removeEventListener('did-navigate',        onDidNavigate);
-      el.removeEventListener('did-navigate-in-page',onDidNavigate);
-      el.removeEventListener('did-fail-load',       onDidFailLoad   as EventListener);
+      el.removeEventListener('did-attach', registerGuestContents);
+      el.removeEventListener('did-detach', onDidDetach);
+      el.removeEventListener('did-start-loading', onLoadStart);
+      el.removeEventListener('did-stop-loading', reportNavigationState);
+      el.removeEventListener('dom-ready', applySavedZoom);
+      el.removeEventListener('page-title-updated', onTitleUpdated as EventListener);
+      el.removeEventListener('page-favicon-updated', onFaviconUpdated as EventListener);
+      el.removeEventListener('found-in-page', onFoundInPage);
+      el.removeEventListener('did-navigate', onDidNavigate);
+      el.removeEventListener('did-navigate-in-page', onDidNavigate);
+      el.removeEventListener('did-fail-load', onDidFailLoad as EventListener);
       el.removeEventListener('render-process-gone', onRenderProcessGone);
-      el.removeEventListener('ipc-message',         onIpcMessage    as EventListener);
+      el.removeEventListener('ipc-message', onIpcMessage as EventListener);
     };
-  }, [tab.id]);
+  }, [tab.id, tab.privateMode]);
 
   return (
     <div className="relative w-full h-full">
@@ -226,7 +264,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
         partition={tab.privateMode ? `temp:tab-${tab.id}` : undefined}
         className="w-full h-full border-none"
         webpreferences="contextIsolation=yes,sandbox=no"
-        preload={tab.privateMode ? undefined : window.__PM_PRELOAD__}
+        preload={capturePreload}
         allowpopups
       />
 
@@ -243,14 +281,20 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
           </p>
           <div className="flex gap-3">
             <button
-              onClick={() => { setLoadError(null); webviewRef.current?.reload(); }}
-              className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm hover:opacity-90 transition-opacity"
+              onClick={() => {
+                setLoadError(null);
+                webviewRef.current?.reload();
+              }}
+              className="px-4 py-2 rounded-md bg-[var(--accent)] text-[var(--accent-text)] text-sm hover:bg-[var(--accent-hover)] transition-colors"
             >
               Retry
             </button>
             <button
-              onClick={() => { setLoadError(null); webviewRef.current?.stop(); }}
-              className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm hover:bg-[var(--hover)] transition-colors"
+              onClick={() => {
+                setLoadError(null);
+                webviewRef.current?.stop();
+              }}
+              className="px-4 py-2 rounded-md border border-[var(--border)] text-sm hover:bg-[var(--hover)] transition-colors"
             >
               Dismiss
             </button>

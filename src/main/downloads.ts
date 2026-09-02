@@ -83,83 +83,81 @@ export function attachDownloadsToSession(ses: Electron.Session): void {
   if (attachedSessions.has(ses)) return;
   attachedSessions.add(ses);
 
-  ses.on(
-    'will-download',
-    (_event: Electron.Event, item: Electron.DownloadItem) => {
-      // NOTE: setting the save path synchronously inside this handler is what
-      // suppresses the native save dialog (Electron only shows the dialog when
-      // no save path was set). Do NOT call event.preventDefault() here — per
-      // the Electron docs that CANCELS the download entirely.
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      // Sanitize the server-provided name so it can't escape the save folder.
-      const rawName = item.getFilename() || 'download';
-      const filename = rawName
+  ses.on('will-download', (_event: Electron.Event, item: Electron.DownloadItem) => {
+    // NOTE: setting the save path synchronously inside this handler is what
+    // suppresses the native save dialog (Electron only shows the dialog when
+    // no save path was set). Do NOT call event.preventDefault() here — per
+    // the Electron docs that CANCELS the download entirely.
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Sanitize the server-provided name so it can't escape the save folder.
+    const rawName = item.getFilename() || 'download';
+    const filename =
+      rawName
         .replace(/[/\\?%*:|"<>]/g, '_')
         .replace(/^\.+/, '')
         .slice(0, 200) || 'download';
-      const dir = ensurePath();
-      try {
-        fs.mkdirSync(dir, { recursive: true });
-      } catch {
-        /* ignore — best effort; Electron will report an error on save */
-      }
-      const savePath = uniqueSavePath(dir, filename);
-      item.setSavePath(savePath);
-
-      const rec: Download = {
-        id,
-        filename: path.basename(savePath),
-        url: item.getURL(),
-        state: 'progressing',
-        receivedBytes: 0,
-        totalBytes: item.getTotalBytes(),
-        percent: 0,
-        path: savePath,
-        startTime: Date.now(),
-        endTime: null,
-      };
-      records.set(id, rec);
-      pruneCompletedRecords();
-      items.set(id, item); // retain to avoid GC-triggered cancellation
-      notify();
-      // Let the renderer optionally pop open the Downloads page on a new download.
-      mainWindow?.webContents.send('download:started', rec);
-
-      item.on('updated', (_e: Electron.Event, state: string) => {
-        const r = records.get(id);
-        if (!r) return;
-        r.receivedBytes = item.getReceivedBytes();
-        r.totalBytes = item.getTotalBytes();
-        r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
-        if (state === 'interrupted') r.state = 'interrupted';
-        else if (state === 'progressing') r.state = 'progressing';
-        notify();
-      });
-
-      item.on('done', (_e: Electron.Event, state: string) => {
-        const r = records.get(id);
-        if (!r) return;
-        r.receivedBytes = item.getReceivedBytes();
-        r.totalBytes = item.getTotalBytes();
-        r.endTime = Date.now();
-        if (state === 'completed') {
-          r.state = 'completed';
-          // A finished download is exactly 100%, even if the server never
-          // advertised a content-length.
-          r.percent = 1;
-        } else if (state === 'cancelled') {
-          r.state = 'canceled';
-          r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
-        } else {
-          r.state = 'interrupted';
-          r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
-        }
-        // The download is finished — releasing our handle is now safe.
-        items.delete(id);
-        notify();
-      });
+    const dir = ensurePath();
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      /* ignore — best effort; Electron will report an error on save */
     }
-  );
+    const savePath = uniqueSavePath(dir, filename);
+    item.setSavePath(savePath);
+
+    const rec: Download = {
+      id,
+      filename: path.basename(savePath),
+      url: item.getURL(),
+      state: 'progressing',
+      receivedBytes: 0,
+      totalBytes: item.getTotalBytes(),
+      percent: 0,
+      path: savePath,
+      startTime: Date.now(),
+      endTime: null,
+    };
+    records.set(id, rec);
+    pruneCompletedRecords();
+    items.set(id, item); // retain to avoid GC-triggered cancellation
+    notify();
+    // Let the renderer optionally pop open the Downloads page on a new download.
+    mainWindow?.webContents.send('download:started', rec);
+
+    item.on('updated', (_e: Electron.Event, state: string) => {
+      const r = records.get(id);
+      if (!r) return;
+      r.receivedBytes = item.getReceivedBytes();
+      r.totalBytes = item.getTotalBytes();
+      r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
+      if (state === 'interrupted') r.state = 'interrupted';
+      else if (state === 'progressing') r.state = 'progressing';
+      notify();
+    });
+
+    item.on('done', (_e: Electron.Event, state: string) => {
+      const r = records.get(id);
+      if (!r) return;
+      r.receivedBytes = item.getReceivedBytes();
+      r.totalBytes = item.getTotalBytes();
+      r.endTime = Date.now();
+      if (state === 'completed') {
+        r.state = 'completed';
+        // A finished download is exactly 100%, even if the server never
+        // advertised a content-length.
+        r.percent = 1;
+      } else if (state === 'cancelled') {
+        r.state = 'canceled';
+        r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
+      } else {
+        r.state = 'interrupted';
+        r.percent = r.totalBytes > 0 ? Math.min(1, r.receivedBytes / r.totalBytes) : 0;
+      }
+      // The download is finished — releasing our handle is now safe.
+      items.delete(id);
+      notify();
+    });
+  });
 }
 
 export function initDownloads(): void {

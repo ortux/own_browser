@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserWindow } from './components/BrowserWindow';
 import { AccountWelcome } from './components/AccountWelcome';
-import { SplashScreen } from './components/SplashScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { useSettingsStore } from './stores/settingsStore';
 import { initHistorySync } from './lib/historySync';
@@ -35,33 +34,21 @@ function App() {
     return cleanup;
   }, [account]);
 
+  // Hydration is near-instant from local storage. Rendering a bare surface
+  // avoids a flash of loading UI that is gone before it can be read.
   if (!hydrated) {
-    return (
-      <>
-        <SplashScreen />
-        <main className="flex min-h-screen w-full items-center justify-center bg-[var(--bg)] text-[var(--text-muted)]">
-          <div className="flex items-center gap-3 text-sm">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--accent)]" />
-            Loading Zyphora...
-          </div>
-        </main>
-      </>
-    );
+    return <main className="min-h-screen w-full bg-[var(--bg)]" />;
   }
 
   if (!onboardingCompleted) {
-    return (
-      <>
-        <SplashScreen />
-        <OnboardingFlow onComplete={() => {}} />
-      </>
-    );
+    return <OnboardingFlow onComplete={() => {}} />;
   }
 
-  const shouldShowAccountPrompt = !account && !guestMode && (
-    authPromptLastShownAt === null
-    || Date.now() - authPromptLastShownAt >= AUTH_PROMPT_INTERVAL_MS
-  );
+  const shouldShowAccountPrompt =
+    !account &&
+    !guestMode &&
+    (authPromptLastShownAt === null ||
+      Date.now() - authPromptLastShownAt >= AUTH_PROMPT_INTERVAL_MS);
 
   if (shouldShowAccountPrompt) {
     return (
@@ -74,12 +61,7 @@ function App() {
     );
   }
 
-  return (
-    <>
-      <SplashScreen />
-      <BrowserWindow />
-    </>
-  );
+  return <BrowserWindow />;
 }
 
 export default App;

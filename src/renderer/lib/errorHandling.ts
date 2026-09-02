@@ -19,7 +19,13 @@ export class ApiError extends Error {
   retryable: boolean;
   details?: Record<string, unknown>;
 
-  constructor(type: ErrorType, status: number, message: string, retryable: boolean, details?: Record<string, unknown>) {
+  constructor(
+    type: ErrorType,
+    status: number,
+    message: string,
+    retryable: boolean,
+    details?: Record<string, unknown>
+  ) {
     super(message);
     this.name = 'ApiError';
     this.type = type;
@@ -49,18 +55,22 @@ export function isRetryable(error: ApiError | unknown): boolean {
   if (error instanceof ApiError) {
     return error.retryable;
   }
-  
+
   if (error && typeof error === 'object' && 'status' in error) {
     const status = (error as Record<string, unknown>).status as number;
     // Retry on network errors, server errors, rate limiting
     return status === 0 || status === 429 || status >= 500;
   }
-  
+
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
-    return message.includes('network') || message.includes('timeout') || message.includes('failed to fetch');
+    return (
+      message.includes('network') ||
+      message.includes('timeout') ||
+      message.includes('failed to fetch')
+    );
   }
-  
+
   return false;
 }
 
@@ -90,11 +100,7 @@ export function getErrorMessage(error: ApiError | string | unknown): string {
 /**
  * Parse API error response and create ApiError
  */
-export function parseApiError(
-  status: number,
-  response: unknown,
-  requestUrl?: string
-): ApiError {
+export function parseApiError(status: number, response: unknown, requestUrl?: string): ApiError {
   const type = classifyErrorType(status);
   let message = getDefaultErrorMessage(type, status);
 
@@ -108,16 +114,10 @@ export function parseApiError(
     }
   }
 
-  return new ApiError(
-    type,
-    status,
-    message,
-    isRetryableStatus(status),
-    {
-      url: requestUrl,
-      timestamp: new Date().toISOString(),
-    }
-  );
+  return new ApiError(type, status, message, isRetryableStatus(status), {
+    url: requestUrl,
+    timestamp: new Date().toISOString(),
+  });
 }
 
 /**
@@ -143,16 +143,16 @@ function getDefaultErrorMessage(type: ErrorType, status: number): string {
 function isRetryableStatus(status: number): boolean {
   // Network errors
   if (status === 0) return true;
-  
+
   // Rate limiting
   if (status === 429) return true;
-  
+
   // Server errors (except 501 Not Implemented)
   if (status >= 500 && status !== 501) return true;
-  
+
   // Timeout (if status is passed as 0)
   if (status === 408) return true;
-  
+
   return false;
 }
 
@@ -171,11 +171,14 @@ export async function withRetry<T>(
       return await fn();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      
+
       if (attempt < maxAttempts - 1) {
         const delayMs = baseDelayMs * Math.pow(2, attempt);
-        console.debug(`[retry] Attempt ${attempt + 1} failed, retrying in ${delayMs}ms:`, lastError.message);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        console.debug(
+          `[retry] Attempt ${attempt + 1} failed, retrying in ${delayMs}ms:`,
+          lastError.message
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
   }
@@ -195,12 +198,7 @@ export async function retryWithBackoff<T>(
     shouldRetry?: (error: Error) => boolean;
   } = {}
 ): Promise<T> {
-  const {
-    maxAttempts = 3,
-    baseDelay = 1000,
-    onRetry,
-    shouldRetry = () => true,
-  } = options;
+  const { maxAttempts = 3, baseDelay = 1000, onRetry, shouldRetry = () => true } = options;
 
   let lastError: Error | null = null;
 
@@ -216,7 +214,7 @@ export async function retryWithBackoff<T>(
 
       const delayMs = baseDelay * Math.pow(2, attempt);
       onRetry?.(attempt + 1, lastError);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 

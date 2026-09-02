@@ -4,6 +4,8 @@ interface DeviceNameScreenProps {
   onNext: (deviceName: string) => void;
 }
 
+const MAX_LENGTH = 64;
+
 export const DeviceNameScreen: React.FC<DeviceNameScreenProps> = ({ onNext }) => {
   const [deviceName, setDeviceName] = useState('');
   const [error, setError] = useState('');
@@ -13,12 +15,12 @@ export const DeviceNameScreen: React.FC<DeviceNameScreenProps> = ({ onNext }) =>
     const trimmed = deviceName.trim();
 
     if (!trimmed) {
-      setError('Please enter a device name.');
+      setError('Enter a name for this device.');
       return;
     }
 
-    if (trimmed.length > 64) {
-      setError('Device name must be 64 characters or less.');
+    if (trimmed.length > MAX_LENGTH) {
+      setError(`Device name must be ${MAX_LENGTH} characters or fewer.`);
       return;
     }
 
@@ -26,59 +28,51 @@ export const DeviceNameScreen: React.FC<DeviceNameScreenProps> = ({ onNext }) =>
   };
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4">
-      <div className="w-full max-w-md">
-        <div className="rounded-2xl border border-white/10 bg-slate-800/50 p-8 backdrop-blur-lg shadow-2xl">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="text-2xl">📱</span>
-            <h1 className="text-2xl font-bold text-white">Name This Device</h1>
-          </div>
+    <div className="flex min-h-screen w-full items-center justify-center bg-[var(--bg)] px-6">
+      <div className="w-full max-w-sm">
+        <h1 className="text-xl font-semibold tracking-tight text-[var(--text)]">
+          Name this device
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-[var(--text-muted)]">
+          Used to identify this computer in your device list. You can change it later in Settings.
+        </p>
 
-          <p className="mb-8 text-sm text-slate-400">
-            Give your device a memorable name so you can identify it across your account.
-          </p>
+        <form onSubmit={handleSubmit} className="mt-8">
+          <label
+            htmlFor="deviceName"
+            className="mb-1.5 block text-sm font-medium text-[var(--text)]"
+          >
+            Device name
+          </label>
+          <input
+            id="deviceName"
+            type="text"
+            value={deviceName}
+            onChange={(e) => {
+              setDeviceName(e.target.value);
+              setError('');
+            }}
+            placeholder="Work laptop"
+            maxLength={MAX_LENGTH}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? 'deviceName-error' : undefined}
+            className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] transition-colors focus:border-[var(--text-faint)] focus:outline-none"
+            autoFocus
+          />
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="deviceName" className="mb-2 block font-mono text-xs uppercase tracking-wider text-slate-400">
-                Device Name
-              </label>
-              <input
-                id="deviceName"
-                type="text"
-                value={deviceName}
-                onChange={(e) => {
-                  setDeviceName(e.target.value);
-                  setError('');
-                }}
-                placeholder="e.g., Work Laptop, Desktop PC, MacBook"
-                maxLength={64}
-                className="w-full rounded-lg border border-slate-600 bg-slate-900/50 px-4 py-3 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/30"
-                autoFocus
-              />
-              <div className="mt-1 text-right text-xs text-slate-500">
-                {deviceName.length}/64
-              </div>
-            </div>
+          {error && (
+            <p id="deviceName-error" className="mt-2 text-sm text-[var(--danger)]">
+              {error}
+            </p>
+          )}
 
-            {error && (
-              <div className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="mt-6 w-full rounded-lg bg-gradient-to-r from-violet-600 to-cyan-600 px-4 py-3 font-semibold text-white transition hover:from-violet-500 hover:to-cyan-500 active:scale-95"
-            >
-              Continue
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-xs text-slate-500">
-            You can change this later in settings.
-          </p>
-        </div>
+          <button
+            type="submit"
+            className="mt-6 w-full rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-hover)]"
+          >
+            Continue
+          </button>
+        </form>
       </div>
     </div>
   );

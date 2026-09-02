@@ -15,7 +15,7 @@ These are not new features. The app currently tells the user these things
 exist. Shipping anything else before closing them means the product lies to
 the person using it.
 
-### 0.1 Password sync, or corrected copy — *small*
+### 0.1 Password sync, or corrected copy — *small* — ✅ DONE (copy fixed)
 
 `SettingsPage.tsx` says, under the password manager toggle:
 
@@ -36,7 +36,7 @@ Two honest options:
 
 Do the cheap fix now regardless; the real one is Tier 2 below.
 
-### 0.2 "Tab Groups" button does nothing — *small*
+### 0.2 "Tab Groups" button does nothing — *small* — ✅ DONE (button removed)
 
 `SidebarTabs.tsx:128` renders a Layers icon labelled *Tab Groups* with no
 handler, and again at line 189 with `onClick: undefined`. It is in both the
@@ -49,7 +49,7 @@ primary navigation is worse than no control.
 
 ## Tier 1 — High impact, contained scope
 
-### 1.1 Session restore — *medium*
+### 1.1 Session restore — *medium* — ✅ DONE
 
 **The single biggest functional gap.** `app.on('window-all-closed')` calls
 `app.quit()`, and `will-quit` only unregisters shortcuts and closes the DB. Open
@@ -173,10 +173,11 @@ standard approach and runs comfortably in the guest context.
 
 ## Suggested order
 
-1. **0.1 + 0.2** — stop the UI making false promises. Under an hour.
-2. **1.1 session restore** — the one gap most likely to make someone stop using
-   the browser.
+1. ~~**0.1 + 0.2** — stop the UI making false promises.~~ ✅ done
+2. ~~**1.1 session restore**~~ ✅ done — `src/main/session.ts`, opt-in via
+   Settings → General → "Continue where you left off".
 3. **1.2, 1.3, 1.4, 1.5** — small, independent, each individually noticeable.
+   Next up.
 4. **1.6 → 2.1** — audio state first, then sleeping, since sleeping must not
    silence a playing tab.
 5. Reassess. By then the sql.js write-amplification question in 1.4 probably

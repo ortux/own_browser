@@ -19,6 +19,13 @@ import {
 } from '../shared/navigation';
 import { registerPexelsHandlers } from './pexels';
 import {
+  scheduleSessionSave,
+  flushSessionSave,
+  loadSession,
+  clearSession,
+  type PersistedTab,
+} from './session';
+import {
   fetchProxy,
   applyProxy,
   clearProxy,
@@ -171,6 +178,8 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
         && value.webContentsId > 0;
     case 'security-settings':
       return typeof value.forceHttps === 'boolean' && typeof value.doNotTrack === 'boolean';
+    case 'session-restore-setting':
+      return typeof value.enabled === 'boolean';
     case 'set-tab-private':
       return isBoundedString(value.tabId, 200) && typeof value.privateMode === 'boolean';
     case 'permission-response':
@@ -292,9 +301,42 @@ function createWindow() {
     mainWindow = null;
   });
 
-  // Initialize with first tab
-  createNewTab();
+  // Restore the previous tab strip when the user asked for it, otherwise open
+  // a single blank tab. `restoreSessionEnabled` is still false at this point —
+  // the renderer pushes the setting down once it has hydrated — so the saved
+  // file is consulted directly rather than through that flag.
+  if (!restoreOpenTabs()) {
+    createNewTab();
+  }
+}
 
+/**
+ * Rebuild last session's tabs. Returns false when there was nothing to
+ * restore, leaving the caller to open the usual blank tab.
+ */
+function restoreOpenTabs(): boolean {
+  const saved = loadSession();
+  if (!saved) return false;
+
+  const restoredIds: string[] = [];
+  for (const entry of saved.tabs) {
+    const tabId = createNewTab(entry.url);
+    if (!tabId) continue;
+    const tab = tabs.get(tabId);
+    if (!tab) continue;
+    // Show the remembered title and icon immediately. Without this the whole
+    // strip reads "Loading..." until each page responds.
+    tab.title = entry.title || tab.title;
+    tab.favicon = entry.favicon;
+    tab.pinned = entry.pinned;
+    restoredIds.push(tabId);
+  }
+
+  if (!restoredIds.length) return false;
+
+  activeTabId = restoredIds[Math.min(saved.activeIndex, restoredIds.length - 1)];
+  updateRendererState();
+  return true;
 }
 
 function createNewTab(rawUrl?: string, privateMode = false): string {
@@ -407,6 +449,51 @@ function updateRendererState() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('state-updated', getState());
   }
+  captureSession();
+}
+
+// ── Session persistence ──────────────────────────────────────────────────────
+
+/**
+ * Whether the open tabs should survive a restart. Owned by the renderer's
+ * settings store and pushed down on startup; defaults to off so a user who
+ * never opts in leaves nothing on disk.
+ */
+let restoreSessionEnabled = false;
+
+/** Tabs worth writing to disk: real pages, never private ones or blank tabs. */
+function persistableTabs(): { tabs: PersistedTab[]; activeIndex: number } {
+  const ordered = [...tabs.values()].filter(
+    (tab) => !tab.privateMode && tab.url && tab.url !== 'about:blank'
+  );
+  const activeIndex = ordered.findIndex((tab) => tab.id === activeTabId);
+  return {
+    tabs: ordered.map((tab) => ({
+      url: tab.url,
+      title: tab.title,
+      favicon: tab.favicon,
+      pinned: tab.pinned,
+    })),
+    activeIndex: activeIndex >= 0 ? activeIndex : 0,
+  };
+}
+
+function captureSession() {
+  if (!restoreSessionEnabled) return;
+  const { tabs: persisted, activeIndex } = persistableTabs();
+  scheduleSessionSave(persisted, activeIndex);
+}
+
+function setRestoreSessionEnabled(enabled: boolean) {
+  if (restoreSessionEnabled === enabled) return;
+  restoreSessionEnabled = enabled;
+  if (enabled) {
+    captureSession();
+  } else {
+    // Turning the setting off must also remove what was already stored,
+    // otherwise a stale strip of tabs waits on disk indefinitely.
+    clearSession();
+  }
 }
 
 /**
@@ -483,6 +570,9 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
           forceHttps: message.forceHttps,
           doNotTrack: message.doNotTrack,
         });
+        break;
+      case 'session-restore-setting':
+        setRestoreSessionEnabled(message.enabled);
         break;
       case 'set-tab-private': {
         const tab = tabs.get(message.tabId);
@@ -693,6 +783,12 @@ app.on('ready', async () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  // Write synchronously before the process goes away; the debounced timer
+  // would otherwise be discarded along with the event loop.
+  if (restoreSessionEnabled) {
+    const { tabs: persisted, activeIndex } = persistableTabs();
+    flushSessionSave(persisted, activeIndex);
+  }
   closeDb();
 });
 

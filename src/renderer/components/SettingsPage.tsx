@@ -117,6 +117,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
     authError,
     passwordManagerEnabled,
     setPasswordManagerEnabled,
+    restoreSession,
+    setRestoreSession,
     signOut,
   } = useSettingsStore();
 
@@ -357,9 +359,32 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               <MdCard className="space-y-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
+                    <div className="text-sm font-medium text-[var(--text)]">
+                      Continue where you left off
+                    </div>
+                    <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                      Reopen the tabs you had open when you last closed Zyphora.
+                    </div>
+                  </div>
+                  <MdSwitch
+                    checked={restoreSession}
+                    onChange={() => setRestoreSession(!restoreSession)}
+                  />
+                </div>
+                <div className="rounded-md bg-[var(--surface-2)] px-3 py-3 text-xs text-[var(--text-faint)]">
+                  {restoreSession
+                    ? 'Open tabs are saved to this device so they can be restored next launch. Private tabs are never saved.'
+                    : 'Zyphora starts with a single new tab. Nothing about your open tabs is written to disk.'}
+                </div>
+              </MdCard>
+
+              <MdCard className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
                     <div className="text-sm font-medium text-[var(--text)]">Password manager</div>
                     <div className="mt-0.5 text-xs text-[var(--text-faint)]">
-                      Save locally and sync browser passwords with your account.
+                      Offer to save logins and fill them back in. Stored on this device only —
+                      passwords are not synced to your account.
                     </div>
                   </div>
                   <MdSwitch

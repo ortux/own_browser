@@ -4,7 +4,6 @@ import {
   Plus,
   Bookmark,
   History,
-  Layers,
   Search,
   Settings,
   User,
@@ -125,7 +124,6 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
       {!expanded && (
         <div className="flex flex-col flex-1 px-1.5 py-2 gap-0.5 overflow-hidden">
           {iconBtn(<Plus size={16} />, 'New Tab', onNewTab)}
-          {iconBtn(<Layers size={15} />, 'Tab Groups')}
           {iconBtn(<Bookmark size={15} />, 'Bookmarks', onOpenBookmarks)}
           {iconBtn(<History size={15} />, 'History', onOpenHistory)}
           {iconBtn(<RotateCcw size={15} />, 'Recently closed', onOpenRecentlyClosed)}
@@ -184,11 +182,6 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               New Tab
             </button>
             {[
-              {
-                icon: <Layers size={14} />,
-                label: 'Tab Groups',
-                onClick: undefined as (() => void) | undefined,
-              },
               {
                 icon: <Bookmark size={14} />,
                 label: 'Bookmarks',

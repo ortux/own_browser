@@ -14,7 +14,7 @@
     "build": "tsc && electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron dist/main/index.js",
-    "test": "npm run test:adblock && npm run test:auth && npm run test:passwords",
+    "test": "npm run test:adblock && npm run test:auth && npm run test:passwords && npm run test:session && npm run test:session-restore",
     "test:adblock": "esbuild src/main/adblock.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
     "test:auth": "esbuild src/renderer/lib/authApi.test.ts --bundle --platform=node --format=esm --outfile=.tmp-auth-test.mjs && node .tmp-auth-test.mjs && node -e \"require('fs').unlinkSync('.tmp-auth-test.mjs')\"",
     "pack": "npm run build && electron-builder --dir",
@@ -22,7 +22,9 @@
     "dist:linux": "npm run build && electron-builder --linux",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write src",
-    "test:passwords": "esbuild src/main/passwords.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --external:sql.js --outfile=.tmp-passwords-test.mjs && node .tmp-passwords-test.mjs && node -e \"require('fs').unlinkSync('.tmp-passwords-test.mjs')\""
+    "test:passwords": "esbuild src/main/passwords.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --external:sql.js --outfile=.tmp-passwords-test.mjs && node .tmp-passwords-test.mjs && node -e \"require('fs').unlinkSync('.tmp-passwords-test.mjs')\"",
+    "test:session": "esbuild src/main/session.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --outfile=.tmp-session-test.mjs && node .tmp-session-test.mjs && node -e \"require('fs').unlinkSync('.tmp-session-test.mjs')\"",
+    "test:session-restore": "esbuild src/main/sessionRestore.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --outfile=.tmp-session-restore-test.mjs && node .tmp-session-restore-test.mjs && node -e \"require('fs').unlinkSync('.tmp-session-restore-test.mjs')\""
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -53,7 +55,7 @@
   "build": {
     "appId": "com.you.ownbrowser",
     "productName": "Zyphora",
-    "copyright": "Copyright © 2026",
+    "copyright": "Copyright \u00a9 2026",
     "npmRebuild": false,
     "compression": "maximum",
     "files": [

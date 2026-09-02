@@ -220,6 +220,12 @@ const browserAPI = {
       ipcRenderer.invoke('proxy:verify', proxy),
   },
 
+  /** Restore the previous tab strip on next launch. */
+  session: {
+    setRestoreEnabled: (enabled: boolean): Promise<unknown> =>
+      ipcRenderer.invoke('browser:message', { type: 'session-restore-setting', enabled }),
+  },
+
   /** Network privacy policy */
   security: {
     set: (settings: { forceHttps: boolean; doNotTrack: boolean }): Promise<unknown> =>

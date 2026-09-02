@@ -54,6 +54,7 @@ export type RendererToMainMessage =
   | { type: 'create-tab-url'; url: string; privateMode?: boolean }
   // Synchronise network privacy settings from the renderer.
   | { type: 'security-settings'; forceHttps: boolean; doNotTrack: boolean }
+  | { type: 'session-restore-setting'; enabled: boolean }
   | { type: 'set-tab-private'; tabId: string; privateMode: boolean }
   // Respond to a permission prompt shown by the renderer (Allow / Block).
   | { type: 'permission-response'; requestId: string; allow: boolean }

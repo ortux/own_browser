@@ -61,6 +61,7 @@ export const BrowserWindow: React.FC = () => {
   const setProxy = useSettingsStore((s) => s.setProxy);
   const setProxyEnabled = useSettingsStore((s) => s.setProxyEnabled);
   const passwordManagerEnabled = useSettingsStore((s) => s.passwordManagerEnabled);
+  const restoreSession = useSettingsStore((s) => s.restoreSession);
 
   // ── UI state ──
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -279,6 +280,12 @@ export const BrowserWindow: React.FC = () => {
   React.useEffect(() => {
     window.browserAPI.security.set({ forceHttps, doNotTrack }).catch(() => {});
   }, [forceHttps, doNotTrack]);
+
+  // Main starts with session capture off and only learns the user's choice
+  // once persisted settings have hydrated here.
+  React.useEffect(() => {
+    window.browserAPI.session.setRestoreEnabled(restoreSession).catch(() => {});
+  }, [restoreSession]);
 
   // The initial tab is created by the main process before the renderer can read
   // persisted settings. Mark it private while it is still a blank page so the

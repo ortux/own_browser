@@ -24,3 +24,13 @@ export const safeStorage = {
   decryptString: (encrypted: Buffer): string =>
     Buffer.from([...encrypted].map((byte) => byte ^ XOR_KEY)).toString('utf8'),
 };
+
+/**
+ * A single 1920x1080 display, enough for windowState's on-screen check.
+ * Tests that need a different layout can replace `displays`.
+ */
+export const displays = [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }];
+
+export const screen = {
+  getAllDisplays: (): typeof displays => displays,
+};

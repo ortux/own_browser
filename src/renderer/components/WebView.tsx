@@ -170,7 +170,36 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       webviewRegistry.emitFind(tab.id, e);
     };
 
-    const onDidNavigate = reportNavigationState;
+    // Re-apply the site's saved zoom on every navigation. Chromium resets the
+    // zoom factor per navigation, so this has to run each time rather than
+    // once at attach.
+    const applySavedZoom = () => {
+      let url = '';
+      try {
+        url = el.getURL();
+      } catch {
+        return;
+      }
+      if (!url || url === 'about:blank') return;
+      void window.browserAPI.zoom
+        .get(url)
+        .then(({ factor }) => {
+          // The tab may have navigated again while this was in flight.
+          try {
+            if (el.getURL() === url && el.getZoomFactor() !== factor) {
+              el.setZoomFactor(factor);
+            }
+          } catch {
+            /* guest went away */
+          }
+        })
+        .catch(() => {});
+    };
+
+    const onDidNavigate = () => {
+      reportNavigationState();
+      applySavedZoom();
+    };
 
     const onRenderProcessGone = (event: Electron.RenderProcessGoneEvent) => {
       const reason = event.details?.reason || 'unknown reason';
@@ -200,6 +229,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     el.addEventListener('did-detach', onDidDetach);
     el.addEventListener('did-start-loading', onLoadStart);
     el.addEventListener('did-stop-loading', reportNavigationState);
+    el.addEventListener('dom-ready', applySavedZoom);
     el.addEventListener('page-title-updated', onTitleUpdated as EventListener);
     el.addEventListener('page-favicon-updated', onFaviconUpdated as EventListener);
     el.addEventListener('found-in-page', onFoundInPage);
@@ -214,6 +244,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       el.removeEventListener('did-detach', onDidDetach);
       el.removeEventListener('did-start-loading', onLoadStart);
       el.removeEventListener('did-stop-loading', reportNavigationState);
+      el.removeEventListener('dom-ready', applySavedZoom);
       el.removeEventListener('page-title-updated', onTitleUpdated as EventListener);
       el.removeEventListener('page-favicon-updated', onFaviconUpdated as EventListener);
       el.removeEventListener('found-in-page', onFoundInPage);

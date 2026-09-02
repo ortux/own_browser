@@ -5,7 +5,16 @@ export interface SponsorSegment {
 }
 
 const SPONSORBLOCK_API = 'https://sponsor.ajay.app/api/skipSegments';
-const CATEGORIES = ['sponsor', 'intro', 'outro', 'selfpromo', 'interaction', 'preview', 'filler', 'music_offtopic'];
+const CATEGORIES = [
+  'sponsor',
+  'intro',
+  'outro',
+  'selfpromo',
+  'interaction',
+  'preview',
+  'filler',
+  'music_offtopic',
+];
 const MAX_SEGMENTS = 200;
 
 export function extractYouTubeVideoId(value: string): string | null {
@@ -24,21 +33,26 @@ export function extractYouTubeVideoId(value: string): string | null {
 async function hashPrefix(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 4);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 4);
 }
 
 function validSegments(value: unknown): SponsorSegment[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((item): item is SponsorSegment => {
-      if (!item || typeof item !== 'object' || !Array.isArray((item as SponsorSegment).segment)) return false;
+      if (!item || typeof item !== 'object' || !Array.isArray((item as SponsorSegment).segment))
+        return false;
       const segment = (item as SponsorSegment).segment;
-      return segment.length === 2
-        && Number.isFinite(segment[0])
-        && Number.isFinite(segment[1])
-        && segment[0] >= 0
-        && segment[1] > segment[0]
-        && segment[1] - segment[0] <= 24 * 60 * 60;
+      return (
+        segment.length === 2 &&
+        Number.isFinite(segment[0]) &&
+        Number.isFinite(segment[1]) &&
+        segment[0] >= 0 &&
+        segment[1] > segment[0] &&
+        segment[1] - segment[0] <= 24 * 60 * 60
+      );
     })
     .filter((item) => !item.actionType || item.actionType === 'skip')
     .slice(0, MAX_SEGMENTS);
@@ -89,7 +103,10 @@ function skipperScript(segments: SponsorSegment[]): string {
   })(${JSON.stringify(segments)});`;
 }
 
-export async function applySponsorBlock(webview: Electron.WebviewTag, pageUrl: string): Promise<void> {
+export async function applySponsorBlock(
+  webview: Electron.WebviewTag,
+  pageUrl: string
+): Promise<void> {
   const videoId = extractYouTubeVideoId(pageUrl);
   if (!videoId) return;
   try {

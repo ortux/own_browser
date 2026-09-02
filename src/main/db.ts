@@ -76,10 +76,7 @@ export async function initDb(): Promise<void> {
   if (_db) return;
 
   // Load the WASM binary bundled with sql.js
-  const wasmPath = path.join(
-    path.dirname(require.resolve('sql.js')),
-    'sql-wasm.wasm'
-  );
+  const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm');
   const wasmBinary = fs.readFileSync(wasmPath);
 
   const SQL = await initSqlJs({ wasmBinary });
@@ -92,7 +89,8 @@ export async function initDb(): Promise<void> {
     data = fs.readFileSync(_dbPath);
   }
 
-  const createSchema = (database: SqlDatabase) => database.run(`
+  const createSchema = (database: SqlDatabase) =>
+    database.run(`
     CREATE TABLE IF NOT EXISTS history (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       url        TEXT    NOT NULL,
@@ -128,11 +126,17 @@ export async function initDb(): Promise<void> {
     // A truncated/corrupt sql.js file should not prevent the browser shell from
     // opening. Preserve it for diagnosis and start with a clean database.
     console.error('[db] database restore failed; creating a fresh database:', error);
-    try { _db?.close(); } catch { /* best effort */ }
+    try {
+      _db?.close();
+    } catch {
+      /* best effort */
+    }
     _db = null;
     if (fs.existsSync(_dbPath)) {
       const backupPath = `${_dbPath}.corrupt-${Date.now()}`;
-      try { fs.renameSync(_dbPath, backupPath); } catch (renameError) {
+      try {
+        fs.renameSync(_dbPath, backupPath);
+      } catch (renameError) {
         console.error('[db] could not preserve corrupt database:', renameError);
       }
     }
@@ -152,7 +156,11 @@ function persist() {
     fs.writeFileSync(tempPath, Buffer.from(data));
     fs.renameSync(tempPath, _dbPath);
   } catch (error) {
-    try { fs.rmSync(tempPath, { force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(tempPath, { force: true });
+    } catch {
+      /* best effort */
+    }
     console.error('[db] could not persist local data; continuing in memory:', error);
   }
 }
@@ -167,8 +175,8 @@ function db(): SqlDatabase {
 function rowsToBookmarks(results: QueryExecResult[]): Bookmark[] {
   if (!results.length) return [];
   const { columns, values } = results[0];
-  return values.map((row) =>
-    Object.fromEntries(columns.map((c, i) => [c, row[i]])) as unknown as Bookmark
+  return values.map(
+    (row) => Object.fromEntries(columns.map((c, i) => [c, row[i]])) as unknown as Bookmark
   );
 }
 
@@ -196,28 +204,30 @@ export function addHistory(url: string, title: string, favicon?: string) {
   const now = Date.now();
 
   // De-dupe: skip if the same URL was recorded within the last 30 seconds
-  const stmt = db().prepare(
-    'SELECT id FROM history WHERE url = ? AND visited_at > ? LIMIT 1'
-  );
+  const stmt = db().prepare('SELECT id FROM history WHERE url = ? AND visited_at > ? LIMIT 1');
   stmt.bind([url, now - 30_000]);
   const exists = stmt.step();
   stmt.free();
   if (exists) {
     // Still update the title/favicon on the existing row if we now have them
     if (title && title !== 'Loading...') {
-      db().run(
-        `UPDATE history SET title = ?, favicon = ? WHERE url = ? AND visited_at > ?`,
-        [title, favicon ?? null, url, now - 30_000]
-      );
+      db().run(`UPDATE history SET title = ?, favicon = ? WHERE url = ? AND visited_at > ?`, [
+        title,
+        favicon ?? null,
+        url,
+        now - 30_000,
+      ]);
       persist();
     }
     return;
   }
 
-  db().run(
-    'INSERT INTO history (url, title, favicon, visited_at) VALUES (?, ?, ?, ?)',
-    [url, title || url, favicon ?? null, now]
-  );
+  db().run('INSERT INTO history (url, title, favicon, visited_at) VALUES (?, ?, ?, ?)', [
+    url,
+    title || url,
+    favicon ?? null,
+    now,
+  ]);
   persist();
 }
 
@@ -235,10 +245,9 @@ export function updateHistoryMetadata(url: string, title: string, favicon?: stri
 
 export function getHistory(limit = 200): HistoryEntry[] {
   const safe = safeLimit(limit, 200, 500);
-  return queryObjects(
-    'SELECT * FROM history ORDER BY visited_at DESC LIMIT ?',
-    [safe]
-  ) as unknown as HistoryEntry[];
+  return queryObjects('SELECT * FROM history ORDER BY visited_at DESC LIMIT ?', [
+    safe,
+  ]) as unknown as HistoryEntry[];
 }
 
 export function searchHistory(query: string, limit = 100): HistoryEntry[] {
@@ -262,6 +271,52 @@ export function clearHistory() {
   persist();
 }
 
+/**
+ * Trim history to a retention window and a hard row cap.
+ *
+ * This is not only about disk space. sql.js re-serialises and rewrites the
+ * whole database on every write, so an unbounded history table makes every
+ * single page visit progressively slower. Pruning on startup keeps that cost
+ * flat.
+ *
+ * `maxAgeDays` of 0 means keep forever. Returns the number of rows removed.
+ */
+export function pruneHistory(maxAgeDays: number, maxRows = 50_000): number {
+  const before = countHistory();
+
+  if (maxAgeDays > 0) {
+    const cutoff = Date.now() - maxAgeDays * 86_400_000;
+    db().run('DELETE FROM history WHERE visited_at < ?', [cutoff]);
+  }
+
+  if (maxRows > 0) {
+    // Keep the newest `maxRows` entries; delete anything older than that.
+    db().run(
+      `DELETE FROM history WHERE id NOT IN (
+         SELECT id FROM history ORDER BY visited_at DESC LIMIT ?
+       )`,
+      [maxRows]
+    );
+  }
+
+  const removed = before - countHistory();
+  if (removed > 0) persist();
+  return removed;
+}
+
+/**
+ * Testing seam: history rows are always stamped with "now", so exercising the
+ * retention window requires backdating a row directly.
+ */
+export function backdateHistoryForTests(id: number, visitedAt: number): void {
+  db().run('UPDATE history SET visited_at = ? WHERE id = ?', [visitedAt, id]);
+}
+
+export function countHistory(): number {
+  const rows = queryObjects('SELECT COUNT(*) AS n FROM history');
+  return rows.length ? Number(rows[0].n ?? 0) : 0;
+}
+
 // ── Bookmarks ────────────────────────────────────────────────────────────────
 
 export function addBookmark(url: string, title: string, favicon?: string): Bookmark {
@@ -271,10 +326,9 @@ export function addBookmark(url: string, title: string, favicon?: string): Bookm
     [url, title || url, favicon ?? null, Date.now()]
   );
   persist();
-  return queryObjects(
-    'SELECT * FROM bookmarks WHERE url = ? LIMIT 1',
-    [url]
-  )[0] as unknown as Bookmark;
+  return queryObjects('SELECT * FROM bookmarks WHERE url = ? LIMIT 1', [
+    url,
+  ])[0] as unknown as Bookmark;
 }
 
 export function removeBookmark(url: string) {
@@ -291,9 +345,7 @@ export function isBookmarked(url: string): boolean {
 }
 
 export function getBookmarks(): Bookmark[] {
-  return rowsToBookmarks(
-    db().exec('SELECT * FROM bookmarks ORDER BY created_at DESC')
-  );
+  return rowsToBookmarks(db().exec('SELECT * FROM bookmarks ORDER BY created_at DESC'));
 }
 
 export function searchBookmarks(query: string): Bookmark[] {
@@ -318,7 +370,7 @@ export function closeDb() {
 
 export interface SavedPassword {
   id: number;
-  origin: string;    // e.g. "https://github.com"
+  origin: string; // e.g. "https://github.com"
   username: string;
   password?: string; // present only in single-entry lookups
   title: string;
@@ -373,11 +425,11 @@ export function normalizeOrigin(value: string): string {
 
 function toSavedPassword(row: Record<string, unknown>, withSecret: boolean): SavedPassword {
   const entry: SavedPassword = {
-    id:         Number(row.id),
-    origin:     String(row.origin ?? ''),
-    username:   String(row.username ?? ''),
-    title:      String(row.title ?? ''),
-    favicon:    row.favicon == null ? null : String(row.favicon),
+    id: Number(row.id),
+    origin: String(row.origin ?? ''),
+    username: String(row.username ?? ''),
+    title: String(row.title ?? ''),
+    favicon: row.favicon == null ? null : String(row.favicon),
     created_at: Number(row.created_at ?? 0),
     updated_at: Number(row.updated_at ?? 0),
   };
@@ -411,10 +463,10 @@ export function savePassword(
     [normalizedOrigin, trimmedUsername, encryptSecret(password), title, favicon ?? null, now, now]
   );
   persist();
-  const row = queryObjects(
-    'SELECT * FROM passwords WHERE origin = ? AND username = ? LIMIT 1',
-    [normalizedOrigin, trimmedUsername]
-  )[0];
+  const row = queryObjects('SELECT * FROM passwords WHERE origin = ? AND username = ? LIMIT 1', [
+    normalizedOrigin,
+    trimmedUsername,
+  ])[0];
   return toSavedPassword(row, true);
 }
 
@@ -440,9 +492,9 @@ export function hasPassword(origin: string, username: string, password: string):
 }
 
 export function getAllPasswords(): SavedPassword[] {
-  return queryObjects(
-    `SELECT ${LIST_COLUMNS} FROM passwords ORDER BY updated_at DESC`
-  ).map((row) => toSavedPassword(row, false));
+  return queryObjects(`SELECT ${LIST_COLUMNS} FROM passwords ORDER BY updated_at DESC`).map((row) =>
+    toSavedPassword(row, false)
+  );
 }
 
 export function getPasswordById(id: number): SavedPassword | null {

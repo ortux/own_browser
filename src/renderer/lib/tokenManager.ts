@@ -79,9 +79,7 @@ export function needsTokenRefresh(): boolean {
  * Refresh token using refresh_token
  * Returns new tokens on success, null if refresh fails
  */
-export async function refreshAccessToken(
-  baseUrl: string = getApiBaseUrl()
-): Promise<{
+export async function refreshAccessToken(baseUrl: string = getApiBaseUrl()): Promise<{
   access_token: string;
   refresh_token: string;
   token_type: string;
@@ -132,9 +130,7 @@ export async function refreshAccessToken(
  * Ensure we have a valid access token, refreshing if needed
  * Returns valid token or null if refresh fails
  */
-export async function ensureValidToken(
-  baseUrl: string = getApiBaseUrl()
-): Promise<string | null> {
+export async function ensureValidToken(baseUrl: string = getApiBaseUrl()): Promise<string | null> {
   let token = getAccessToken();
   if (token) {
     return token; // Token is still valid

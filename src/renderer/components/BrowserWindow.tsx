@@ -20,6 +20,7 @@ import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
 import { useBookmarks } from '../hooks/useBookmarks';
 import { normalizeNavigationUrl } from '../../shared/navigation';
+import { stripTrackingParams } from '../../shared/trackingParams';
 
 function looksLikeUrl(input: string): boolean {
   const trimmed = input.trim();
@@ -62,6 +63,8 @@ export const BrowserWindow: React.FC = () => {
   const setProxyEnabled = useSettingsStore((s) => s.setProxyEnabled);
   const passwordManagerEnabled = useSettingsStore((s) => s.passwordManagerEnabled);
   const restoreSession = useSettingsStore((s) => s.restoreSession);
+  const stripTracking = useSettingsStore((s) => s.stripTrackingParams);
+  const historyRetentionDays = useSettingsStore((s) => s.historyRetentionDays);
 
   // ── UI state ──
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -110,9 +113,12 @@ export const BrowserWindow: React.FC = () => {
         forceHttps && destination.startsWith('http://')
           ? `https://${destination.slice('http://'.length)}`
           : destination;
-      navigate(secureDestination);
+      // Drop campaign/click-ID parameters before the URL reaches a webview, so
+      // they never land in history or in a copied address either.
+      const cleaned = stripTracking ? stripTrackingParams(secureDestination) : secureDestination;
+      navigate(cleaned);
     },
-    [navigate, buildSearchUrl, forceHttps]
+    [navigate, buildSearchUrl, forceHttps, stripTracking]
   );
 
   const handleBookmarkToggle = useCallback(() => {
@@ -286,6 +292,12 @@ export const BrowserWindow: React.FC = () => {
   React.useEffect(() => {
     window.browserAPI.session.setRestoreEnabled(restoreSession).catch(() => {});
   }, [restoreSession]);
+
+  // Applying retention also prunes immediately, so this both configures the
+  // main process and performs the startup cleanup.
+  React.useEffect(() => {
+    window.browserAPI.history.setRetention(historyRetentionDays).catch(() => {});
+  }, [historyRetentionDays]);
 
   // The initial tab is created by the main process before the renderer can read
   // persisted settings. Mark it private while it is still a blank page so the

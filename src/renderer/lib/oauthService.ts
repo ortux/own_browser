@@ -51,10 +51,7 @@ export async function initiateOAuth(
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(
-      (data as OAuthError)?.error || 
-      `Failed to initiate ${provider} OAuth flow`
-    );
+    throw new Error((data as OAuthError)?.error || `Failed to initiate ${provider} OAuth flow`);
   }
 
   return data as OAuthInitiateResponse;
@@ -66,10 +63,7 @@ export async function initiateOAuth(
  * - Sandboxed
  * - Fixed dimensions for security
  */
-export function openOAuthPopup(
-  authUrl: string,
-  provider: string
-): Window | null {
+export function openOAuthPopup(authUrl: string, provider: string): Window | null {
   const width = 960;
   const height = 760;
   const left = window.screenX + (window.outerWidth - width) / 2;
@@ -141,7 +135,10 @@ export function waitForOAuthCallback(
       try {
         const url = popup.location.href;
         // Wait until the popup lands on our callback page
-        if (!url.includes('auth-callback.html') && !url.includes('/auth/social') || url === 'about:blank') {
+        if (
+          (!url.includes('auth-callback.html') && !url.includes('/auth/social')) ||
+          url === 'about:blank'
+        ) {
           return;
         }
 
@@ -153,22 +150,34 @@ export function waitForOAuthCallback(
           return;
         }
 
-        const accessToken  = params.get('token') || params.get('access_token') || '';
+        const accessToken = params.get('token') || params.get('access_token') || '';
         const refreshToken = params.get('refresh') || params.get('refresh_token') || '';
-        const tokenType    = params.get('token_type') || 'bearer';
-        const expiresIn    = Number(params.get('expires_in') || '900');
-        const provider     = params.get('provider') || 'google';
-        const userRaw      = params.get('user') || '';
+        const tokenType = params.get('token_type') || 'bearer';
+        const expiresIn = Number(params.get('expires_in') || '900');
+        const provider = params.get('provider') || 'google';
+        const userRaw = params.get('user') || '';
 
         if (!accessToken) return; // not on callback page yet
 
         let user: OAuthCallbackPayload['user'] | null = null;
-        try { user = JSON.parse(decodeURIComponent(userRaw)); } catch { /* ignore */ }
+        try {
+          user = JSON.parse(decodeURIComponent(userRaw));
+        } catch {
+          /* ignore */
+        }
 
         cleanup();
         resolve({
-          tokens: { access_token: accessToken, refresh_token: refreshToken, token_type: tokenType, expires_in: expiresIn },
-          user: { ...(user as any), name: (user as any)?.name || (user as any)?.display_name || '' },
+          tokens: {
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            token_type: tokenType,
+            expires_in: expiresIn,
+          },
+          user: {
+            ...(user as any),
+            name: (user as any)?.name || (user as any)?.display_name || '',
+          },
           provider,
         } as OAuthCallbackPayload);
       } catch {

@@ -128,6 +128,14 @@ interface SettingsStore {
   signUp: (email: string, password: string, name?: string) => Promise<void>;
   applyAuthSession: (payload: { tokens: AuthTokens; user: AuthUser }) => Promise<void>;
 
+  /** Strip utm_/gclid/fbclid-style parameters from URLs before navigating. */
+  stripTrackingParams: boolean;
+  setStripTrackingParams: (enabled: boolean) => void;
+
+  /** Days of history to keep. 0 keeps everything. */
+  historyRetentionDays: number;
+  setHistoryRetentionDays: (days: number) => void;
+
   // Startup
   /** Reopen the previous tabs on launch instead of a single blank tab. */
   restoreSession: boolean;
@@ -263,6 +271,12 @@ export const useSettingsStore = create<SettingsStore>()(
       chooseGuest: () => set({ guestMode: true }),
       completeOnboarding: () => set({ onboardingCompleted: true }),
       agreeToTerms: () => set({}),
+
+      stripTrackingParams: true,
+      setStripTrackingParams: (enabled) => set({ stripTrackingParams: enabled }),
+
+      historyRetentionDays: 0,
+      setHistoryRetentionDays: (days) => set({ historyRetentionDays: days }),
 
       restoreSession: false,
       setRestoreSession: (enabled) => set({ restoreSession: enabled }),

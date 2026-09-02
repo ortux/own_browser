@@ -11,10 +11,8 @@
  * surface an error, so it does not belong alongside data the user would miss.
  */
 
-import { app } from 'electron';
-import path from 'path';
-import fs from 'fs';
 import { isAllowedNavigationUrl } from '../shared/navigation';
+import { DebouncedWriter, readJsonFile, removeJsonFile, isRecord } from './jsonStore';
 
 /** Only the fields needed to rebuild a tab. Runtime flags are not persisted. */
 export interface PersistedTab {
@@ -43,31 +41,8 @@ const MAX_TABS = 100;
 const MAX_URL_LENGTH = 8_192;
 const MAX_TITLE_LENGTH = 1_000;
 
-function sessionPath(): string {
-  return path.join(app.getPath('userData'), FILENAME);
-}
-
 /** Writes are debounced: normal browsing would otherwise hit the disk constantly. */
-let writeTimer: NodeJS.Timeout | null = null;
-let pending: PersistedSession | null = null;
-
-function writeNow(session: PersistedSession): void {
-  const target = sessionPath();
-  const temp = `${target}.tmp-${process.pid}`;
-  try {
-    fs.writeFileSync(temp, JSON.stringify(session));
-    // Rename is atomic on the same filesystem, so a crash mid-write cannot
-    // leave a half-written session behind.
-    fs.renameSync(temp, target);
-  } catch (error) {
-    try {
-      fs.rmSync(temp, { force: true });
-    } catch {
-      /* best effort */
-    }
-    console.error('[session] could not persist open tabs:', error);
-  }
-}
+const writer = new DebouncedWriter<PersistedSession>(FILENAME, 2_000);
 
 function toPersisted(tabs: PersistedTab[], activeIndex: number): PersistedSession {
   return {
@@ -87,31 +62,14 @@ export function scheduleSessionSave(
   activeIndex: number,
   delayMs = 2_000
 ): void {
-  pending = toPersisted(tabs, activeIndex);
-  if (writeTimer) return;
-  writeTimer = setTimeout(() => {
-    writeTimer = null;
-    if (pending) {
-      writeNow(pending);
-      pending = null;
-    }
-  }, delayMs);
+  writer.schedule(toPersisted(tabs, activeIndex), delayMs);
 }
 
 /** Write immediately, bypassing the debounce. Used on quit. */
 export function flushSessionSave(tabs?: PersistedTab[], activeIndex?: number): void {
-  if (writeTimer) {
-    clearTimeout(writeTimer);
-    writeTimer = null;
-  }
-  const session =
-    tabs !== undefined && activeIndex !== undefined ? toPersisted(tabs, activeIndex) : pending;
-  pending = null;
-  if (session) writeNow(session);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  writer.flush(
+    tabs !== undefined && activeIndex !== undefined ? toPersisted(tabs, activeIndex) : undefined
+  );
 }
 
 /**
@@ -142,24 +100,7 @@ function parseTab(value: unknown): PersistedTab | null {
  * not understand.
  */
 export function loadSession(): PersistedSession | null {
-  const target = sessionPath();
-  let raw: string;
-  try {
-    if (!fs.existsSync(target)) return null;
-    raw = fs.readFileSync(target, 'utf8');
-  } catch (error) {
-    console.error('[session] could not read saved tabs:', error);
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    console.error('[session] saved tabs were not valid JSON; ignoring:', error);
-    return null;
-  }
-
+  const parsed = readJsonFile(FILENAME);
   if (!isRecord(parsed) || parsed.version !== CURRENT_VERSION) return null;
   if (!Array.isArray(parsed.tabs)) return null;
 
@@ -186,14 +127,6 @@ export function loadSession(): PersistedSession | null {
 
 /** Forget the saved session (used when the user turns restore off). */
 export function clearSession(): void {
-  if (writeTimer) {
-    clearTimeout(writeTimer);
-    writeTimer = null;
-  }
-  pending = null;
-  try {
-    fs.rmSync(sessionPath(), { force: true });
-  } catch (error) {
-    console.error('[session] could not clear saved tabs:', error);
-  }
+  writer.cancel();
+  removeJsonFile(FILENAME);
 }

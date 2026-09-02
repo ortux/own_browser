@@ -69,7 +69,7 @@ Scope:
 - Never persist private tabs — they already carry `privateMode`, so the filter
   is trivial, but it must not be forgotten.
 
-### 1.2 Window bounds persistence — *small*
+### 1.2 Window bounds persistence — *small* — ✅ DONE
 
 `createWindow()` hardcodes `width: 1200, height: 800` every launch. Resize and
 maximise state are discarded. Users on ultrawide or small laptop screens
@@ -79,7 +79,7 @@ Store bounds + maximised flag; validate on restore that the saved rectangle
 still intersects a currently-connected display, or a window from an
 unplugged second monitor becomes unreachable.
 
-### 1.3 Per-site zoom that persists — *small*
+### 1.3 Per-site zoom that persists — *small* — ✅ DONE
 
 `useBrowser.ts` `zoom()` calls `wv.setZoomFactor()` on the live webview only.
 The value is lost on navigation and on restart. Anyone who zooms because a site
@@ -89,7 +89,7 @@ Persist zoom keyed by origin and re-apply on `did-navigate`. The passwords work
 already established the origin-normalisation helper (`normalizeOrigin` in
 `db.ts`) — reuse it so `https://x.com/a` and `https://x.com/b` share a level.
 
-### 1.4 History retention policy — *small*
+### 1.4 History retention policy — *small* — ✅ DONE
 
 `addHistory` has no cap and no pruning. `db.ts` grows forever, and because
 persistence is sql.js the **entire database is serialised and rewritten to disk
@@ -104,7 +104,7 @@ browsing makes every page visit progressively slower. Add a retention setting
 > migrating to `better-sqlite3` is the real fix, but that is a build-system
 > change (native module, rebuild step) and out of scope for a feature list.
 
-### 1.5 Tracking-parameter stripping — *small*
+### 1.5 Tracking-parameter stripping — *small* — ✅ DONE
 
 The README sells "Privacy: tracker blocking", and `adblock.ts` does block
 network requests via Ghostery. But nothing strips `utm_*`, `fbclid`, `gclid`,
@@ -176,7 +176,10 @@ standard approach and runs comfortably in the guest context.
 1. ~~**0.1 + 0.2** — stop the UI making false promises.~~ ✅ done
 2. ~~**1.1 session restore**~~ ✅ done — `src/main/session.ts`, opt-in via
    Settings → General → "Continue where you left off".
-3. **1.2, 1.3, 1.4, 1.5** — small, independent, each individually noticeable.
+3. ~~**1.2, 1.3, 1.4, 1.5**~~ ✅ done — `src/main/windowState.ts`,
+   `src/main/zoom.ts`, `pruneHistory()` in `src/main/db.ts`, and
+   `src/shared/trackingParams.ts`. All four share the atomic-write and
+   debounce helpers in `src/main/jsonStore.ts`.
    Next up.
 4. **1.6 → 2.1** — audio state first, then sleeping, since sleeping must not
    silence a playing tab.

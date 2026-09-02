@@ -18,9 +18,7 @@ export interface SettingsSyncResponse {
 /**
  * Save settings to backend
  */
-export async function saveSettingsToBackend(
-  settings: UserSettings
-): Promise<boolean> {
+export async function saveSettingsToBackend(settings: UserSettings): Promise<boolean> {
   try {
     console.debug('[settings-sync] Saving to backend:', Object.keys(settings));
 
@@ -49,10 +47,7 @@ export async function loadSettingsFromBackend(): Promise<UserSettings | null> {
   try {
     console.debug('[settings-sync] Loading from backend');
 
-    const response = await apiClient.get(
-      '/api/v1/sync/settings',
-      { requireAuth: true }
-    );
+    const response = await apiClient.get('/api/v1/sync/settings', { requireAuth: true });
 
     if (response.ok && response.data) {
       const data = response.data as SettingsSyncResponse;
@@ -82,7 +77,7 @@ export function mergeSettings(
   }
 
   const now = Date.now();
-  const isLocalRecent = (now - localTimestamp) < 60 * 1000; // < 1 minute
+  const isLocalRecent = now - localTimestamp < 60 * 1000; // < 1 minute
 
   if (isLocalRecent) {
     // Local settings are recent, use them
@@ -96,12 +91,7 @@ export function mergeSettings(
 /**
  * Settings keys that should NOT be synced (device-specific)
  */
-const NO_SYNC_KEYS = new Set([
-  'downloadPath',
-  'openDownloadsOnStart',
-  'proxy',
-  'proxyEnabled',
-]);
+const NO_SYNC_KEYS = new Set(['downloadPath', 'openDownloadsOnStart', 'proxy', 'proxyEnabled']);
 
 /**
  * Filter settings for sync (remove device-specific ones)

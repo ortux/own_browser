@@ -5,13 +5,13 @@ import type { ProxyInfo } from '../stores/settingsStore';
 type ProxyStatus = 'idle' | 'fetching' | 'verifying' | 'active' | 'failed';
 
 export function useProxy() {
-  const proxy        = useSettingsStore((s) => s.proxy);
+  const proxy = useSettingsStore((s) => s.proxy);
   const proxyEnabled = useSettingsStore((s) => s.proxyEnabled);
-  const setProxy     = useSettingsStore((s) => s.setProxy);
+  const setProxy = useSettingsStore((s) => s.setProxy);
   const setProxyEnabled = useSettingsStore((s) => s.setProxyEnabled);
 
-  const [status, setStatus]       = useState<ProxyStatus>(proxyEnabled && proxy ? 'active' : 'idle');
-  const [error,  setError]        = useState<string | null>(null);
+  const [status, setStatus] = useState<ProxyStatus>(proxyEnabled && proxy ? 'active' : 'idle');
+  const [error, setError] = useState<string | null>(null);
 
   /** Fetch a new proxy, verify it, and apply it to the session. */
   const fetchAndApply = useCallback(async () => {
@@ -25,7 +25,9 @@ export function useProxy() {
       const working = await window.browserAPI.proxy.verify(p);
       if (!working) {
         await window.browserAPI.proxy.clear().catch(() => {});
-        throw new Error('The selected proxy did not respond. Browsing remains on the direct connection.');
+        throw new Error(
+          'The selected proxy did not respond. Browsing remains on the direct connection.'
+        );
       }
       setProxy(p);
       setProxyEnabled(true);
@@ -43,7 +45,9 @@ export function useProxy() {
   const disable = useCallback(async () => {
     try {
       await window.browserAPI.proxy.clear();
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
     setProxyEnabled(false);
     setStatus('idle');
     setError(null);

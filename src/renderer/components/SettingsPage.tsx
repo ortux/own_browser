@@ -119,6 +119,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
     setPasswordManagerEnabled,
     restoreSession,
     setRestoreSession,
+    stripTrackingParams,
+    setStripTrackingParams,
+    historyRetentionDays,
+    setHistoryRetentionDays,
     signOut,
   } = useSettingsStore();
 
@@ -427,6 +431,58 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                   >
                     Delete all
                   </button>
+                </div>
+              </MdCard>
+
+              <MdCard className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text)]">
+                      Remove tracking parameters
+                    </div>
+                    <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                      Strip utm_, gclid, fbclid and similar tags from addresses before loading them.
+                    </div>
+                  </div>
+                  <MdSwitch
+                    checked={stripTrackingParams}
+                    onChange={() => setStripTrackingParams(!stripTrackingParams)}
+                  />
+                </div>
+                <div className="rounded-md bg-[var(--surface-2)] px-3 py-3 text-xs text-[var(--text-faint)]">
+                  {stripTrackingParams
+                    ? 'Campaign and click-ID parameters are removed, so they never reach the site, your history, or a copied link.'
+                    : 'Addresses are loaded exactly as given, including any tracking parameters they carry.'}
+                </div>
+              </MdCard>
+
+              <MdCard className="space-y-3.5">
+                <div>
+                  <div className="text-sm font-medium text-[var(--text)]">History retention</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                    Older entries are removed automatically at startup.
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: '30 days', value: 30 },
+                    { label: '90 days', value: 90 },
+                    { label: '1 year', value: 365 },
+                    { label: 'Forever', value: 0 },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setHistoryRetentionDays(option.value)}
+                      className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                        historyRetentionDays === option.value
+                          ? 'border-[var(--border-strong)] bg-[var(--surface-2)] font-medium text-[var(--text)]'
+                          : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--hover)]'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
               </MdCard>
 

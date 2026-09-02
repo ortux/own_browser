@@ -15,7 +15,9 @@ import {
 
 await initDb();
 
-test.beforeEach(() => { clearPasswords(); });
+test.beforeEach(() => {
+  clearPasswords();
+});
 
 test('origins are normalised so one site keeps one credential set', () => {
   assert.equal(normalizeOrigin('https://github.com/login?next=/a'), 'https://github.com');
@@ -25,7 +27,13 @@ test('origins are normalised so one site keeps one credential set', () => {
 });
 
 test('a saved credential round-trips through encryption', () => {
-  const saved = savePassword('https://github.com/login', ' alice ', 'hunter2', 'GitHub', 'https://f.ico');
+  const saved = savePassword(
+    'https://github.com/login',
+    ' alice ',
+    'hunter2',
+    'GitHub',
+    'https://f.ico'
+  );
   assert.equal(saved.origin, 'https://github.com');
   assert.equal(saved.username, 'alice', 'whitespace is trimmed');
   assert.equal(saved.password, 'hunter2');

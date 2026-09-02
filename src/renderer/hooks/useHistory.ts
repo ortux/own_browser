@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { HistoryEntry } from '../../shared/types';
 
 export function useHistory() {
-  const [entries,   setEntries]   = useState<HistoryEntry[]>([]);
-  const [loading,   setLoading]   = useState(false);
-  const [query,     setQuery]     = useState('');
+  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState('');
   const requestNumber = useRef(0);
 
   const load = useCallback(async (q?: string) => {
@@ -26,7 +26,9 @@ export function useHistory() {
     }
   }, []);
 
-  useEffect(() => { load(query); }, [query, load]);
+  useEffect(() => {
+    load(query);
+  }, [query, load]);
 
   const deleteEntry = useCallback(async (id: number) => {
     try {

@@ -87,16 +87,34 @@ export const useBrowser = () => {
     if (wv) wv.stop();
   }, [store.activeTabId]);
 
-  const zoom = useCallback((delta: number) => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (!wv) return;
-    wv.setZoomFactor(Math.min(3, Math.max(0.5, wv.getZoomFactor() + delta)));
-  }, [store.activeTabId]);
+  // Zoom is stored per origin in the main process, so it survives both the
+  // next navigation and a restart. The webview is updated immediately and the
+  // level is written back for the site currently loaded in it.
+  const applyZoom = useCallback(
+    (compute: (current: number) => number) => {
+      const tabId = store.activeTabId;
+      const wv = webviewRegistry.get(tabId);
+      if (!wv) return;
 
-  const resetZoom = useCallback(() => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (wv) wv.setZoomFactor(1);
-  }, [store.activeTabId]);
+      const next = Math.min(3, Math.max(0.5, compute(wv.getZoomFactor())));
+      wv.setZoomFactor(next);
+
+      let url = '';
+      try {
+        url = wv.getURL();
+      } catch {
+        // Guest not attached yet; nothing worth remembering.
+        return;
+      }
+      if (!url || url === 'about:blank') return;
+      void window.browserAPI.zoom.set(url, next).catch(() => {});
+    },
+    [store.activeTabId]
+  );
+
+  const zoom = useCallback((delta: number) => applyZoom((current) => current + delta), [applyZoom]);
+
+  const resetZoom = useCallback(() => applyZoom(() => 1), [applyZoom]);
 
   const printPage = useCallback(() => {
     const wv = webviewRegistry.get(store.activeTabId);

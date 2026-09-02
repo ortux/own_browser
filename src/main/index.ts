@@ -18,6 +18,8 @@ import {
   normalizeNavigationUrl,
 } from '../shared/navigation';
 import { registerPexelsHandlers } from './pexels';
+import { getZoomForUrl, setZoomForUrl, clearZoomLevels, flushZoomLevels } from './zoom';
+import { loadWindowState, trackWindowState, flushWindowState } from './windowState';
 import {
   scheduleSessionSave,
   flushSessionSave,
@@ -40,6 +42,7 @@ import {
   searchHistory,
   deleteHistoryEntry,
   clearHistory,
+  pruneHistory,
   addBookmark,
   removeBookmark,
   isBookmarked,
@@ -74,7 +77,11 @@ import {
   detachAdblockFromSession,
 } from './adblock';
 import { initCertificateMonitor, getCertInfo } from './certificate';
-import { configureSessionPermissions, clearPermissionDecisions, handlePermissionResponse } from './permissions';
+import {
+  configureSessionPermissions,
+  clearPermissionDecisions,
+  handlePermissionResponse,
+} from './permissions';
 import { configureAdGuardDns } from './dns';
 import {
   initDownloads,
@@ -111,7 +118,6 @@ configureAdGuardDns();
  * different browser family or launch an external browser to satisfy OAuth.
  */
 
-
 function canOpenInTab(value: string): boolean {
   return isHttpNavigationUrl(value);
 }
@@ -142,14 +148,20 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
     case 'get-closed-tabs':
       return true;
     case 'restore-closed-tab':
-      return value.index === undefined
-        || (typeof value.index === 'number' && Number.isSafeInteger(value.index) && value.index >= 0 && value.index < 20);
+      return (
+        value.index === undefined ||
+        (typeof value.index === 'number' &&
+          Number.isSafeInteger(value.index) &&
+          value.index >= 0 &&
+          value.index < 20)
+      );
     case 'navigate':
-      return isBoundedString(value.tabId, 200)
-        && isBoundedString(value.url, 8_192);
+      return isBoundedString(value.tabId, 200) && isBoundedString(value.url, 8_192);
     case 'create-tab-url':
-      return isBoundedString(value.url, 8_192)
-        && (value.privateMode === undefined || typeof value.privateMode === 'boolean');
+      return (
+        isBoundedString(value.url, 8_192) &&
+        (value.privateMode === undefined || typeof value.privateMode === 'boolean')
+      );
     case 'close-tab':
     case 'activate-tab':
     case 'duplicate-tab':
@@ -159,44 +171,65 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
     case 'stop':
       return isBoundedString(value.tabId, 200);
     case 'webview-title-updated':
-      return isBoundedString(value.tabId, 200)
-        && isBoundedString(value.title, 1_000);
+      return isBoundedString(value.tabId, 200) && isBoundedString(value.title, 1_000);
     case 'webview-favicon-updated':
-      return isBoundedString(value.tabId, 200)
-        && isBoundedString(value.favicon, 8_192);
+      return isBoundedString(value.tabId, 200) && isBoundedString(value.favicon, 8_192);
     case 'webview-loading':
       return isBoundedString(value.tabId, 200) && typeof value.loading === 'boolean';
     case 'webview-nav-state':
-      return isBoundedString(value.tabId, 200)
-        && isBoundedString(value.url, 8_192)
-        && typeof value.canGoBack === 'boolean'
-        && typeof value.canGoForward === 'boolean';
+      return (
+        isBoundedString(value.tabId, 200) &&
+        isBoundedString(value.url, 8_192) &&
+        typeof value.canGoBack === 'boolean' &&
+        typeof value.canGoForward === 'boolean'
+      );
     case 'webview-attached':
-      return isBoundedString(value.tabId, 200)
-        && typeof value.webContentsId === 'number'
-        && Number.isSafeInteger(value.webContentsId)
-        && value.webContentsId > 0;
+      return (
+        isBoundedString(value.tabId, 200) &&
+        typeof value.webContentsId === 'number' &&
+        Number.isSafeInteger(value.webContentsId) &&
+        value.webContentsId > 0
+      );
     case 'security-settings':
       return typeof value.forceHttps === 'boolean' && typeof value.doNotTrack === 'boolean';
     case 'session-restore-setting':
       return typeof value.enabled === 'boolean';
+    case 'history-retention':
+      return (
+        typeof value.days === 'number' &&
+        Number.isInteger(value.days) &&
+        value.days >= 0 &&
+        value.days <= 3_650
+      );
+    case 'zoom-get':
+      return isBoundedString(value.url, 8_192);
+    case 'zoom-set':
+      return (
+        isBoundedString(value.url, 8_192) &&
+        typeof value.factor === 'number' &&
+        Number.isFinite(value.factor)
+      );
     case 'set-tab-private':
       return isBoundedString(value.tabId, 200) && typeof value.privateMode === 'boolean';
     case 'permission-response':
       return isBoundedString(value.requestId, 200) && typeof value.allow === 'boolean';
     case 'webview-credentials':
-      return isBoundedString(value.tabId, 200)
-        && isBoundedString(value.origin, 2_048)
-        && isBoundedString(value.username, 512)
-        && value.username.length > 0
-        && isBoundedString(value.password, 8_192)
-        && value.password.length > 0
-        && isBoundedString(value.title, 1_000)
-        && (value.favicon === undefined || isBoundedString(value.favicon, 8_192));
+      return (
+        isBoundedString(value.tabId, 200) &&
+        isBoundedString(value.origin, 2_048) &&
+        isBoundedString(value.username, 512) &&
+        value.username.length > 0 &&
+        isBoundedString(value.password, 8_192) &&
+        value.password.length > 0 &&
+        isBoundedString(value.title, 1_000) &&
+        (value.favicon === undefined || isBoundedString(value.favicon, 8_192))
+      );
     case 'autofill-credentials':
-      return isBoundedString(value.tabId, 200)
-        && isBoundedString(value.username, 512)
-        && isBoundedString(value.password, 8_192);
+      return (
+        isBoundedString(value.tabId, 200) &&
+        isBoundedString(value.username, 512) &&
+        isBoundedString(value.password, 8_192)
+      );
     default:
       return false;
   }
@@ -206,8 +239,7 @@ function isTrustedMainFrame(event: {
   sender: Electron.WebContents;
   senderFrame: Electron.WebFrameMain | null;
 }): boolean {
-  return event.sender === mainWindow?.webContents
-    && event.senderFrame === event.sender.mainFrame;
+  return event.sender === mainWindow?.webContents && event.senderFrame === event.sender.mainFrame;
 }
 
 function assertTrustedMainFrame(event: {
@@ -223,21 +255,23 @@ function isBoundedString(value: unknown, maximum: number): value is string {
 
 function isProxyInfo(value: unknown): value is ProxyInfo {
   if (!isRecord(value)) return false;
-  return isBoundedString(value.ip, 253)
-    && value.ip.length > 0
-    && /^[a-z\d.:[\]-]+$/i.test(value.ip)
-    && isBoundedString(value.port, 5)
-    && /^\d+$/.test(value.port)
-    && isBoundedString(value.ipPort, 259)
-    && isBoundedString(value.country, 32)
-    && isBoundedString(value.type, 16)
-    && isBoundedString(value.proxyLevel, 32)
-    && typeof value.supportsHttps === 'boolean'
-    && typeof value.speed === 'number'
-    && Number.isFinite(value.speed)
-    && typeof value.fetchedAt === 'number'
-    && Number.isFinite(value.fetchedAt)
-    && value.ipPort === `${value.ip}:${value.port}`;
+  return (
+    isBoundedString(value.ip, 253) &&
+    value.ip.length > 0 &&
+    /^[a-z\d.:[\]-]+$/i.test(value.ip) &&
+    isBoundedString(value.port, 5) &&
+    /^\d+$/.test(value.port) &&
+    isBoundedString(value.ipPort, 259) &&
+    isBoundedString(value.country, 32) &&
+    isBoundedString(value.type, 16) &&
+    isBoundedString(value.proxyLevel, 32) &&
+    typeof value.supportsHttps === 'boolean' &&
+    typeof value.speed === 'number' &&
+    Number.isFinite(value.speed) &&
+    typeof value.fetchedAt === 'number' &&
+    Number.isFinite(value.fetchedAt) &&
+    value.ipPort === `${value.ip}:${value.port}`
+  );
 }
 
 // Store for browser state
@@ -257,9 +291,12 @@ let nextTabId = 1;
  * - preload: explicit preload script with limited IPC
  */
 function createWindow() {
+  const savedWindow = loadWindowState();
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: savedWindow.width,
+    height: savedWindow.height,
+    x: savedWindow.x,
+    y: savedWindow.y,
     minWidth: 600,
     minHeight: 400,
     autoHideMenuBar: true,
@@ -273,22 +310,24 @@ function createWindow() {
     },
     icon: path.join(__dirname, '../../public/icon.png'),
   });
+  if (savedWindow.maximised) mainWindow.maximize();
+  trackWindowState(mainWindow);
   setMainWindow(mainWindow);
 
   const isDev = process.env.NODE_ENV === 'development';
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL
-    ?? (isDev ? 'http://localhost:5173' : '');
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? (isDev ? 'http://localhost:5173' : '');
 
   if (rendererUrl) {
     void mainWindow.loadURL(rendererUrl).catch((error: unknown) => {
       console.error('[renderer] failed to load dev server:', error);
     });
   } else {
-    void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html')).catch((error: unknown) => {
-      console.error('[renderer] failed to load bundled UI:', error);
-    });
+    void mainWindow
+      .loadFile(path.join(__dirname, '../renderer/index.html'))
+      .catch((error: unknown) => {
+        console.error('[renderer] failed to load bundled UI:', error);
+      });
   }
-
 
   // A shell renderer crash otherwise presents as an entirely black window with
   // no explanation. Keep the event visible in the main-process log; guest
@@ -349,13 +388,14 @@ function createNewTab(rawUrl?: string, privateMode = false): string {
   const tabId = `tab-${nextTabId++}`;
   // Give internal pages a friendly title up-front so the tab strip reads well.
   const isInternal = !!url && url.startsWith('zyphora://');
-  const title = !url || url === 'about:blank'
-    ? 'New Tab'
-    : isInternal
-      ? url === 'zyphora://downloads'
-        ? 'Downloads'
-        : 'Zyphora'
-      : 'Loading...';
+  const title =
+    !url || url === 'about:blank'
+      ? 'New Tab'
+      : isInternal
+        ? url === 'zyphora://downloads'
+          ? 'Downloads'
+          : 'Zyphora'
+        : 'Loading...';
   const tab: Tab = {
     id: tabId,
     url: url || 'about:blank',
@@ -461,6 +501,9 @@ function updateRendererState() {
  */
 let restoreSessionEnabled = false;
 
+/** Days of history to keep; 0 means keep forever. Pushed from the renderer. */
+let historyRetentionDays = 0;
+
 /** Tabs worth writing to disk: real pages, never private ones or blank tabs. */
 function persistableTabs(): { tabs: PersistedTab[]; activeIndex: number } {
   const ordered = [...tabs.values()].filter(
@@ -511,114 +554,127 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
   }
 
   switch (message.type) {
-      case 'navigate': {
-        const url = normalizeNavigationUrl(message.url);
-        if (!url) return { success: false, error: 'unsupported-url' };
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          tab.url = url;
-          if (tab.url === 'about:blank') {
-            tab.title = 'New Tab';
-            tab.loading = false;
-            tab.favicon = undefined;
-            tab.canGoBack = false;
-            tab.canGoForward = false;
-          } else {
-            tab.title = 'Loading...';
-            tab.loading = true;
-            tab.favicon = undefined;
-          }
-          updateRendererState();
+    case 'navigate': {
+      const url = normalizeNavigationUrl(message.url);
+      if (!url) return { success: false, error: 'unsupported-url' };
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        tab.url = url;
+        if (tab.url === 'about:blank') {
+          tab.title = 'New Tab';
+          tab.loading = false;
+          tab.favicon = undefined;
+          tab.canGoBack = false;
+          tab.canGoForward = false;
+        } else {
+          tab.title = 'Loading...';
+          tab.loading = true;
+          tab.favicon = undefined;
         }
-        break;
+        updateRendererState();
       }
-      case 'create-tab':
-        createNewTab(undefined, message.privateMode ?? false);
-        break;
-      case 'create-tab-url':
-        createNewTab(message.url, message.privateMode ?? false);
-        break;
-      case 'close-tab':
-        closeTab(message.tabId);
-        break;
-      case 'activate-tab':
-        if (tabs.has(message.tabId)) {
-          activeTabId = message.tabId;
-          updateRendererState();
-        }
-        break;
-      case 'duplicate-tab': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          createNewTab(tab.url, tab.privateMode);
-        }
-        break;
+      break;
+    }
+    case 'create-tab':
+      createNewTab(undefined, message.privateMode ?? false);
+      break;
+    case 'create-tab-url':
+      createNewTab(message.url, message.privateMode ?? false);
+      break;
+    case 'close-tab':
+      closeTab(message.tabId);
+      break;
+    case 'activate-tab':
+      if (tabs.has(message.tabId)) {
+        activeTabId = message.tabId;
+        updateRendererState();
       }
-      case 'restore-closed-tab':
-        restoreClosedTab(message.index ?? 0);
-        break;
-      case 'get-closed-tabs':
-        return getClosedTabs();
-      case 'webview-attached': {
-        if (tabs.has(message.tabId)) {
-          tabByWebContentsId.set(message.webContentsId, message.tabId);
-        }
-        break;
+      break;
+    case 'duplicate-tab': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        createNewTab(tab.url, tab.privateMode);
       }
-      case 'security-settings':
-        setNetworkSecuritySettings({
-          forceHttps: message.forceHttps,
-          doNotTrack: message.doNotTrack,
-        });
-        break;
-      case 'session-restore-setting':
-        setRestoreSessionEnabled(message.enabled);
-        break;
-      case 'set-tab-private': {
-        const tab = tabs.get(message.tabId);
-        if (tab && tab.url === 'about:blank' && !tab.privateMode) {
-          tab.privateMode = message.privateMode;
-          updateRendererState();
-        }
-        break;
+      break;
+    }
+    case 'restore-closed-tab':
+      restoreClosedTab(message.index ?? 0);
+      break;
+    case 'get-closed-tabs':
+      return getClosedTabs();
+    case 'webview-attached': {
+      if (tabs.has(message.tabId)) {
+        tabByWebContentsId.set(message.webContentsId, message.tabId);
       }
-      case 'permission-response': {
-        if (typeof message.requestId === 'string' && typeof message.allow === 'boolean') {
-          handlePermissionResponse(message.requestId, message.allow);
-        }
-        break;
+      break;
+    }
+    case 'security-settings':
+      setNetworkSecuritySettings({
+        forceHttps: message.forceHttps,
+        doNotTrack: message.doNotTrack,
+      });
+      break;
+    case 'session-restore-setting':
+      setRestoreSessionEnabled(message.enabled);
+      break;
+    case 'history-retention': {
+      historyRetentionDays = message.days;
+      const removed = pruneHistory(historyRetentionDays);
+      if (removed > 0) console.log(`[history] pruned ${removed} entries`);
+      return { removed };
+    }
+    case 'zoom-get':
+      return { factor: getZoomForUrl(message.url) };
+    case 'zoom-set':
+      return { factor: setZoomForUrl(message.url, message.factor) };
+    case 'set-tab-private': {
+      const tab = tabs.get(message.tabId);
+      if (tab && tab.url === 'about:blank' && !tab.privateMode) {
+        tab.privateMode = message.privateMode;
+        updateRendererState();
       }
-      case 'webview-credentials': {
-        // Never capture credentials typed in a private tab.
-        const sourceTab = tabs.get(message.tabId);
-        if (sourceTab?.privateMode) break;
-        // Nothing to ask about when this exact pair is already stored.
-        try {
-          if (hasPassword(message.origin, message.username, message.password)) break;
-        } catch (error) {
-          console.error('[passwords] lookup failed:', error);
-        }
-        mainWindow?.webContents.send('save-password-prompt', {
-          origin:   normalizeOrigin(message.origin),
-          username: message.username,
-          password: message.password,
-          title:    message.title ?? '',
-          favicon:  message.favicon ?? sourceTab?.favicon,
-        });
-        break;
+      break;
+    }
+    case 'permission-response': {
+      if (typeof message.requestId === 'string' && typeof message.allow === 'boolean') {
+        handlePermissionResponse(message.requestId, message.allow);
       }
-      case 'autofill-credentials': {
-        const guestId = [...tabByWebContentsId.entries()]
-          .find(([, tid]) => tid === message.tabId)?.[0];
-        const wc = guestId === undefined ? null : webContents.fromId(guestId);
-        if (!wc || wc.isDestroyed()) return { ok: false, reason: 'tab-not-ready' };
+      break;
+    }
+    case 'webview-credentials': {
+      // Never capture credentials typed in a private tab.
+      const sourceTab = tabs.get(message.tabId);
+      if (sourceTab?.privateMode) break;
+      // Nothing to ask about when this exact pair is already stored.
+      try {
+        if (hasPassword(message.origin, message.username, message.password)) break;
+      } catch (error) {
+        console.error('[passwords] lookup failed:', error);
+      }
+      mainWindow?.webContents.send('save-password-prompt', {
+        origin: normalizeOrigin(message.origin),
+        username: message.username,
+        password: message.password,
+        title: message.title ?? '',
+        favicon: message.favicon ?? sourceTab?.favicon,
+      });
+      break;
+    }
+    case 'autofill-credentials': {
+      const guestId = [...tabByWebContentsId.entries()].find(
+        ([, tid]) => tid === message.tabId
+      )?.[0];
+      const wc = guestId === undefined ? null : webContents.fromId(guestId);
+      if (!wc || wc.isDestroyed()) return { ok: false, reason: 'tab-not-ready' };
 
-        const u = JSON.stringify(message.username);
-        const p = JSON.stringify(message.password);
-        // React and other frameworks track input state internally, so setting
-        // `.value` alone is silently reverted. Use the native value setter and
-        // fire the events a real keystroke would produce.
-        const filled = await wc.executeJavaScript(`
+      const u = JSON.stringify(message.username);
+      const p = JSON.stringify(message.password);
+      // React and other frameworks track input state internally, so setting
+      // `.value` alone is silently reverted. Use the native value setter and
+      // fire the events a real keystroke would produce.
+      const filled = await wc
+        .executeJavaScript(
+          `
           (function() {
             function setValue(el, value) {
               var proto = Object.getPrototypeOf(el);
@@ -653,97 +709,99 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
             pwd.focus();
             return true;
           })();
-        `).catch(() => false);
-        return { ok: Boolean(filled) };
+        `
+        )
+        .catch(() => false);
+      return { ok: Boolean(filled) };
+    }
+    case 'get-state':
+      return getState();
+    case 'go-back': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        tab.title = 'Loading...';
+        updateRendererState();
       }
-      case 'get-state':
-        return getState();
-      case 'go-back': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          tab.title = 'Loading...';
-          updateRendererState();
-        }
-        break;
+      break;
+    }
+    case 'go-forward': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        tab.title = 'Loading...';
+        updateRendererState();
       }
-      case 'go-forward': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          tab.title = 'Loading...';
-          updateRendererState();
-        }
-        break;
+      break;
+    }
+    case 'reload': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        tab.loading = true;
+        updateRendererState();
       }
-      case 'reload': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          tab.loading = true;
-          updateRendererState();
-        }
-        break;
+      break;
+    }
+    case 'stop': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        tab.loading = false;
+        updateRendererState();
       }
-      case 'stop': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
+      break;
+    }
+    case 'webview-title-updated': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        tab.title = message.title || tab.title;
+        if (!tab.privateMode) updateHistoryMetadata(tab.url, tab.title, tab.favicon);
+        updateRendererState();
+      }
+      break;
+    }
+    case 'webview-favicon-updated': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        tab.favicon = message.favicon;
+        if (!tab.privateMode) updateHistoryMetadata(tab.url, tab.title, tab.favicon);
+        updateRendererState();
+      }
+      break;
+    }
+    case 'webview-loading': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        tab.loading = message.loading;
+        updateRendererState();
+      }
+      break;
+    }
+    case 'webview-nav-state': {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
+        // Chromium reports chrome-error://chromewebdata/ after DNS, TLS, or
+        // connection failures. Never copy that internal URL into our tab
+        // model; doing so makes the next render try to load the error page
+        // itself and can leave a black/empty webview.
+        if (!isAllowedNavigationUrl(message.url)) {
           tab.loading = false;
-          updateRendererState();
-        }
-        break;
-      }
-      case 'webview-title-updated': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          tab.title = message.title || tab.title;
-          if (!tab.privateMode) updateHistoryMetadata(tab.url, tab.title, tab.favicon);
-          updateRendererState();
-        }
-        break;
-      }
-      case 'webview-favicon-updated': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          tab.favicon = message.favicon;
-          if (!tab.privateMode) updateHistoryMetadata(tab.url, tab.title, tab.favicon);
-          updateRendererState();
-        }
-        break;
-      }
-      case 'webview-loading': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          tab.loading = message.loading;
-          updateRendererState();
-        }
-        break;
-      }
-      case 'webview-nav-state': {
-        const tab = tabs.get(message.tabId);
-        if (tab) {
-          // Chromium reports chrome-error://chromewebdata/ after DNS, TLS, or
-          // connection failures. Never copy that internal URL into our tab
-          // model; doing so makes the next render try to load the error page
-          // itself and can leave a black/empty webview.
-          if (!isAllowedNavigationUrl(message.url)) {
-            tab.loading = false;
-            tab.canGoBack = message.canGoBack;
-            tab.canGoForward = message.canGoForward;
-            updateRendererState();
-            break;
-          }
-
-          const urlChanged = tab.url !== message.url;
-          tab.url = message.url;
           tab.canGoBack = message.canGoBack;
           tab.canGoForward = message.canGoForward;
-          tab.loading = false;
-          // Only record a history entry when navigating to a new page.
-          if (urlChanged && message.url !== 'about:blank' && !tab.privateMode) {
-            addHistory(message.url, tab.title, tab.favicon);
-          }
           updateRendererState();
+          break;
         }
-        break;
+
+        const urlChanged = tab.url !== message.url;
+        tab.url = message.url;
+        tab.canGoBack = message.canGoBack;
+        tab.canGoForward = message.canGoForward;
+        tab.loading = false;
+        // Only record a history entry when navigating to a new page.
+        if (urlChanged && message.url !== 'about:blank' && !tab.privateMode) {
+          addHistory(message.url, tab.title, tab.favicon);
+        }
+        updateRendererState();
       }
+      break;
+    }
   }
 
   return { success: true };
@@ -783,6 +841,8 @@ app.on('ready', async () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  flushWindowState();
+  flushZoomLevels();
   // Write synchronously before the process goes away; the debounced timer
   // would otherwise be discarded along with the event loop.
   if (restoreSessionEnabled) {
@@ -838,7 +898,11 @@ function registerDbHandlers() {
   });
   ipcMain.handle('db:bookmarks:add', (event, url: unknown, title: unknown, favicon?: unknown) => {
     assertTrustedMainFrame(event);
-    if (!isBoundedString(url, 8_192) || !isAllowedNavigationUrl(url) || url.startsWith('zyphora://')) {
+    if (
+      !isBoundedString(url, 8_192) ||
+      !isAllowedNavigationUrl(url) ||
+      url.startsWith('zyphora://')
+    ) {
       throw new Error('Invalid bookmark URL.');
     }
     if (!isBoundedString(title, 1_000)) throw new Error('Invalid bookmark title.');
@@ -871,21 +935,40 @@ function registerDbHandlers() {
   });
   ipcMain.handle('db:passwords:get-by-id', (event, id: unknown) => {
     assertTrustedMainFrame(event);
-    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) throw new Error('Invalid password ID.');
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1)
+      throw new Error('Invalid password ID.');
     return getPasswordById(id);
   });
-  ipcMain.handle('db:passwords:save', (event, origin: unknown, username: unknown, password: unknown, title: unknown, favicon?: unknown) => {
-    assertTrustedMainFrame(event);
-    if (!isBoundedString(origin, 2_048)) throw new Error('Invalid origin.');
-    if (!isBoundedString(username, 512)) throw new Error('Invalid username.');
-    if (!isBoundedString(password, 8_192)) throw new Error('Invalid password.');
-    if (!isBoundedString(title, 1_000)) throw new Error('Invalid title.');
-    if (favicon !== undefined && !isBoundedString(favicon, 8_192)) throw new Error('Invalid favicon.');
-    return savePassword(origin, username, password, title as string, favicon as string | undefined);
-  });
+  ipcMain.handle(
+    'db:passwords:save',
+    (
+      event,
+      origin: unknown,
+      username: unknown,
+      password: unknown,
+      title: unknown,
+      favicon?: unknown
+    ) => {
+      assertTrustedMainFrame(event);
+      if (!isBoundedString(origin, 2_048)) throw new Error('Invalid origin.');
+      if (!isBoundedString(username, 512)) throw new Error('Invalid username.');
+      if (!isBoundedString(password, 8_192)) throw new Error('Invalid password.');
+      if (!isBoundedString(title, 1_000)) throw new Error('Invalid title.');
+      if (favicon !== undefined && !isBoundedString(favicon, 8_192))
+        throw new Error('Invalid favicon.');
+      return savePassword(
+        origin,
+        username,
+        password,
+        title as string,
+        favicon as string | undefined
+      );
+    }
+  );
   ipcMain.handle('db:passwords:delete', (event, id: unknown) => {
     assertTrustedMainFrame(event);
-    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) throw new Error('Invalid password ID.');
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1)
+      throw new Error('Invalid password ID.');
     return deletePassword(id);
   });
   ipcMain.handle('db:passwords:clear', (event) => {
@@ -907,9 +990,18 @@ function registerPrivacyHandlers() {
     clearHistory();
     resetBlockedStats();
     clearPermissionDecisions();
+    clearZoomLevels();
     for (const ses of managedSessions) {
       await ses.clearStorageData({
-        storages: ['cookies', 'filesystem', 'indexdb', 'localstorage', 'shadercache', 'serviceworkers', 'cachestorage'],
+        storages: [
+          'cookies',
+          'filesystem',
+          'indexdb',
+          'localstorage',
+          'shadercache',
+          'serviceworkers',
+          'cachestorage',
+        ],
       });
       await ses.clearCache();
     }
@@ -957,7 +1049,11 @@ function registerAdblockHandlers() {
   });
   ipcMain.handle('adblock:set-allowlist', (event, sites: unknown) => {
     assertTrustedMainFrame(event);
-    if (!Array.isArray(sites) || sites.length > 500 || !sites.every((site) => isBoundedString(site, 253))) {
+    if (
+      !Array.isArray(sites) ||
+      sites.length > 500 ||
+      !sites.every((site) => isBoundedString(site, 253))
+    ) {
       throw new Error('Invalid ad-blocker allowlist.');
     }
     setAllowedSites(sites);
@@ -1098,17 +1194,18 @@ app.on('web-contents-created', (_event, contents) => {
   if (contentsType === 'window') {
     contents.on('will-navigate', (event, navigationUrl) => {
       const isShell = contents === mainWindow?.webContents;
-      const isTrustOAuthProvider = navigationUrl.includes('accounts.google.com')
-        || navigationUrl.includes('google.com')
-        || navigationUrl.includes('github.com')
-        || navigationUrl.includes('login.microsoft.com')
-        || navigationUrl.includes('live.com')
-        || navigationUrl.includes('githubusercontent.com');
+      const isTrustOAuthProvider =
+        navigationUrl.includes('accounts.google.com') ||
+        navigationUrl.includes('google.com') ||
+        navigationUrl.includes('github.com') ||
+        navigationUrl.includes('login.microsoft.com') ||
+        navigationUrl.includes('live.com') ||
+        navigationUrl.includes('githubusercontent.com');
       const allowed = isShell
-        ? navigationUrl.startsWith('http://localhost')
-          || navigationUrl.startsWith('https://localhost')
-          || navigationUrl.startsWith('file://')
-          || isTrustOAuthProvider
+        ? navigationUrl.startsWith('http://localhost') ||
+          navigationUrl.startsWith('https://localhost') ||
+          navigationUrl.startsWith('file://') ||
+          isTrustOAuthProvider
         : isHttpNavigationUrl(navigationUrl) || navigationUrl === 'about:blank';
       if (!allowed) event.preventDefault();
     });
@@ -1166,13 +1263,15 @@ app.on('web-contents-created', (_event, contents) => {
   // own tab model and deny the native popup. The dedicated auth portal is an
   // explicit, trusted route that should be allowed to open in its own window.
   contents.setWindowOpenHandler(({ url }) => {
-    const isTrustedAuthPortal = /^https?:\/\/localhost(?::\d+)?\/auth\.html(?:\?.*)?$/.test(url)
-      || /^file:\/\/\/.*\/auth\.html(?:\?.*)?$/.test(url);
+    const isTrustedAuthPortal =
+      /^https?:\/\/localhost(?::\d+)?\/auth\.html(?:\?.*)?$/.test(url) ||
+      /^file:\/\/\/.*\/auth\.html(?:\?.*)?$/.test(url);
 
     // Allow OAuth provider popups (backend redirects and external providers)
-    const isOAuthProvider = /^https:\/\/(accounts\.google\.com|github\.com|login\.microsoft\.com)/.test(url)
-      || /^https?:\/\/localhost(?::\d+)?\/auth\/social\//.test(url)
-      || /^https?:\/\/localhost(?::\d+)?\/auth\/social\/[^/]+\/callback/.test(url);
+    const isOAuthProvider =
+      /^https:\/\/(accounts\.google\.com|github\.com|login\.microsoft\.com)/.test(url) ||
+      /^https?:\/\/localhost(?::\d+)?\/auth\/social\//.test(url) ||
+      /^https?:\/\/localhost(?::\d+)?\/auth\/social\/[^/]+\/callback/.test(url);
 
     if (isTrustedAuthPortal || isOAuthProvider) {
       return { action: 'allow' };
@@ -1246,7 +1345,7 @@ app.on('web-contents-created', (_event, contents) => {
           label: 'Copy link address',
           click: () => clipboard.writeText(linkURL),
         },
-        { type: 'separator' },
+        { type: 'separator' }
       );
     }
 
@@ -1260,7 +1359,7 @@ app.on('web-contents-created', (_event, contents) => {
           label: 'Copy image',
           click: () => contents.copyImageAt(x, y),
         },
-        { type: 'separator' },
+        { type: 'separator' }
       );
     }
 
@@ -1288,7 +1387,7 @@ app.on('web-contents-created', (_event, contents) => {
             if (contents.isDevToolsOpened()) contents.closeDevTools();
             else contents.openDevTools({ mode: 'detach' });
           },
-        },
+        }
       );
     }
 

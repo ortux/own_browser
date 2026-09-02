@@ -29,11 +29,7 @@ export const useBrowserStore = create<BrowserStore>((set) => ({
     set((state) => {
       const newTabs = state.tabs.filter((t) => t.id !== tabId);
       const newActiveTabId =
-        state.activeTabId === tabId
-          ? newTabs.length > 0
-            ? newTabs[0].id
-            : ''
-          : state.activeTabId;
+        state.activeTabId === tabId ? (newTabs.length > 0 ? newTabs[0].id : '') : state.activeTabId;
 
       return {
         tabs: newTabs,

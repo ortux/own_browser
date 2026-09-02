@@ -52,7 +52,10 @@ test('auth client sends register payload and stores token data', async () => {
   });
 
   const client = createAuthApiClient({ baseUrl: getApiBaseUrl(), fetchImpl: fetchMock });
-  const response = await client.register({ email: 'user@example.com', password: 'StrongPassword123' });
+  const response = await client.register({
+    email: 'user@example.com',
+    password: 'StrongPassword123',
+  });
 
   assert.equal(response.user.email, 'user@example.com');
   assert.equal(response.tokens.access_token, 'access-123');
@@ -67,7 +70,10 @@ test('auth client surfaces human-readable errors from login failures', async () 
   });
 
   const client = createAuthApiClient({ baseUrl: getApiBaseUrl(), fetchImpl: fetchMock });
-  await assert.rejects(() => client.login({ email: 'user@example.com', password: 'wrongpass' }), /Invalid credentials/);
+  await assert.rejects(
+    () => client.login({ email: 'user@example.com', password: 'wrongpass' }),
+    /Invalid credentials/
+  );
 });
 
 test('auth client keeps device key and tokens in sync while refreshing', async () => {

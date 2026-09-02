@@ -48,18 +48,35 @@ export type RendererToMainMessage =
   | { type: 'webview-title-updated'; tabId: string; title: string }
   | { type: 'webview-favicon-updated'; tabId: string; favicon: string }
   | { type: 'webview-loading'; tabId: string; loading: boolean }
-  | { type: 'webview-nav-state'; tabId: string; url: string; canGoBack: boolean; canGoForward: boolean }
+  | {
+      type: 'webview-nav-state';
+      tabId: string;
+      url: string;
+      canGoBack: boolean;
+      canGoForward: boolean;
+    }
   | { type: 'webview-attached'; tabId: string; webContentsId: number }
   // Open a new tab directly at a given URL (used for internal pages like downloads)
   | { type: 'create-tab-url'; url: string; privateMode?: boolean }
   // Synchronise network privacy settings from the renderer.
   | { type: 'security-settings'; forceHttps: boolean; doNotTrack: boolean }
   | { type: 'session-restore-setting'; enabled: boolean }
+  | { type: 'zoom-get'; url: string }
+  | { type: 'zoom-set'; url: string; factor: number }
+  | { type: 'history-retention'; days: number }
   | { type: 'set-tab-private'; tabId: string; privateMode: boolean }
   // Respond to a permission prompt shown by the renderer (Allow / Block).
   | { type: 'permission-response'; requestId: string; allow: boolean }
   // Credentials captured from a login form inside a webview
-  | { type: 'webview-credentials'; tabId: string; origin: string; username: string; password: string; title: string; favicon?: string }
+  | {
+      type: 'webview-credentials';
+      tabId: string;
+      origin: string;
+      username: string;
+      password: string;
+      title: string;
+      favicon?: string;
+    }
   // Autofill credentials into a webview's login form
   | { type: 'autofill-credentials'; tabId: string; username: string; password: string };
 // IPC Messages from Main to Renderer
@@ -72,7 +89,14 @@ export type MainToRendererMessage =
   // Ask the renderer to show a permission prompt for a webview guest.
   | { type: 'permission-request'; request: PermissionRequest }
   // Ask the renderer to show a "Save password?" prompt.
-  | { type: 'save-password-prompt'; origin: string; username: string; password: string; title: string; favicon?: string };
+  | {
+      type: 'save-password-prompt';
+      origin: string;
+      username: string;
+      password: string;
+      title: string;
+      favicon?: string;
+    };
 
 // ── Persistence types (mirrored from main/db.ts for use in renderer) ─────────
 

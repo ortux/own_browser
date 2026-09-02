@@ -83,6 +83,7 @@ export const BrowserWindow: React.FC = () => {
     createTabWithUrl,
     closeTab,
     activateTab,
+    toggleTabMuted,
     goBack,
     goForward,
     reload,
@@ -200,6 +201,10 @@ export const BrowserWindow: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
         e.preventDefault();
         resetZoom();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
+        // Mute/unmute the current tab, as in Firefox.
+        e.preventDefault();
+        if (activeTabId) toggleTabMuted(activeTabId);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
         e.preventDefault();
         printPage();
@@ -256,6 +261,7 @@ export const BrowserWindow: React.FC = () => {
     createNewBrowserTab,
     createTabWithUrl,
     closeTab,
+    toggleTabMuted,
     reload,
     restoreClosedTab,
     zoom,
@@ -371,6 +377,7 @@ export const BrowserWindow: React.FC = () => {
         activeTabId={activeTabId}
         onTabClick={activateTab}
         onTabClose={closeTab}
+        onTabToggleMuted={toggleTabMuted}
         onTabReorder={reorderTabs}
         onNewTab={createNewBrowserTab}
         onOpenSettings={() => setSettingsOpen(true)}

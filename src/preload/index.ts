@@ -98,6 +98,13 @@ const browserAPI = {
   },
 
   /**
+   * Mute or unmute a tab's audio.
+   */
+  setTabMuted: (tabId: string, muted: boolean) => {
+    return browserAPI.sendMessage({ type: 'set-tab-muted', tabId, muted });
+  },
+
+  /**
    * Duplicate a tab
    */
   duplicateTab: (tabId: string) => {

@@ -14,6 +14,8 @@ export interface Tab {
   canGoForward: boolean;
   privateMode: boolean;
   muted: boolean;
+  /** True while the page is actually producing sound. Drives the tab indicator. */
+  audible: boolean;
   pinned: boolean;
 }
 
@@ -56,6 +58,9 @@ export type RendererToMainMessage =
       canGoForward: boolean;
     }
   | { type: 'webview-attached'; tabId: string; webContentsId: number }
+  // Mute or unmute a tab's audio. Owned by main so the state survives the
+  // guest webContents being torn down and re-created.
+  | { type: 'set-tab-muted'; tabId: string; muted: boolean }
   // Open a new tab directly at a given URL (used for internal pages like downloads)
   | { type: 'create-tab-url'; url: string; privateMode?: boolean }
   // Synchronise network privacy settings from the renderer.

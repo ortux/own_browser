@@ -183,6 +183,8 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
         typeof value.canGoBack === 'boolean' &&
         typeof value.canGoForward === 'boolean'
       );
+    case 'set-tab-muted':
+      return isBoundedString(value.tabId, 200) && typeof value.muted === 'boolean';
     case 'webview-attached':
       return (
         isBoundedString(value.tabId, 200) &&
@@ -280,6 +282,16 @@ const tabs: Map<string, Tab> = new Map();
 const closedTabs: Tab[] = [];
 const managedSessions = new Set<Electron.Session>();
 const tabByWebContentsId = new Map<number, string>();
+
+/** The live guest webContents backing a tab, or null if it has not attached. */
+function guestContentsForTab(tabId: string): Electron.WebContents | null {
+  for (const [contentsId, id] of tabByWebContentsId) {
+    if (id !== tabId) continue;
+    const wc = webContents.fromId(contentsId);
+    return wc && !wc.isDestroyed() ? wc : null;
+  }
+  return null;
+}
 let activeTabId: string = '';
 let nextTabId = 1;
 
@@ -405,6 +417,7 @@ function createNewTab(rawUrl?: string, privateMode = false): string {
     canGoForward: false,
     privateMode,
     muted: false,
+    audible: false,
     pinned: false,
   };
 
@@ -603,9 +616,27 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
     case 'get-closed-tabs':
       return getClosedTabs();
     case 'webview-attached': {
-      if (tabs.has(message.tabId)) {
+      const tab = tabs.get(message.tabId);
+      if (tab) {
         tabByWebContentsId.set(message.webContentsId, message.tabId);
+        // A muted tab that reloads (or is restored from a session) comes back
+        // with a fresh webContents, which defaults to unmuted. Re-apply.
+        if (tab.muted) {
+          const wc = webContents.fromId(message.webContentsId);
+          if (wc && !wc.isDestroyed()) wc.setAudioMuted(true);
+        }
       }
+      break;
+    }
+    case 'set-tab-muted': {
+      const tab = tabs.get(message.tabId);
+      if (!tab) break;
+      tab.muted = message.muted;
+      const wc = guestContentsForTab(message.tabId);
+      // The tab may have no live guest yet; the flag is still recorded and
+      // applied on the next attach.
+      if (wc) wc.setAudioMuted(message.muted);
+      updateRendererState();
       break;
     }
     case 'security-settings':
@@ -661,11 +692,8 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       break;
     }
     case 'autofill-credentials': {
-      const guestId = [...tabByWebContentsId.entries()].find(
-        ([, tid]) => tid === message.tabId
-      )?.[0];
-      const wc = guestId === undefined ? null : webContents.fromId(guestId);
-      if (!wc || wc.isDestroyed()) return { ok: false, reason: 'tab-not-ready' };
+      const wc = guestContentsForTab(message.tabId);
+      if (!wc) return { ok: false, reason: 'tab-not-ready' };
 
       const u = JSON.stringify(message.username);
       const p = JSON.stringify(message.password);
@@ -1218,6 +1246,16 @@ app.on('web-contents-created', (_event, contents) => {
     attachDownloadsToSession(contents.session);
     const webviewSession = contents.session;
     const webviewId = contents.id;
+
+    // Chromium reports when a page starts or stops producing sound. This is
+    // the only reliable signal for "which tab is making that noise?".
+    contents.on('audio-state-changed', (event) => {
+      const tabId = tabByWebContentsId.get(webviewId);
+      const tab = tabId ? tabs.get(tabId) : undefined;
+      if (!tab || tab.audible === event.audible) return;
+      tab.audible = event.audible;
+      updateRendererState();
+    });
     contents.once('destroyed', () => {
       forgetProxySession(webviewSession);
       if (webviewSession !== session.defaultSession) {

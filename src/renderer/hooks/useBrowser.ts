@@ -56,6 +56,17 @@ export const useBrowser = () => {
     window.browserAPI?.activateTab(tabId);
   }, []);
 
+  const setTabMuted = useCallback((tabId: string, muted: boolean) => {
+    window.browserAPI?.setTabMuted(tabId, muted);
+  }, []);
+
+  /** Flip a tab's mute state; reads the tab from the store to find the current one. */
+  const toggleTabMuted = useCallback((tabId: string) => {
+    const tab = useBrowserStore.getState().tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    window.browserAPI?.setTabMuted(tabId, !tab.muted);
+  }, []);
+
   const duplicateTab = useCallback(() => {
     if (store.activeTabId) {
       window.browserAPI?.duplicateTab(store.activeTabId);
@@ -132,6 +143,8 @@ export const useBrowser = () => {
     reload,
     stop,
     duplicateTab,
+    setTabMuted,
+    toggleTabMuted,
     restoreClosedTab,
     zoom,
     resetZoom,

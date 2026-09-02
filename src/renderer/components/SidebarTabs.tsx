@@ -10,6 +10,8 @@ import {
   ChevronDown,
   RotateCcw,
   KeyRound,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -21,6 +23,8 @@ interface SidebarTabsProps {
   onTabClick: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   onTabReorder: (draggedTabId: string, targetTabId: string) => void;
+  /** Flip a tab's mute state. */
+  onTabToggleMuted: (tabId: string) => void;
   onNewTab: () => void;
   onOpenSettings: () => void;
   onOpenHistory: () => void;
@@ -66,6 +70,34 @@ const Avatar: React.FC<{ name: string; image?: string; size?: number }> = ({
   );
 };
 
+/**
+ * Audio state for a tab: a speaker when it is making noise, a crossed-out
+ * speaker when muted. Renders nothing for a silent, unmuted tab so the tab row
+ * stays quiet in every sense.
+ *
+ * A muted tab keeps showing its icon even when silent — that is the only way
+ * to discover why a page has no sound.
+ */
+const TabAudioButton: React.FC<{ tab: Tab; onToggle: () => void }> = ({ tab, onToggle }) => {
+  if (!tab.audible && !tab.muted) return null;
+  const label = tab.muted ? 'Unmute tab' : 'Mute tab';
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      title={label}
+      aria-label={label}
+      className={`shrink-0 rounded p-0.5 transition-colors hover:bg-[var(--border-strong)] ${
+        tab.muted ? 'text-[var(--text-faint)]' : 'text-[var(--text-muted)]'
+      }`}
+    >
+      {tab.muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+    </button>
+  );
+};
+
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   tabs,
@@ -73,6 +105,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onTabClick,
   onTabClose,
   onTabReorder,
+  onTabToggleMuted,
   onNewTab,
   onOpenSettings,
   onOpenHistory,
@@ -137,12 +170,25 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               <button
                 key={tab.id}
                 onClick={() => onTabClick(tab.id)}
-                title={tab.title || 'New Tab'}
-                className={`flex items-center justify-center w-full py-2 rounded-md transition-colors ${
+                title={
+                  tab.muted
+                    ? `${tab.title || 'New Tab'} (muted)`
+                    : tab.audible
+                      ? `${tab.title || 'New Tab'} (playing audio)`
+                      : tab.title || 'New Tab'
+                }
+                className={`relative flex items-center justify-center w-full py-2 rounded-md transition-colors ${
                   tab.id === activeTabId ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
                 }`}
               >
                 <TabFavicon tab={tab} size={14} />
+                {/* The collapsed rail is too narrow for a real button, so this
+                    is a badge only; muting happens in the expanded list. */}
+                {(tab.audible || tab.muted) && (
+                  <span className="absolute bottom-1 right-1.5 flex h-3 w-3 items-center justify-center rounded-full bg-[var(--chrome)] text-[var(--text-muted)]">
+                    {tab.muted ? <VolumeX size={9} /> : <Volume2 size={9} />}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -293,6 +339,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                   <span className="flex-1 truncate text-sm leading-none">
                     {tab.title || 'New Tab'}
                   </span>
+                  <TabAudioButton tab={tab} onToggle={() => onTabToggleMuted(tab.id)} />
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

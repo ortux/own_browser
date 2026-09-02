@@ -114,7 +114,7 @@ still land in history, in copied links, and in synced bookmarks.
 This is a natural fit next to the existing `forceHttps` logic in the navigation
 path, and it is maybe 30 lines plus a list. High privacy value per line of code.
 
-### 1.6 Tab audio: indicator and mute — *small*
+### 1.6 Tab audio: indicator and mute — *small* — ✅ DONE
 
 No `setAudioMuted` / `audioMuted` anywhere. A background tab that starts playing
 audio cannot be found or silenced without closing tabs one at a time. Electron
@@ -180,8 +180,9 @@ standard approach and runs comfortably in the guest context.
    `src/main/zoom.ts`, `pruneHistory()` in `src/main/db.ts`, and
    `src/shared/trackingParams.ts`. All four share the atomic-write and
    debounce helpers in `src/main/jsonStore.ts`.
-   Next up.
-4. **1.6 → 2.1** — audio state first, then sleeping, since sleeping must not
-   silence a playing tab.
+4. ~~**1.6**~~ ✅ done — mute state is owned by the main process and replayed
+   on `webview-attached`, so it survives reloads and session restore.
+   **2.1 tab sleeping** is next; it must not silence or discard an audible tab,
+   and `Tab.audible` now gives it the signal to check.
 5. Reassess. By then the sql.js write-amplification question in 1.4 probably
    needs a real answer.

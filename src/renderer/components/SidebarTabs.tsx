@@ -10,6 +10,7 @@ import {
   User,
   ChevronDown,
   RotateCcw,
+  KeyRound,
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -26,6 +27,8 @@ interface SidebarTabsProps {
   onOpenHistory: () => void;
   onOpenBookmarks: () => void;
   onOpenRecentlyClosed: () => void;
+  /** Omitted when the password manager is disabled in Settings. */
+  onOpenPasswords?: () => void;
 }
 
 const COLLAPSED_W = 48;
@@ -74,6 +77,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onOpenHistory,
   onOpenBookmarks,
   onOpenRecentlyClosed,
+  onOpenPasswords,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [tabSearch, setTabSearch] = useState('');
@@ -122,6 +126,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
           {iconBtn(<Bookmark size={15} />,  'Bookmarks',        onOpenBookmarks)}
           {iconBtn(<History size={15} />,    'History',           onOpenHistory)}
           {iconBtn(<RotateCcw size={15} />,  'Recently closed',   onOpenRecentlyClosed)}
+          {onOpenPasswords && iconBtn(<KeyRound size={15} />, 'Passwords', onOpenPasswords)}
 
           <div className="my-1 h-px bg-[var(--border)] mx-1" />
 
@@ -175,6 +180,9 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               { icon: <Bookmark size={14} />, label: 'Bookmarks',       onClick: onOpenBookmarks as (() => void) | undefined },
               { icon: <History size={14} />,  label: 'History',          onClick: onOpenHistory as (() => void) | undefined },
               { icon: <RotateCcw size={14} />, label: 'Recently closed', onClick: onOpenRecentlyClosed as (() => void) | undefined },
+              ...(onOpenPasswords
+                ? [{ icon: <KeyRound size={14} />, label: 'Passwords', onClick: onOpenPasswords as (() => void) | undefined }]
+                : []),
             ]).map(({ icon, label, onClick }) => (
               <button
                 key={label}

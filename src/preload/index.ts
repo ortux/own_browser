@@ -9,6 +9,13 @@ import type { RendererToMainMessage, BrowserState } from '../shared/types';
  * All communication is validated and type-safe.
  */
 
+/**
+ * Resolved once, synchronously, before the renderer runs. Injecting this later
+ * (e.g. from a dom-ready hook) races the first <webview> mount and silently
+ * disables password capture on the first page load.
+ */
+const capturePreloadPath: string = ipcRenderer.sendSync('passwords:capture-preload-path') ?? '';
+
 const browserAPI = {
   /**
    * Send a message to the main process and optionally wait for a response
@@ -188,11 +195,17 @@ const browserAPI = {
     onSavePrompt: (callback: (data: { origin: string; username: string; password: string; title: string; favicon?: string }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, data: { origin: string; username: string; password: string; title: string; favicon?: string }) => callback(data);
       ipcRenderer.on('save-password-prompt', handler);
-      return () => ipcRenderer.removeListener('save-password-prompt', handler);
+      return () => { ipcRenderer.removeListener('save-password-prompt', handler); };
     },
-    /** Inject autofill credentials into the focused webview. */
-    autofill: (tabId: string, username: string, password: string): Promise<unknown> =>
+    /** Inject autofill credentials into the given tab's webview. */
+    autofill: (tabId: string, username: string, password: string): Promise<{ ok: boolean; reason?: string }> =>
       ipcRenderer.invoke('browser:message', { type: 'autofill-credentials', tabId, username, password }),
+    /**
+     * Absolute path of the guest preload that captures logins. Resolved in the
+     * main process at startup, so the renderer never touches Node APIs and the
+     * value is available synchronously on first render.
+     */
+    capturePreloadPath: (): string => capturePreloadPath,
   },
 
   /** Proxy */

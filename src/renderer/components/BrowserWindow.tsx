@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { SidebarTabs } from './SidebarTabs';
 import { TitleBar } from './TitleBar';
 import { NavBar } from './NavBar';
@@ -18,7 +18,6 @@ import { PasswordsPanel } from './PasswordsPanel';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
-import { useSettingsStore } from '../stores/settingsStore';
 import { useBookmarks } from '../hooks/useBookmarks';
 import { normalizeNavigationUrl } from '../../shared/navigation';
 
@@ -35,7 +34,15 @@ function looksLikeUrl(input: string): boolean {
   return trimmed.includes('.') && !trimmed.includes(' ');
 }
 
-type Panel = 'history' | 'bookmarks' | 'closed' | null;
+type Panel = 'history' | 'bookmarks' | 'closed' | 'passwords' | null;
+
+interface PendingCredential {
+  origin: string;
+  username: string;
+  password: string;
+  title: string;
+  favicon?: string;
+}
 
 export const BrowserWindow: React.FC = () => {
   const tabs        = useBrowserStore((s) => s.tabs);
@@ -52,6 +59,7 @@ export const BrowserWindow: React.FC = () => {
   const proxyEnabled = useSettingsStore((s) => s.proxyEnabled);
   const setProxy = useSettingsStore((s) => s.setProxy);
   const setProxyEnabled = useSettingsStore((s) => s.setProxyEnabled);
+  const passwordManagerEnabled = useSettingsStore((s) => s.passwordManagerEnabled);
 
   // ── UI state ──
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -59,6 +67,8 @@ export const BrowserWindow: React.FC = () => {
   const [findOpen, setFindOpen] = useState(false);
   const [panel, setPanel]               = useState<Panel>(null);
   const togglePanel = (p: Panel) => setPanel((cur) => (cur === p ? null : p));
+  const [pendingCredential, setPendingCredential] = useState<PendingCredential | null>(null);
+  const [savingCredential, setSavingCredential]   = useState(false);
 
   const { toggle: toggleBookmark, isBookmarked } = useBookmarks();
 
@@ -92,6 +102,50 @@ export const BrowserWindow: React.FC = () => {
     });
   }, [activeTab, toggleBookmark]);
 
+  // ── Password manager ──
+  // Listen for capture events from the main process. The prompt is only ever
+  // shown when the feature is on; credentials are dropped otherwise.
+  React.useEffect(() => {
+    if (!window.browserAPI?.passwords?.onSavePrompt) return;
+    return window.browserAPI.passwords.onSavePrompt((data) => {
+      if (!useSettingsStore.getState().passwordManagerEnabled) return;
+      setPendingCredential(data);
+    });
+  }, []);
+
+  // Drop any queued prompt the moment the user turns the feature off.
+  React.useEffect(() => {
+    if (!passwordManagerEnabled) setPendingCredential(null);
+  }, [passwordManagerEnabled]);
+
+  const handleSaveCredential = useCallback(async () => {
+    if (!pendingCredential || savingCredential) return;
+    setSavingCredential(true);
+    try {
+      await window.browserAPI.passwords.save(
+        pendingCredential.origin,
+        pendingCredential.username,
+        pendingCredential.password,
+        pendingCredential.title,
+        pendingCredential.favicon
+      );
+      setPendingCredential(null);
+    } catch (error) {
+      console.error('[passwords] failed to save credential:', error);
+    } finally {
+      setSavingCredential(false);
+    }
+  }, [pendingCredential, savingCredential]);
+
+  const handleAutofill = useCallback(async (username: string, password: string) => {
+    if (!activeTabId) return;
+    try {
+      await window.browserAPI.passwords.autofill(activeTabId, username, password);
+    } catch (error) {
+      console.error('[passwords] autofill failed:', error);
+    }
+  }, [activeTabId]);
+
   React.useEffect(() => window.browserAPI.onOpenFind(() => setFindOpen(true)), []);
 
   // ── Keyboard shortcuts ──
@@ -123,7 +177,11 @@ export const BrowserWindow: React.FC = () => {
         e.preventDefault(); setFindOpen(true);
       } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault(); setSettingsOpen(true);
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+        if (!passwordManagerEnabled) return;
+        e.preventDefault(); togglePanel('passwords');
       } else if (e.key === 'Escape') {
+        if (pendingCredential) { setPendingCredential(null); return; }
         if (findOpen) { setFindOpen(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
         if (panel) { setPanel(null); return; }
@@ -131,7 +189,7 @@ export const BrowserWindow: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTabId, findOpen, panel, settingsOpen, createNewBrowserTab, createTabWithUrl, closeTab, reload,
+  }, [activeTabId, findOpen, panel, settingsOpen, pendingCredential, passwordManagerEnabled, createNewBrowserTab, createTabWithUrl, closeTab, reload,
        restoreClosedTab, zoom, resetZoom, printPage, goBack, goForward, handleBookmarkToggle]);
 
   const isNewTab = !activeTab?.url || activeTab.url === 'about:blank';
@@ -218,7 +276,7 @@ export const BrowserWindow: React.FC = () => {
   }, [openDownloadsOnStart, createTabWithUrl]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg)]">
+    <div className="relative flex h-screen w-screen overflow-hidden bg-[var(--bg)]">
 
       {/* Left sidebar */}
       <SidebarTabs
@@ -232,6 +290,7 @@ export const BrowserWindow: React.FC = () => {
         onOpenHistory={() => togglePanel('history')}
         onOpenBookmarks={() => togglePanel('bookmarks')}
         onOpenRecentlyClosed={() => togglePanel('closed')}
+        onOpenPasswords={passwordManagerEnabled ? () => togglePanel('passwords') : undefined}
       />
 
       {/* Main column */}
@@ -321,6 +380,14 @@ export const BrowserWindow: React.FC = () => {
               />
             </div>
           )}
+          {panel === 'passwords' && passwordManagerEnabled && (
+            <div className="w-72 shrink-0 flex flex-col border-l border-[var(--border)] overflow-hidden">
+              <PasswordsPanel
+                onClose={() => setPanel(null)}
+                onAutofill={handleAutofill}
+              />
+            </div>
+          )}
           {panel === 'closed' && (
             <div className="w-72 shrink-0 flex flex-col border-l border-[var(--border)] overflow-hidden">
               <RecentlyClosedPanel
@@ -331,6 +398,21 @@ export const BrowserWindow: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Save-password prompt */}
+      {pendingCredential && passwordManagerEnabled && (
+        <div className="absolute bottom-4 right-4 z-50">
+          <SavePasswordPrompt
+            origin={pendingCredential.origin}
+            username={pendingCredential.username}
+            password={pendingCredential.password}
+            title={pendingCredential.title}
+            favicon={pendingCredential.favicon}
+            onSave={() => { void handleSaveCredential(); }}
+            onDismiss={() => setPendingCredential(null)}
+          />
+        </div>
+      )}
 
       {/* Download-start notifications */}
       <DownloadToast onOpenDownloads={() => createTabWithUrl('zyphora://downloads')} />

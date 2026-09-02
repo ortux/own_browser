@@ -127,6 +127,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
   const [customError, setCustomError] = useState('');
   const [clearingData, setClearingData] = useState(false);
   const [clearDataStatus, setClearDataStatus] = useState('');
+  const [passwordCount, setPasswordCount] = useState<number | null>(null);
+  const [passwordStatus, setPasswordStatus] = useState('');
+
+  // Keep the saved-password count in sync whenever this page is shown.
+  useEffect(() => {
+    let cancelled = false;
+    void window.browserAPI?.passwords.getAll()
+      .then((entries) => { if (!cancelled) setPasswordCount(entries.length); })
+      .catch(() => { if (!cancelled) setPasswordCount(0); });
+    return () => { cancelled = true; };
+  }, [passwordManagerEnabled]);
 
   const openAuthPortal = (mode: AuthPortalMode) => {
     onOpenAuth(mode);
@@ -304,8 +315,37 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                 </div>
                 <div className="rounded-2xl bg-[var(--surface-2)] px-3 py-3 text-xs text-[var(--text-faint)]">
                   {passwordManagerEnabled
-                    ? 'Password manager is enabled for this browser session.'
-                    : 'Password manager is disabled until you enable it.'}
+                    ? 'Zyphora offers to save logins you submit and can fill them back in. Passwords are encrypted with your operating system keychain and are never captured in private tabs. Reopen a tab for a change to take effect.'
+                    : 'Password manager is disabled. No new logins will be captured; anything already saved stays until you remove it.'}
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text)]">Saved passwords</div>
+                    <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                      {passwordCount === null
+                        ? 'Counting…'
+                        : `${passwordCount} saved ${passwordCount === 1 ? 'login' : 'logins'} on this device.`}
+                    </div>
+                    {passwordStatus && <p className="mt-2 text-xs text-green-400">{passwordStatus}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!passwordCount}
+                    onClick={async () => {
+                      if (!window.confirm('Permanently delete every saved password?')) return;
+                      try {
+                        await window.browserAPI.passwords.clear();
+                        setPasswordCount(0);
+                        setPasswordStatus('All saved passwords deleted.');
+                      } catch {
+                        setPasswordStatus('Could not delete saved passwords.');
+                      }
+                    }}
+                    className="rounded-2xl border border-[var(--border)] px-4 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Delete all
+                  </button>
                 </div>
               </MdCard>
 

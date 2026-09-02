@@ -7,7 +7,7 @@
  */
 
 import { createRequire } from 'module';
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
@@ -320,12 +320,72 @@ export interface SavedPassword {
   id: number;
   origin: string;    // e.g. "https://github.com"
   username: string;
-  password: string;
+  password?: string; // present only in single-entry lookups
   title: string;
   favicon: string | null;
   created_at: number;
   updated_at: number;
 }
+
+/**
+ * Secrets are encrypted at rest with the OS keychain (Electron safeStorage)
+ * whenever it is available. Rows are tagged with a prefix so a database written
+ * before encryption was available (or on a machine without a keychain) still
+ * reads back correctly.
+ */
+const ENCRYPTED_PREFIX = 'v1:';
+
+function encryptSecret(plain: string): string {
+  try {
+    if (safeStorage.isEncryptionAvailable()) {
+      return ENCRYPTED_PREFIX + safeStorage.encryptString(plain).toString('base64');
+    }
+  } catch (error) {
+    console.error('[db] password encryption unavailable; storing as plaintext:', error);
+  }
+  return plain;
+}
+
+function decryptSecret(stored: string): string {
+  if (!stored.startsWith(ENCRYPTED_PREFIX)) return stored;
+  try {
+    return safeStorage.decryptString(Buffer.from(stored.slice(ENCRYPTED_PREFIX.length), 'base64'));
+  } catch (error) {
+    console.error('[db] could not decrypt stored password:', error);
+    return '';
+  }
+}
+
+/** Credentials are keyed by origin, so "https://a.com/login?x=1" → "https://a.com". */
+export function normalizeOrigin(value: string): string {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) return '';
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    try {
+      return new URL(`https://${trimmed}`).origin;
+    } catch {
+      return trimmed;
+    }
+  }
+}
+
+function toSavedPassword(row: Record<string, unknown>, withSecret: boolean): SavedPassword {
+  const entry: SavedPassword = {
+    id:         Number(row.id),
+    origin:     String(row.origin ?? ''),
+    username:   String(row.username ?? ''),
+    title:      String(row.title ?? ''),
+    favicon:    row.favicon == null ? null : String(row.favicon),
+    created_at: Number(row.created_at ?? 0),
+    updated_at: Number(row.updated_at ?? 0),
+  };
+  if (withSecret) entry.password = decryptSecret(String(row.password ?? ''));
+  return entry;
+}
+
+const LIST_COLUMNS = 'id, origin, username, title, favicon, created_at, updated_at';
 
 export function savePassword(
   origin: string,
@@ -334,6 +394,11 @@ export function savePassword(
   title = '',
   favicon?: string
 ): SavedPassword {
+  const normalizedOrigin = normalizeOrigin(origin);
+  const trimmedUsername = username.trim();
+  if (!normalizedOrigin || !trimmedUsername || !password) {
+    throw new Error('origin, username and password are all required');
+  }
   const now = Date.now();
   db().run(
     `INSERT INTO passwords (origin, username, password, title, favicon, created_at, updated_at)
@@ -341,43 +406,58 @@ export function savePassword(
      ON CONFLICT(origin, username) DO UPDATE SET
        password   = excluded.password,
        title      = excluded.title,
-       favicon    = excluded.favicon,
+       favicon    = COALESCE(excluded.favicon, passwords.favicon),
        updated_at = excluded.updated_at`,
-    [origin, username, password, title, favicon ?? null, now, now]
+    [normalizedOrigin, trimmedUsername, encryptSecret(password), title, favicon ?? null, now, now]
   );
   persist();
-  return queryObjects(
+  const row = queryObjects(
     'SELECT * FROM passwords WHERE origin = ? AND username = ? LIMIT 1',
-    [origin, username]
-  )[0] as unknown as SavedPassword;
+    [normalizedOrigin, trimmedUsername]
+  )[0];
+  return toSavedPassword(row, true);
 }
 
+/** Entries for a site, without secrets — used to decide whether to prompt. */
 export function getPasswordsForOrigin(origin: string): SavedPassword[] {
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin) return [];
   return queryObjects(
-    'SELECT * FROM passwords WHERE origin = ? ORDER BY updated_at DESC',
-    [origin]
-  ) as unknown as SavedPassword[];
+    `SELECT ${LIST_COLUMNS} FROM passwords WHERE origin = ? ORDER BY updated_at DESC`,
+    [normalizedOrigin]
+  ).map((row) => toSavedPassword(row, false));
+}
+
+/** True when this exact credential pair is already stored (no prompt needed). */
+export function hasPassword(origin: string, username: string, password: string): boolean {
+  const normalizedOrigin = normalizeOrigin(origin);
+  const rows = queryObjects(
+    'SELECT password FROM passwords WHERE origin = ? AND username = ? LIMIT 1',
+    [normalizedOrigin, username.trim()]
+  );
+  if (!rows.length) return false;
+  return decryptSecret(String(rows[0].password ?? '')) === password;
 }
 
 export function getAllPasswords(): SavedPassword[] {
   return queryObjects(
-    'SELECT id, origin, username, title, favicon, created_at, updated_at FROM passwords ORDER BY updated_at DESC'
-  ) as unknown as SavedPassword[];
+    `SELECT ${LIST_COLUMNS} FROM passwords ORDER BY updated_at DESC`
+  ).map((row) => toSavedPassword(row, false));
 }
 
 export function getPasswordById(id: number): SavedPassword | null {
   const rows = queryObjects('SELECT * FROM passwords WHERE id = ? LIMIT 1', [id]);
-  return rows.length ? (rows[0] as unknown as SavedPassword) : null;
+  return rows.length ? toSavedPassword(rows[0], true) : null;
 }
 
 export function searchPasswords(query: string): SavedPassword[] {
   const pattern = escapedLikePattern(query);
   return queryObjects(
-    `SELECT id, origin, username, title, favicon, created_at, updated_at FROM passwords
+    `SELECT ${LIST_COLUMNS} FROM passwords
      WHERE origin LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\'
      ORDER BY updated_at DESC LIMIT 500`,
     [pattern, pattern, pattern]
-  ) as unknown as SavedPassword[];
+  ).map((row) => toSavedPassword(row, false));
 }
 
 export function deletePassword(id: number) {

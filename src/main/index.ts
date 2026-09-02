@@ -40,6 +40,8 @@ import {
   searchBookmarks,
   updateHistoryMetadata,
   savePassword,
+  hasPassword,
+  normalizeOrigin,
   getPasswordsForOrigin,
   getAllPasswords,
   getPasswordById,
@@ -173,6 +175,19 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
       return isBoundedString(value.tabId, 200) && typeof value.privateMode === 'boolean';
     case 'permission-response':
       return isBoundedString(value.requestId, 200) && typeof value.allow === 'boolean';
+    case 'webview-credentials':
+      return isBoundedString(value.tabId, 200)
+        && isBoundedString(value.origin, 2_048)
+        && isBoundedString(value.username, 512)
+        && value.username.length > 0
+        && isBoundedString(value.password, 8_192)
+        && value.password.length > 0
+        && isBoundedString(value.title, 1_000)
+        && (value.favicon === undefined || isBoundedString(value.favicon, 8_192));
+    case 'autofill-credentials':
+      return isBoundedString(value.tabId, 200)
+        && isBoundedString(value.username, 512)
+        && isBoundedString(value.password, 8_192);
     default:
       return false;
   }
@@ -265,14 +280,6 @@ function createWindow() {
     });
   }
 
-  // Expose the password-capture preload path as a global so WebView.tsx
-  // can reference it without accessing Node APIs directly.
-  const pmPreloadPath = path.join(__dirname, '../preload/passwordCapture.js');
-  mainWindow.webContents.on('dom-ready', () => {
-    void mainWindow?.webContents.executeJavaScript(
-      `window.__PM_PRELOAD__ = ${JSON.stringify(pmPreloadPath)};`
-    ).catch(() => { /* best effort */ });
-  });
 
   // A shell renderer crash otherwise presents as an entirely black window with
   // no explanation. Keep the event visible in the main-process log; guest
@@ -492,44 +499,72 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         break;
       }
       case 'webview-credentials': {
-        // Forward to renderer as a save-password prompt
-        if (
-          isBoundedString(message.origin, 2_048) &&
-          isBoundedString(message.username, 512) &&
-          isBoundedString(message.password, 8_192)
-        ) {
-          mainWindow?.webContents.send('save-password-prompt', {
-            origin:   message.origin,
-            username: message.username,
-            password: message.password,
-            title:    message.title ?? '',
-            favicon:  message.favicon,
-          });
+        // Never capture credentials typed in a private tab.
+        const sourceTab = tabs.get(message.tabId);
+        if (sourceTab?.privateMode) break;
+        // Nothing to ask about when this exact pair is already stored.
+        try {
+          if (hasPassword(message.origin, message.username, message.password)) break;
+        } catch (error) {
+          console.error('[passwords] lookup failed:', error);
         }
+        mainWindow?.webContents.send('save-password-prompt', {
+          origin:   normalizeOrigin(message.origin),
+          username: message.username,
+          password: message.password,
+          title:    message.title ?? '',
+          favicon:  message.favicon ?? sourceTab?.favicon,
+        });
         break;
       }
       case 'autofill-credentials': {
-        if (
-          isBoundedString(message.username, 512) &&
-          isBoundedString(message.password, 8_192)
-        ) {
-          const wc = webContents.fromId(
-            [...tabByWebContentsId.entries()].find(([, tid]) => tid === message.tabId)?.[0] ?? -1
-          );
-          if (wc) {
-            const u = JSON.stringify(message.username);
-            const p = JSON.stringify(message.password);
-            void wc.executeJavaScript(`
-              (function() {
-                var inputs = document.querySelectorAll('input[type="text"],input[type="email"],input:not([type])');
-                var pwds   = document.querySelectorAll('input[type="password"]');
-                if (inputs.length) { inputs[inputs.length - 1].value = ${u}; inputs[inputs.length - 1].dispatchEvent(new Event('input', {bubbles:true})); }
-                if (pwds.length)   { pwds[0].value = ${p}; pwds[0].dispatchEvent(new Event('input', {bubbles:true})); }
-              })();
-            `);
-          }
-        }
-        break;
+        const guestId = [...tabByWebContentsId.entries()]
+          .find(([, tid]) => tid === message.tabId)?.[0];
+        const wc = guestId === undefined ? null : webContents.fromId(guestId);
+        if (!wc || wc.isDestroyed()) return { ok: false, reason: 'tab-not-ready' };
+
+        const u = JSON.stringify(message.username);
+        const p = JSON.stringify(message.password);
+        // React and other frameworks track input state internally, so setting
+        // `.value` alone is silently reverted. Use the native value setter and
+        // fire the events a real keystroke would produce.
+        const filled = await wc.executeJavaScript(`
+          (function() {
+            function setValue(el, value) {
+              var proto = Object.getPrototypeOf(el);
+              var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+              if (desc && desc.set) { desc.set.call(el, value); } else { el.value = value; }
+              el.dispatchEvent(new Event('input',  { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            function visible(el) {
+              if (el.disabled || el.readOnly) return false;
+              var r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0;
+            }
+            var pwds = Array.prototype.filter.call(
+              document.querySelectorAll('input[type="password"]'), visible);
+            if (!pwds.length) return false;
+            var pwd = pwds[0];
+            var form = pwd.form || document;
+            var candidates = Array.prototype.filter.call(
+              form.querySelectorAll('input[type="text"],input[type="email"],input[type="tel"],input:not([type])'),
+              visible);
+            // The username field is the last text input before the password box.
+            var user = null;
+            for (var i = 0; i < candidates.length; i++) {
+              if (candidates[i].compareDocumentPosition(pwd) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                user = candidates[i];
+              }
+            }
+            if (!user && candidates.length) user = candidates[0];
+            if (user) setValue(user, ${u});
+            setValue(pwd, ${p});
+            pwd.focus();
+            return true;
+          })();
+        `).catch(() => false);
+        return { ok: Boolean(filled) };
       }
       case 'get-state':
         return getState();
@@ -659,6 +694,17 @@ app.on('ready', async () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   closeDb();
+});
+
+// ── Password-capture preload path ────────────────────────────────────────────
+
+/** Absolute path of the guest preload that captures logins inside webviews. */
+const capturePreloadPath = path.join(__dirname, '../preload/passwordCapture.js');
+
+// Answered synchronously so the renderer has the path before the first
+// <webview> mounts. Only the trusted shell frame may ask.
+ipcMain.on('passwords:capture-preload-path', (event) => {
+  event.returnValue = isTrustedMainFrame(event) ? capturePreloadPath : '';
 });
 
 // ── DB IPC handlers ──────────────────────────────────────────────────────────
@@ -1059,6 +1105,19 @@ app.on('web-contents-created', (_event, contents) => {
     }
     return { action: 'deny' };
   });
+
+  if (contentsType === 'window') {
+    // SECURITY: a renderer can put any path in <webview preload>. Only the
+    // password-capture preload we ship is ever allowed to load in a guest.
+    contents.on('will-attach-webview', (_e, webPreferences) => {
+      const requested = webPreferences.preload;
+      if (requested && path.resolve(requested) !== path.resolve(capturePreloadPath)) {
+        delete webPreferences.preload;
+      }
+      webPreferences.nodeIntegration = false;
+      webPreferences.contextIsolation = true;
+    });
+  }
 
   if (contentsType === 'webview') {
     contents.on('did-create-window', (popup) => {

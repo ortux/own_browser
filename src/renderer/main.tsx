@@ -5,6 +5,20 @@ import './styles/index.css';
 import { warmCache } from './lib/backgroundCache';
 import { useSettingsStore } from './stores/settingsStore';
 
+// ── Purge any stale authBaseUrl persisted from a previous session ─────────────
+try {
+  const KEY = 'own-browser-settings';
+  const raw = localStorage.getItem(KEY);
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    if (parsed?.state?.authBaseUrl) {
+      delete parsed.state.authBaseUrl;
+      localStorage.setItem(KEY, JSON.stringify(parsed));
+    }
+  }
+} catch { /* best-effort */ }
+// ─────────────────────────────────────────────────────────────────────────────
+
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
 

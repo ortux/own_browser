@@ -3,9 +3,11 @@ import { ArrowLeft, Check, Image as ImageIcon, Search as SearchIcon, User, Globe
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useProxy } from '../hooks/useProxy';
 import type { SecuritySettings } from '../stores/settingsStore';
+import type { AuthPortalMode } from './AuthPortal';
 
 interface SettingsPageProps {
   onBack: () => void;
+  onOpenAuth: (mode: AuthPortalMode) => void;
 }
 
 const THEMES: { id: 'light' | 'dark' | 'system'; label: string; icon: React.ElementType }[] = [
@@ -74,7 +76,7 @@ const MdSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: bo
   </button>
 );
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
+export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }) => {
   const {
     searchEngineId,
     setSearchEngine,
@@ -91,6 +93,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
     setDownloadPath,
     openDownloadsOnStart,
     setOpenDownloadsOnStart,
+    account,
+    authBaseUrl,
+    authStatus,
+    authError,
+    passwordManagerEnabled,
+    setPasswordManagerEnabled,
+    signOut,
   } = useSettingsStore();
 
   const [activeSection, setActiveSection] = useState<'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads'>('general');
@@ -118,6 +127,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
   const [customError, setCustomError] = useState('');
   const [clearingData, setClearingData] = useState(false);
   const [clearDataStatus, setClearDataStatus] = useState('');
+
+  const openAuthPortal = (mode: AuthPortalMode) => {
+    onOpenAuth(mode);
+  };
 
   // Initialise the download path from the OS default if the user hasn't set one,
   // and keep the main process in sync whenever it changes.
@@ -210,7 +223,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
       </aside>
 
       {/* Scrollable content */}
-      <main className="flex-1 overflow-y-auto h-full">
+      <main className="flex-1 overflow-y-auto h-full relative">
         <div className="mx-auto max-w-2xl px-10 py-12">
           <h1 className="mb-10 text-[28px] font-normal leading-tight">
             {NAV_ITEMS.find((n) => n.id === activeSection)?.label}
@@ -218,12 +231,84 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
 
           {activeSection === 'general' && (
             <div className="space-y-4">
-              <MdCard>
-                <p className="text-sm leading-relaxed text-[var(--text-muted)]">
-                  Account settings are not available yet. This section is reserved for
-                  future profile and sync features.
-                </p>
+              <MdCard className="space-y-4">
+                {account ? (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-faint)]">Account</p>
+                        <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">{account.name}</h2>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => signOut()}
+                        className="rounded-full border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                    <div className="rounded-2xl bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-muted)]">
+                      <div>{account.email}</div>
+                      {account.role && <div className="mt-1 text-xs text-[var(--text-faint)]">Role: {account.role}</div>}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-faint)]">Account</p>
+                        <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">Not signed in</h2>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => openAuthPortal('signin')}
+                        className="rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-white transition hover:opacity-95"
+                      >
+                        Login
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openAuthPortal('signup')}
+                        className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-sm font-medium text-[var(--text)] transition hover:bg-[var(--hover)]"
+                      >
+                        Sign up
+                      </button>
+                    </div>
+
+                    <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[11px] text-[var(--text-faint)]">
+                      Account portal: {authBaseUrl}/auth.html
+                    </div>
+
+                    {(authStatus === 'error' || authError) && (
+                      <p className="rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-400">{authError}</p>
+                    )}
+                  </>
+                )}
               </MdCard>
+
+              <MdCard className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text)]">Password manager</div>
+                    <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                      Save locally and sync browser passwords with your account.
+                    </div>
+                  </div>
+                  <MdSwitch
+                    checked={passwordManagerEnabled}
+                    onChange={() => setPasswordManagerEnabled(!passwordManagerEnabled)}
+                  />
+                </div>
+                <div className="rounded-2xl bg-[var(--surface-2)] px-3 py-3 text-xs text-[var(--text-faint)]">
+                  {passwordManagerEnabled
+                    ? 'Password manager is enabled for this browser session.'
+                    : 'Password manager is disabled until you enable it.'}
+                </div>
+              </MdCard>
+
               <MdCard className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-sm font-medium text-[var(--text)]">Clear browsing data</div>

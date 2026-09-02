@@ -3,6 +3,7 @@ import type { BrowserAPI } from '../../preload/index';
 declare global {
   interface Window {
     browserAPI: BrowserAPI;
+    __PM_PRELOAD__?: string;
   }
 }
 declare namespace JSX {

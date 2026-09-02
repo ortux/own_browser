@@ -149,7 +149,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               className="flex items-center justify-center w-full py-2 rounded-lg hover:bg-[var(--hover)] transition-colors"
             >
               {account
-                ? <Avatar name={account.name} image={account.image} size={22} />
+                ? <Avatar name={account.name ?? account.email ?? 'User'} image={account.image} size={22} />
                 : <User size={15} className="text-[var(--text-muted)]" />
               }
             </button>
@@ -281,7 +281,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg hover:bg-[var(--hover)] transition-colors group"
             >
               {account
-                ? <Avatar name={account.name} image={account.image} size={26} />
+                ? <Avatar name={account.name ?? account.email ?? 'User'} image={account.image} size={26} />
                 : (
                   <div className="w-[26px] h-[26px] rounded-full border border-[var(--border)] flex items-center justify-center shrink-0">
                     <User size={13} className="text-[var(--text-muted)]" />

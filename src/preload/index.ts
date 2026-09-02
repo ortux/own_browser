@@ -166,6 +166,33 @@ const browserAPI = {
       ipcRenderer.invoke('db:bookmarks:is', url),
   },
 
+  /** Passwords */
+  passwords: {
+    getAll:       ():                                                                    Promise<import('../shared/types').SavedPassword[]> =>
+      ipcRenderer.invoke('db:passwords:get-all'),
+    getForOrigin: (origin: string):                                                      Promise<import('../shared/types').SavedPassword[]> =>
+      ipcRenderer.invoke('db:passwords:get-for-origin', origin),
+    getById:      (id: number):                                                          Promise<import('../shared/types').SavedPassword | null> =>
+      ipcRenderer.invoke('db:passwords:get-by-id', id),
+    save:         (origin: string, username: string, password: string, title: string, favicon?: string): Promise<import('../shared/types').SavedPassword> =>
+      ipcRenderer.invoke('db:passwords:save', origin, username, password, title, favicon),
+    delete:       (id: number):                                                          Promise<void> =>
+      ipcRenderer.invoke('db:passwords:delete', id),
+    clear:        ():                                                                    Promise<void> =>
+      ipcRenderer.invoke('db:passwords:clear'),
+    search:       (query: string):                                                       Promise<import('../shared/types').SavedPassword[]> =>
+      ipcRenderer.invoke('db:passwords:search', query),
+    /** Called by the renderer when user confirms "Save password". */
+    onSavePrompt: (callback: (data: { origin: string; username: string; password: string; title: string; favicon?: string }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, data: { origin: string; username: string; password: string; title: string; favicon?: string }) => callback(data);
+      ipcRenderer.on('save-password-prompt', handler);
+      return () => ipcRenderer.removeListener('save-password-prompt', handler);
+    },
+    /** Inject autofill credentials into the focused webview. */
+    autofill: (tabId: string, username: string, password: string): Promise<unknown> =>
+      ipcRenderer.invoke('browser:message', { type: 'autofill-credentials', tabId, username, password }),
+  },
+
   /** Proxy */
   proxy: {
     fetch:  (): Promise<import('../renderer/stores/settingsStore').ProxyInfo> =>
@@ -261,6 +288,12 @@ const browserAPI = {
   cert: {
     get: (hostname: string): Promise<import('../main/certificate').CertInfo | null> =>
       ipcRenderer.invoke('cert:get', hostname),
+  },
+
+  /** Open external URLs in the default browser. */
+  shell: {
+    openExternal: (url: string): Promise<void> =>
+      ipcRenderer.invoke('shell:open-external', url),
   },
 };
 

@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { BackgroundCategory } from '../lib/backgroundCache';
+import { getApiBaseUrl } from '../lib/config';
+import { saveTokens, clearTokens } from '../lib/tokenManager';
+import { apiClient } from '../lib/apiClient';
 
 export interface SearchEngine {
   id: string;
@@ -26,6 +29,23 @@ export interface SecuritySettings {
   forceHttps: boolean;
   doNotTrack: boolean;
   privateByDefault: boolean;
+}
+
+export interface AuthUser {
+  name?: string;
+  email?: string;
+  image?: string;
+  role?: string;
+  id?: number;
+}
+
+export type AuthStatus = 'idle' | 'loading' | 'error' | 'authenticated';
+
+export interface AuthTokens {
+  access_token: string;
+  refresh_token: string;
+  token_type?: string;
+  expires_in: number;
 }
 
 export const SEARCH_ENGINES: SearchEngine[] = [
@@ -88,9 +108,25 @@ interface SettingsStore {
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
 
   // Signed-in account (null = not signed in)
-  account: { name: string; image?: string } | null;
+  account: AuthUser | null;
+  guestMode: boolean;
+  onboardingCompleted: boolean;
   authPromptLastShownAt: number | null;
   markAuthPromptShown: () => void;
+  chooseGuest: () => void;
+  completeOnboarding: () => void;
+  agreeToTerms: () => void;
+
+  // Authentication
+  authBaseUrl: string;
+  authStatus: AuthStatus;
+  authError: string | null;
+  passwordManagerEnabled: boolean;
+  setPasswordManagerEnabled: (enabled: boolean) => void;
+  signOut: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, name?: string) => Promise<void>;
+  applyAuthSession: (payload: { tokens: AuthTokens; user: AuthUser }) => Promise<void>;
 
   // New-tab mode
   newTabMode: 'minimal' | 'full';
@@ -109,6 +145,11 @@ interface SettingsStore {
   setDownloadPath: (path: string) => void;
   openDownloadsOnStart: boolean;
   setOpenDownloadsOnStart: (value: boolean) => void;
+
+  // Device management
+  deviceKey: string;
+  deviceName: string;
+  registerDevice: (name: string, token: string) => Promise<void>;
 }
 
 function sanitizeProxy(value: unknown): ProxyInfo | null {
@@ -205,8 +246,13 @@ export const useSettingsStore = create<SettingsStore>()(
       setTheme: (theme) => set({ theme }),
 
       account: null,
+      guestMode: false,
+      onboardingCompleted: false,
       authPromptLastShownAt: null,
       markAuthPromptShown: () => set({ authPromptLastShownAt: Date.now() }),
+      chooseGuest: () => set({ guestMode: true }),
+      completeOnboarding: () => set({ onboardingCompleted: true }),
+      agreeToTerms: () => set({}),
 
       newTabMode: 'full',
       backgroundCategory: 'random',
@@ -222,16 +268,171 @@ export const useSettingsStore = create<SettingsStore>()(
       setDownloadPath: (path) => set({ downloadPath: path }),
       openDownloadsOnStart: false,
       setOpenDownloadsOnStart: (value) => set({ openDownloadsOnStart: value }),
+
+      // Auth
+      authBaseUrl: getApiBaseUrl(),
+      authStatus: 'idle',
+      authError: null,
+      passwordManagerEnabled: false,
+      setPasswordManagerEnabled: (enabled) => set({ passwordManagerEnabled: enabled }),
+      signOut: async () => {
+        clearTokens();
+        localStorage.removeItem('zyphora_user');
+        localStorage.removeItem('zyphora_tokens'); // Clear old format
+        set({ account: null, authStatus: 'idle', authError: null });
+      },
+      signIn: async (email, password) => {
+        set({ authStatus: 'loading', authError: null });
+        try {
+          const baseUrl = getApiBaseUrl();
+          const response = await fetch(`${baseUrl}/auth/login`, {
+            method: 'POST',
+            mode: 'cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data?.error || 'Login failed');
+          
+          // Save tokens using secure token manager
+          if (data?.tokens) {
+            saveTokens(data.tokens);
+          }
+          
+          await get().applyAuthSession(data);
+          set({ authStatus: 'authenticated', authError: null });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Sign in failed';
+          set({ authStatus: 'error', authError: message });
+          throw error;
+        }
+      },
+      signUp: async (email, password, name) => {
+        set({ authStatus: 'loading', authError: null });
+        try {
+          const baseUrl = getApiBaseUrl();
+          const response = await fetch(`${baseUrl}/auth/register`, {
+            method: 'POST',
+            mode: 'cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, name: name || undefined }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data?.error || 'Registration failed');
+          
+          // Save tokens using secure token manager
+          if (data?.tokens) {
+            saveTokens(data.tokens);
+          }
+          
+          await get().applyAuthSession(data);
+          set({ authStatus: 'authenticated', authError: null });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Sign up failed';
+          set({ authStatus: 'error', authError: message });
+          throw error;
+        }
+      },
+      applyAuthSession: async (payload) => {
+        if (payload?.tokens) {
+          // Save tokens using secure token manager
+          saveTokens(payload.tokens);
+        }
+        if (payload?.user) {
+          localStorage.setItem('zyphora_user', JSON.stringify(payload.user));
+          set({ account: payload.user, authStatus: 'authenticated', authError: null });
+        }
+      },
+
+      // Device management
+      deviceKey: (() => {
+        const stored = localStorage.getItem('zyphora_device_key');
+        if (stored) return stored;
+        const generated = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        localStorage.setItem('zyphora_device_key', generated);
+        return generated;
+      })(),
+      deviceName: '',
+      registerDevice: async (name: string, token?: string) => {
+        try {
+          const baseUrl = getApiBaseUrl();
+
+          // Ensure device key is always present — read directly from localStorage
+          // as a fallback in case the store state hasn't hydrated yet
+          let deviceKey = get().deviceKey;
+          if (!deviceKey) {
+            deviceKey = localStorage.getItem('zyphora_device_key') || '';
+          }
+          if (!deviceKey) {
+            deviceKey = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            localStorage.setItem('zyphora_device_key', deviceKey);
+            set({ deviceKey });
+          }
+
+          const trimmedName = name.trim();
+          if (!trimmedName) throw new Error('Device name is required');
+          if (token) {
+            const response = await fetch(`${baseUrl}/api/v1/devices`, {
+              method: 'POST',
+              mode: 'cors',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                device_key: deviceKey,
+                name: trimmedName,
+              }),
+            });
+            if (!response.ok) {
+              const data = await response.json().catch(() => ({}));
+              throw new Error(data?.error || 'Failed to register device');
+            }
+            set({ deviceName: trimmedName });
+          } else {
+            // Use apiClient which has automatic token refresh
+            const response = await apiClient.post(
+              '/api/v1/devices',
+              {
+                device_key: deviceKey,
+                name: trimmedName,
+              },
+              { requireAuth: true }
+            );
+            if (!response.ok) {
+              throw new Error(response.error || 'Failed to register device');
+            }
+            set({ deviceName: trimmedName });
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Device registration failed';
+          console.error('Device registration error:', message);
+          throw error;
+        }
+      },
     }),
     {
       name: 'own-browser-settings',
-      partialize: (state) => ({ ...state, proxy: sanitizeProxy(state.proxy) }),
+      partialize: (state) => {
+        // Never persist authBaseUrl — always derive it fresh from config
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { authBaseUrl, authStatus, authError, ...rest } = state as any;
+        return { ...rest, proxy: sanitizeProxy(state.proxy) };
+      },
       merge: (persisted, current) => {
         const stored = persisted as Partial<SettingsStore>;
         const proxy = sanitizeProxy(stored.proxy);
         return {
           ...current,
           ...stored,
+          // Always use the live config value — never restore from localStorage
+          authBaseUrl: getApiBaseUrl(),
+          authStatus: 'idle',
+          authError: null,
           security: { ...current.security, ...stored.security },
           proxy,
           proxyEnabled: proxy !== null && stored.proxyEnabled === true,

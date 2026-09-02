@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zyphora — Signing in...</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        height: 100%;
+        background: #090a0b;
+        color: #fff;
+        font-family: Arial, sans-serif;
+        display: grid;
+        place-items: center;
+      }
+      .card {
+        border: 1px solid rgba(255,255,255,0.1);
+        background: #111315;
+        padding: 28px 32px;
+        border-radius: 16px;
+        text-align: center;
+        min-width: 240px;
+      }
+      .loader {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: 2px solid rgba(255,255,255,0.15);
+        border-top-color: #c9f36b;
+        margin: 0 auto 14px;
+        animation: spin 0.8s linear infinite;
+      }
+      .label { font-size: 14px; color: #a1a1aa; }
+      .error { color: #f87171; font-size: 13px; margin-top: 10px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="loader" id="loader"></div>
+      <div class="label" id="label">Finishing sign-in…</div>
+      <div class="error" id="error" style="display:none"></div>
+    </div>
+
+    <script>
+      (function () {
+        function showError(msg) {
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('label').textContent = 'Sign-in failed';
+          var el = document.getElementById('error');
+          el.textContent = msg;
+          el.style.display = 'block';
+          // Send error back to opener so the UI can show it
+          sendToOpener({ type: 'zyphora-oauth-callback', error: msg });
+        }
+
+        function sendToOpener(payload) {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage(payload, '*');
+            setTimeout(function () { window.close(); }, 300);
+            return true;
+          }
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage(payload, '*');
+            return true;
+          }
+          return false;
+        }
+
+        // ── Parse query params ──────────────────────────────────────────────
+        var params = new URLSearchParams(window.location.search);
+        var error = params.get('error');
+
+        if (error) {
+          showError(decodeURIComponent(error));
+          return;
+        }
+
+        var accessToken  = params.get('token')      || params.get('access_token')  || '';
+        var refreshToken = params.get('refresh')     || params.get('refresh_token') || '';
+        var tokenType    = params.get('token_type')  || params.get('type')          || 'bearer';
+        var expiresIn    = Number(params.get('expires_in') || '900');
+        var provider     = params.get('provider')    || 'google';
+        var userRaw      = params.get('user')        || '';
+        var user         = null;
+
+        try {
+          if (userRaw) user = JSON.parse(decodeURIComponent(userRaw));
+        } catch (_) {}
+
+        if (!accessToken) {
+          showError('No access token received. Please try again.');
+          return;
+        }
+
+        // ── Build the payload matching waitForOAuthCallback in oauthService.ts ──
+        var payload = {
+          type: 'zyphora-oauth-callback',   // ← must match the listener
+          provider: provider,
+          tokens: {
+            access_token:  accessToken,
+            refresh_token: refreshToken,
+            token_type:    tokenType,
+            expires_in:    expiresIn,
+          },
+          user: user,
+        };
+
+        var sent = sendToOpener(payload);
+
+        if (!sent) {
+          // Fallback: no opener — store in localStorage for the main window to pick up
+          try {
+            localStorage.setItem('zyphora_tokens', JSON.stringify(payload.tokens));
+            if (user) localStorage.setItem('zyphora_user', JSON.stringify(user));
+          } catch (_) {}
+          document.getElementById('label').textContent = 'Signed in! You can close this window.';
+          document.getElementById('loader').style.display = 'none';
+        }
+      })();
+    </script>
+  </body>
+</html>

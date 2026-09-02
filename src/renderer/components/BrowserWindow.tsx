@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { SidebarTabs } from './SidebarTabs';
 import { TitleBar } from './TitleBar';
 import { NavBar } from './NavBar';
@@ -6,12 +6,16 @@ import { WebView } from './WebView';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NewTabPage } from './NewTabPage';
 import { SettingsPage } from './SettingsPage';
+import { AuthPortal, type AuthPortalMode } from './AuthPortal';
 import { DownloadsPage } from './DownloadsPage';
 import { DownloadToast } from './DownloadToast';
 import { HistoryPanel } from './HistoryPanel';
 import { BookmarksPanel } from './BookmarksPanel';
 import { FindBar } from './FindBar';
 import { RecentlyClosedPanel } from './RecentlyClosedPanel';
+import { SavePasswordPrompt } from './SavePasswordPrompt';
+import { PasswordsPanel } from './PasswordsPanel';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -51,6 +55,7 @@ export const BrowserWindow: React.FC = () => {
 
   // ── UI state ──
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthPortalMode | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [panel, setPanel]               = useState<Panel>(null);
   const togglePanel = (p: Panel) => setPanel((cur) => (cur === p ? null : p));
@@ -244,9 +249,15 @@ export const BrowserWindow: React.FC = () => {
               )}
 
               {/* Settings — full page, sits on top like chrome://settings */}
-              {settingsOpen && (
+              {authMode && (
+                <div className="absolute inset-0 z-40 bg-[#090a0b]">
+                  <AuthPortal mode={authMode} onClose={() => setAuthMode(null)} />
+                </div>
+              )}
+
+              {settingsOpen && !authMode && (
                 <div className="absolute inset-0 z-20 flex overflow-hidden bg-[var(--bg)]">
-                  <SettingsPage onBack={() => setSettingsOpen(false)} />
+                  <SettingsPage onBack={() => setSettingsOpen(false)} onOpenAuth={(mode) => setAuthMode(mode)} />
                 </div>
               )}
 

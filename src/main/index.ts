@@ -6,6 +6,8 @@ import {
   clipboard,
   globalShortcut,
   session,
+  shell,
+  webContents,
 } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -37,6 +39,13 @@ import {
   getBookmarks,
   searchBookmarks,
   updateHistoryMetadata,
+  savePassword,
+  getPasswordsForOrigin,
+  getAllPasswords,
+  getPasswordById,
+  searchPasswords,
+  deletePassword,
+  clearPasswords,
   closeDb,
   initDb,
 } from './db';
@@ -89,20 +98,10 @@ if (process.platform === 'linux' && process.env.ZYPHORA_ENABLE_HARDWARE_ACCELERA
 configureAdGuardDns();
 
 /**
- * Present web content as the Chromium version it actually runs on, without the
- * Electron/application tokens that cause some sites to serve a restricted or
- * non-interactive client. We retain the real Chrome version and platform rather
- * than hard-coding a newer browser version.
+ * Keep the app's own browser context intact. We do not attempt to spoof a
+ * different browser family or launch an external browser to satisfy OAuth.
  */
-function makeWebCompatibleUserAgent(userAgent: string): string {
-  return userAgent
-    .replace(/\sElectron\/[\w.-]+/gi, '')
-    .replace(/\sown-browser\/[\w.-]+/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
 
-app.userAgentFallback = makeWebCompatibleUserAgent(app.userAgentFallback);
 
 function canOpenInTab(value: string): boolean {
   return isHttpNavigationUrl(value);
@@ -263,6 +262,15 @@ function createWindow() {
       console.error('[renderer] failed to load bundled UI:', error);
     });
   }
+
+  // Expose the password-capture preload path as a global so WebView.tsx
+  // can reference it without accessing Node APIs directly.
+  const pmPreloadPath = path.join(__dirname, '../preload/passwordCapture.js');
+  mainWindow.webContents.on('dom-ready', () => {
+    void mainWindow?.webContents.executeJavaScript(
+      `window.__PM_PRELOAD__ = ${JSON.stringify(pmPreloadPath)};`
+    ).catch(() => { /* best effort */ });
+  });
 
   // A shell renderer crash otherwise presents as an entirely black window with
   // no explanation. Keep the event visible in the main-process log; guest
@@ -481,6 +489,46 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         }
         break;
       }
+      case 'webview-credentials': {
+        // Forward to renderer as a save-password prompt
+        if (
+          isBoundedString(message.origin, 2_048) &&
+          isBoundedString(message.username, 512) &&
+          isBoundedString(message.password, 8_192)
+        ) {
+          mainWindow?.webContents.send('save-password-prompt', {
+            origin:   message.origin,
+            username: message.username,
+            password: message.password,
+            title:    message.title ?? '',
+            favicon:  message.favicon,
+          });
+        }
+        break;
+      }
+      case 'autofill-credentials': {
+        if (
+          isBoundedString(message.username, 512) &&
+          isBoundedString(message.password, 8_192)
+        ) {
+          const wc = webContents.fromId(
+            [...tabByWebContentsId.entries()].find(([, tid]) => tid === message.tabId)?.[0] ?? -1
+          );
+          if (wc) {
+            const u = JSON.stringify(message.username);
+            const p = JSON.stringify(message.password);
+            void wc.executeJavaScript(`
+              (function() {
+                var inputs = document.querySelectorAll('input[type="text"],input[type="email"],input:not([type])');
+                var pwds   = document.querySelectorAll('input[type="password"]');
+                if (inputs.length) { inputs[inputs.length - 1].value = ${u}; inputs[inputs.length - 1].dispatchEvent(new Event('input', {bubbles:true})); }
+                if (pwds.length)   { pwds[0].value = ${p}; pwds[0].dispatchEvent(new Event('input', {bubbles:true})); }
+              })();
+            `);
+          }
+        }
+        break;
+      }
       case 'get-state':
         return getState();
       case 'go-back': {
@@ -595,6 +643,7 @@ app.on('ready', async () => {
   registerProxyHandlers();
   registerAdblockHandlers();
   registerCertHandlers();
+  registerShellHandlers();
   registerDownloadHandlers();
   createWindow();
 
@@ -663,6 +712,46 @@ function registerDbHandlers() {
     assertTrustedMainFrame(event);
     if (!isBoundedString(url, 8_192)) throw new Error('Invalid bookmark URL.');
     return isBookmarked(url);
+  });
+
+  // ── Passwords ──────────────────────────────────────────────────────────────
+
+  ipcMain.handle('db:passwords:get-all', (event) => {
+    assertTrustedMainFrame(event);
+    return getAllPasswords();
+  });
+  ipcMain.handle('db:passwords:get-for-origin', (event, origin: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(origin, 2_048)) throw new Error('Invalid origin.');
+    return getPasswordsForOrigin(origin);
+  });
+  ipcMain.handle('db:passwords:get-by-id', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) throw new Error('Invalid password ID.');
+    return getPasswordById(id);
+  });
+  ipcMain.handle('db:passwords:save', (event, origin: unknown, username: unknown, password: unknown, title: unknown, favicon?: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(origin, 2_048)) throw new Error('Invalid origin.');
+    if (!isBoundedString(username, 512)) throw new Error('Invalid username.');
+    if (!isBoundedString(password, 8_192)) throw new Error('Invalid password.');
+    if (!isBoundedString(title, 1_000)) throw new Error('Invalid title.');
+    if (favicon !== undefined && !isBoundedString(favicon, 8_192)) throw new Error('Invalid favicon.');
+    return savePassword(origin, username, password, title as string, favicon as string | undefined);
+  });
+  ipcMain.handle('db:passwords:delete', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) throw new Error('Invalid password ID.');
+    return deletePassword(id);
+  });
+  ipcMain.handle('db:passwords:clear', (event) => {
+    assertTrustedMainFrame(event);
+    return clearPasswords();
+  });
+  ipcMain.handle('db:passwords:search', (event, query: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(query, 500)) throw new Error('Invalid password search query.');
+    return searchPasswords(query);
   });
 }
 
@@ -750,6 +839,21 @@ function registerCertHandlers() {
       throw new Error('Invalid certificate hostname.');
     }
     return getCertInfo(hostname);
+  });
+}
+
+// ── Shell IPC handlers ────────────────────────────────────────────────────────
+
+function registerShellHandlers() {
+  ipcMain.handle('shell:open-external', async (event, url: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(url, 4_096)) throw new Error('Invalid URL.');
+    try {
+      new URL(url as string);
+    } catch {
+      throw new Error('Invalid URL format.');
+    }
+    return shell.openExternal(url as string);
   });
 }
 
@@ -842,25 +946,31 @@ app.on('activate', () => {
 app.on('web-contents-created', (_event, contents) => {
   const contentsType = contents.getType();
 
-  // Restrict the application shell. A hidden managed popup is allowed to reach
-  // normal web URLs so OAuth/payment flows can be routed into a tab.
+  // Keep the app in its own browser context; do not spoof a different browser
+  // family or rely on an external browser for the OAuth flow.
+
+  // Restrict the application shell. OAuth provider redirects must be permitted
+  // during the auth flow while still blocking arbitrary external sites.
   if (contentsType === 'window') {
     contents.on('will-navigate', (event, navigationUrl) => {
       const isShell = contents === mainWindow?.webContents;
+      const isTrustOAuthProvider = navigationUrl.includes('accounts.google.com')
+        || navigationUrl.includes('google.com')
+        || navigationUrl.includes('github.com')
+        || navigationUrl.includes('login.microsoft.com')
+        || navigationUrl.includes('live.com')
+        || navigationUrl.includes('githubusercontent.com');
       const allowed = isShell
         ? navigationUrl.startsWith('http://localhost')
           || navigationUrl.startsWith('https://localhost')
           || navigationUrl.startsWith('file://')
+          || isTrustOAuthProvider
         : isHttpNavigationUrl(navigationUrl) || navigationUrl === 'about:blank';
       if (!allowed) event.preventDefault();
     });
   }
 
   if (contentsType === 'webview') {
-    // Use the sanitized, Chrome-compatible UA from the very first request.
-    // Some Google/YouTube clients detect the Electron token and return a page
-    // shell whose player and interactive API calls are restricted.
-    contents.setUserAgent(app.userAgentFallback);
     managedSessions.add(contents.session);
     attachAdblockToSession(contents.session);
     configureSessionPermissions(contents.session, () => mainWindow);
@@ -909,9 +1019,21 @@ app.on('web-contents-created', (_event, contents) => {
 
   // A browser must support target=_blank/window.open, but untrusted pages must
   // not create unmanaged Electron BrowserWindows. Route safe web URLs into our
-  // own tab model and deny the native popup. This restores links and controls
-  // that previously appeared to do nothing while preserving the sandbox.
+  // own tab model and deny the native popup. The dedicated auth portal is an
+  // explicit, trusted route that should be allowed to open in its own window.
   contents.setWindowOpenHandler(({ url }) => {
+    const isTrustedAuthPortal = /^https?:\/\/localhost(?::\d+)?\/auth\.html(?:\?.*)?$/.test(url)
+      || /^file:\/\/\/.*\/auth\.html(?:\?.*)?$/.test(url);
+
+    // Allow OAuth provider popups (backend redirects and external providers)
+    const isOAuthProvider = /^https:\/\/(accounts\.google\.com|github\.com|login\.microsoft\.com)/.test(url)
+      || /^https?:\/\/localhost(?::\d+)?\/auth\/social\//.test(url)
+      || /^https?:\/\/localhost(?::\d+)?\/auth\/social\/[^/]+\/callback/.test(url);
+
+    if (isTrustedAuthPortal || isOAuthProvider) {
+      return { action: 'allow' };
+    }
+
     if (contentsType === 'webview' && canOpenInTab(url)) {
       createNewTab(url);
       return { action: 'deny' };

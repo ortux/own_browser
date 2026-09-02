@@ -61,6 +61,24 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     const el = webviewRef.current;
     if (!el || !window.browserAPI) return;
 
+    // Password credentials captured by the webview's passwordCapture preload
+    // are forwarded here via ipc-message, then sent to main for the save prompt.
+    const onIpcMessage = (e: Electron.IpcMessageEvent) => {
+      if (e.channel !== '__zyphora_pm_submit__') return;
+      if (tab.privateMode) return; // never save passwords in private tabs
+      const [origin, username, password, title, favicon] = e.args as string[];
+      if (!username || !password) return;
+      void window.browserAPI.sendMessage({
+        type: 'webview-credentials',
+        tabId: tab.id,
+        origin: origin || '',
+        username,
+        password,
+        title: title || '',
+        favicon: favicon || undefined,
+      });
+    };
+
     const onLoadStart = () => {
       setLoadError(null);
       void window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: true });
@@ -118,6 +136,10 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     };
 
     const onLoadStop = reportNavigationState;
+    const onLoadStopWithPM = () => {
+      reportNavigationState();
+      if (!tab.privateMode) injectPasswordCapture();
+    };
 
     const onTitleUpdated = (e: Electron.PageTitleUpdatedEvent) => {
       window.browserAPI.sendMessage({
@@ -170,27 +192,29 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     el.addEventListener('did-attach',          registerGuestContents);
     el.addEventListener('did-detach',          onDidDetach);
     el.addEventListener('did-start-loading',   onLoadStart);
-    el.addEventListener('did-stop-loading',    onLoadStop);
+    el.addEventListener('did-stop-loading',    reportNavigationState);
     el.addEventListener('page-title-updated',  onTitleUpdated  as EventListener);
     el.addEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
-    el.addEventListener('found-in-page',        onFoundInPage);
+    el.addEventListener('found-in-page',       onFoundInPage);
     el.addEventListener('did-navigate',        onDidNavigate);
     el.addEventListener('did-navigate-in-page',onDidNavigate);
     el.addEventListener('did-fail-load',       onDidFailLoad   as EventListener);
     el.addEventListener('render-process-gone', onRenderProcessGone);
+    el.addEventListener('ipc-message',         onIpcMessage    as EventListener);
 
     return () => {
       el.removeEventListener('did-attach',          registerGuestContents);
       el.removeEventListener('did-detach',          onDidDetach);
       el.removeEventListener('did-start-loading',   onLoadStart);
-      el.removeEventListener('did-stop-loading',    onLoadStop);
+      el.removeEventListener('did-stop-loading',    reportNavigationState);
       el.removeEventListener('page-title-updated',  onTitleUpdated  as EventListener);
       el.removeEventListener('page-favicon-updated',onFaviconUpdated as EventListener);
-      el.removeEventListener('found-in-page',        onFoundInPage);
+      el.removeEventListener('found-in-page',       onFoundInPage);
       el.removeEventListener('did-navigate',        onDidNavigate);
       el.removeEventListener('did-navigate-in-page',onDidNavigate);
       el.removeEventListener('did-fail-load',       onDidFailLoad   as EventListener);
       el.removeEventListener('render-process-gone', onRenderProcessGone);
+      el.removeEventListener('ipc-message',         onIpcMessage    as EventListener);
     };
   }, [tab.id]);
 
@@ -201,10 +225,8 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
         src={initialSrc}
         partition={tab.privateMode ? `temp:tab-${tab.id}` : undefined}
         className="w-full h-full border-none"
-        webpreferences="contextIsolation=yes,sandbox=yes"
-        // Required for target=_blank/window.open events to reach the main
-        // process. The main process safely routes http(s) URLs into browser tabs
-        // and still denies unmanaged native popup windows.
+        webpreferences="contextIsolation=yes,sandbox=no"
+        preload={tab.privateMode ? undefined : window.__PM_PRELOAD__}
         allowpopups
       />
 

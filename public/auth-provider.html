@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zyphora Social Auth</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #090a0b;
+        color: white;
+        font-family: Arial, sans-serif;
+      }
+      body {
+        display: grid;
+        place-items: center;
+      }
+      .card {
+        width: min(440px, calc(100vw - 32px));
+        background: #111315;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 16px;
+        padding: 28px 24px;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+      }
+      .title {
+        margin: 0 0 10px;
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .subtitle {
+        color: #a1a1aa;
+        margin: 0 0 24px;
+      }
+      .button {
+        width: 100%;
+        background: #c9f36b;
+        color: #090a0b;
+        border: none;
+        border-radius: 10px;
+        padding: 14px 18px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .button.secondary {
+        margin-top: 10px;
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.1);
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1 class="title" id="providerTitle">Continue with Google</h1>
+      <p class="subtitle">This demo provider flow simulates the OAuth redirect and signs you in immediately.</p>
+      <button class="button" id="continueBtn">Continue</button>
+      <button class="button secondary" id="cancelBtn">Cancel</button>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const provider = params.get('provider') || 'google';
+      const providerTitle = document.getElementById('providerTitle');
+      providerTitle.textContent = provider === 'github' ? 'Continue with GitHub' : 'Continue with Google';
+
+      const continueBtn = document.getElementById('continueBtn');
+      const cancelBtn = document.getElementById('cancelBtn');
+
+      continueBtn.addEventListener('click', () => {
+        const user = {
+          id: 101,
+          email: `${provider}@example.com`,
+          name: provider === 'github' ? 'GitHub User' : 'Google User',
+          role: 'user',
+        };
+
+        const payload = {
+          type: 'zyphora-social-auth',
+          provider,
+          tokens: {
+            access_token: `mock-${provider}-access-token`,
+            refresh_token: `mock-${provider}-refresh-token`,
+            token_type: 'Bearer',
+            expires_in: 3600,
+          },
+          user,
+        };
+
+        if (window.opener) {
+          window.opener.postMessage(payload, '*');
+          window.close();
+          return;
+        }
+
+        window.parent.postMessage(payload, '*');
+      });
+
+      cancelBtn.addEventListener('click', () => {
+        window.close();
+      });
+    </script>
+  </body>
+</html>

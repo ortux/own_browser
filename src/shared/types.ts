@@ -56,7 +56,11 @@ export type RendererToMainMessage =
   | { type: 'security-settings'; forceHttps: boolean; doNotTrack: boolean }
   | { type: 'set-tab-private'; tabId: string; privateMode: boolean }
   // Respond to a permission prompt shown by the renderer (Allow / Block).
-  | { type: 'permission-response'; requestId: string; allow: boolean };
+  | { type: 'permission-response'; requestId: string; allow: boolean }
+  // Credentials captured from a login form inside a webview
+  | { type: 'webview-credentials'; tabId: string; origin: string; username: string; password: string; title: string; favicon?: string }
+  // Autofill credentials into a webview's login form
+  | { type: 'autofill-credentials'; tabId: string; username: string; password: string };
 // IPC Messages from Main to Renderer
 export type MainToRendererMessage =
   | { type: 'state-updated'; state: BrowserState }
@@ -65,7 +69,9 @@ export type MainToRendererMessage =
   | { type: 'tab-favicon-updated'; tabId: string; favicon?: string }
   | { type: 'tab-navigation-state'; tabId: string; canGoBack: boolean; canGoForward: boolean }
   // Ask the renderer to show a permission prompt for a webview guest.
-  | { type: 'permission-request'; request: PermissionRequest };
+  | { type: 'permission-request'; request: PermissionRequest }
+  // Ask the renderer to show a "Save password?" prompt.
+  | { type: 'save-password-prompt'; origin: string; username: string; password: string; title: string; favicon?: string };
 
 // ── Persistence types (mirrored from main/db.ts for use in renderer) ─────────
 
@@ -117,16 +123,36 @@ export interface Download {
 // IPC channels for DB operations (all go through ipcRenderer.invoke)
 export type DbChannel =
   // History
-  | 'db:history:get'           // () => HistoryEntry[]
-  | 'db:history:search'        // (query: string) => HistoryEntry[]
-  | 'db:history:delete'        // (id: number) => void
-  | 'db:history:clear'         // () => void
+  | 'db:history:get'
+  | 'db:history:search'
+  | 'db:history:delete'
+  | 'db:history:clear'
   // Bookmarks
-  | 'db:bookmarks:get'         // () => Bookmark[]
-  | 'db:bookmarks:add'         // (url, title, favicon?) => Bookmark
-  | 'db:bookmarks:remove'      // (url: string) => void
-  | 'db:bookmarks:is'          // (url: string) => boolean
-  | 'db:bookmarks:search';     // (query: string) => Bookmark[]
+  | 'db:bookmarks:get'
+  | 'db:bookmarks:add'
+  | 'db:bookmarks:remove'
+  | 'db:bookmarks:is'
+  | 'db:bookmarks:search'
+  // Passwords
+  | 'db:passwords:get-all'
+  | 'db:passwords:get-for-origin'
+  | 'db:passwords:get-by-id'
+  | 'db:passwords:save'
+  | 'db:passwords:delete'
+  | 'db:passwords:clear'
+  | 'db:passwords:search';
+
+// ── Saved password (mirrored from main/db.ts) ─────────────────────────────────
+export interface SavedPassword {
+  id: number;
+  origin: string;
+  username: string;
+  password?: string; // omitted in list views, present in get-by-id
+  title: string;
+  favicon: string | null;
+  created_at: number;
+  updated_at: number;
+}
 
 // ── Proxy IPC channels ────────────────────────────────────────────────────────
 // proxy:fetch   — () => ProxyInfo           fetch a proxy from local configuration

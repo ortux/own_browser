@@ -108,6 +108,17 @@ export async function initDb(): Promise<void> {
       favicon    TEXT,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS passwords (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      origin     TEXT    NOT NULL,
+      username   TEXT    NOT NULL,
+      password   TEXT    NOT NULL,
+      title      TEXT    NOT NULL DEFAULT '',
+      favicon    TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(origin, username)
+    );
   `);
 
   try {
@@ -301,4 +312,80 @@ export function closeDb() {
     _db.close();
     _db = null;
   }
+}
+
+// ── Passwords ─────────────────────────────────────────────────────────────────
+
+export interface SavedPassword {
+  id: number;
+  origin: string;    // e.g. "https://github.com"
+  username: string;
+  password: string;
+  title: string;
+  favicon: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export function savePassword(
+  origin: string,
+  username: string,
+  password: string,
+  title = '',
+  favicon?: string
+): SavedPassword {
+  const now = Date.now();
+  db().run(
+    `INSERT INTO passwords (origin, username, password, title, favicon, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(origin, username) DO UPDATE SET
+       password   = excluded.password,
+       title      = excluded.title,
+       favicon    = excluded.favicon,
+       updated_at = excluded.updated_at`,
+    [origin, username, password, title, favicon ?? null, now, now]
+  );
+  persist();
+  return queryObjects(
+    'SELECT * FROM passwords WHERE origin = ? AND username = ? LIMIT 1',
+    [origin, username]
+  )[0] as unknown as SavedPassword;
+}
+
+export function getPasswordsForOrigin(origin: string): SavedPassword[] {
+  return queryObjects(
+    'SELECT * FROM passwords WHERE origin = ? ORDER BY updated_at DESC',
+    [origin]
+  ) as unknown as SavedPassword[];
+}
+
+export function getAllPasswords(): SavedPassword[] {
+  return queryObjects(
+    'SELECT id, origin, username, title, favicon, created_at, updated_at FROM passwords ORDER BY updated_at DESC'
+  ) as unknown as SavedPassword[];
+}
+
+export function getPasswordById(id: number): SavedPassword | null {
+  const rows = queryObjects('SELECT * FROM passwords WHERE id = ? LIMIT 1', [id]);
+  return rows.length ? (rows[0] as unknown as SavedPassword) : null;
+}
+
+export function searchPasswords(query: string): SavedPassword[] {
+  const pattern = escapedLikePattern(query);
+  return queryObjects(
+    `SELECT id, origin, username, title, favicon, created_at, updated_at FROM passwords
+     WHERE origin LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\'
+     ORDER BY updated_at DESC LIMIT 500`,
+    [pattern, pattern, pattern]
+  ) as unknown as SavedPassword[];
+}
+
+export function deletePassword(id: number) {
+  db().run('DELETE FROM passwords WHERE id = ?', [id]);
+  persist();
+}
+
+export function clearPasswords() {
+  db().run('DELETE FROM passwords');
+  persist();
 }

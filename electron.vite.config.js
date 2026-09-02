@@ -27,6 +27,10 @@ export default defineConfig({
       reportCompressedSize: false,
       target: 'node22',
       rollupOptions: {
+        input: {
+          index: 'src/preload/index.ts',
+          passwordCapture: 'src/preload/passwordCapture.js',
+        },
         output: {
           format: 'cjs',
           entryFileNames: '[name].js',

@@ -171,6 +171,8 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
       return typeof value.forceHttps === 'boolean' && typeof value.doNotTrack === 'boolean';
     case 'set-tab-private':
       return isBoundedString(value.tabId, 200) && typeof value.privateMode === 'boolean';
+    case 'permission-response':
+      return isBoundedString(value.requestId, 200) && typeof value.allow === 'boolean';
     default:
       return false;
   }

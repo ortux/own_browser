@@ -40,7 +40,9 @@ const browserAPI = {
 
   /** Show a custom permission prompt (camera, mic, location, …) in the UI. */
   onPermissionRequest: (callback: (request: import('../shared/types').PermissionRequest) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, request: import('../shared/types').PermissionRequest) => callback(request);
+    const handler = (_event: Electron.IpcRendererEvent, request: import('../shared/types').PermissionRequest) => {
+      callback(request);
+    };
     ipcRenderer.on('permission-request', handler);
     return () => {
       ipcRenderer.removeListener('permission-request', handler);

@@ -119,9 +119,9 @@ export function configureSessionPermissions(
     pendingByKey.set(key, requestId);
 
     try {
-      // The guest webContents is the one requesting; route the prompt there so
-      // it surfaces in the right tab. Fall back to the main window otherwise.
-      webContents.send('permission-request', request);
+      // The guest has no preload of its own, so the prompt must be shown by the
+      // shell window (whose preload exposes onPermissionRequest). Route it there.
+      window.webContents.send('permission-request', request);
     } catch {
       clearTimeout(timer);
       pending.delete(requestId);

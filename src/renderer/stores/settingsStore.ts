@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import { DEFAULT_SLEEP_MINUTES, clampSleepMinutes } from '../../shared/tabSleep';
+import {
+  DEFAULT_GENERAL_SETTINGS,
+  normalizeSettingsUrl,
+  type GeneralSettings,
+} from '../../shared/generalSettings';
 import { persist } from 'zustand/middleware';
 import type { BackgroundCategory } from '../lib/backgroundCache';
 import { getApiBaseUrl } from '../lib/config';
@@ -179,6 +184,28 @@ interface SettingsStore {
   setDownloadPath: (path: string) => void;
   openDownloadsOnStart: boolean;
   setOpenDownloadsOnStart: (value: boolean) => void;
+
+  /**
+   * Everything the General settings page owns. One nested object rather than
+   * ~45 top-level keys, so persistence, reset and the settings-search index
+   * can all address it generically. Settings that already existed (theme,
+   * searchEngineId, restoreSession, sleepTabs, downloadPath …) are NOT
+   * duplicated here — the General page reads and writes those directly.
+   */
+  general: GeneralSettings;
+  setGeneral: <K extends keyof GeneralSettings>(key: K, value: GeneralSettings[K]) => void;
+  /** Returns false when the URL is not a usable http(s) address. */
+  addStartupPage: (url: string) => boolean;
+  updateStartupPage: (index: number, url: string) => boolean;
+  removeStartupPage: (index: number) => void;
+  addNeverTranslateLanguage: (id: string) => void;
+  removeNeverTranslateLanguage: (id: string) => void;
+  /**
+   * Restore browser preferences to their defaults. Deliberately does NOT touch
+   * bookmarks, saved passwords, history, downloaded files, or agent memory —
+   * those have their own explicit destructive actions.
+   */
+  resetBrowserSettings: () => void;
 
   // Device management
   deviceKey: string;
@@ -434,6 +461,82 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       },
 
+      // ── General settings ────────────────────────────────────────────────
+      general: { ...DEFAULT_GENERAL_SETTINGS },
+
+      setGeneral: (key, value) => set((s) => ({ general: { ...s.general, [key]: value } })),
+
+      addStartupPage: (url) => {
+        const normalized = normalizeSettingsUrl(url);
+        if (!normalized) return false;
+        set((s) => ({
+          general: {
+            ...s.general,
+            startupPages: [...s.general.startupPages, normalized].slice(0, 50),
+          },
+        }));
+        return true;
+      },
+
+      updateStartupPage: (index, url) => {
+        const normalized = normalizeSettingsUrl(url);
+        if (!normalized) return false;
+        set((s) => ({
+          general: {
+            ...s.general,
+            startupPages: s.general.startupPages.map((p, i) => (i === index ? normalized : p)),
+          },
+        }));
+        return true;
+      },
+
+      removeStartupPage: (index) =>
+        set((s) => ({
+          general: {
+            ...s.general,
+            startupPages: s.general.startupPages.filter((_, i) => i !== index),
+          },
+        })),
+
+      addNeverTranslateLanguage: (id) =>
+        set((s) => ({
+          general: {
+            ...s.general,
+            neverTranslateLanguages: [...new Set([...s.general.neverTranslateLanguages, id])],
+          },
+        })),
+
+      removeNeverTranslateLanguage: (id) =>
+        set((s) => ({
+          general: {
+            ...s.general,
+            neverTranslateLanguages: s.general.neverTranslateLanguages.filter((l) => l !== id),
+          },
+        })),
+
+      resetBrowserSettings: () => {
+        set({
+          general: { ...DEFAULT_GENERAL_SETTINGS },
+          // Pre-existing preferences the General page surfaces. Reset them too,
+          // otherwise "restore defaults" would leave half the page unchanged.
+          searchEngineId: 'duckduckgo',
+          theme: 'dark',
+          restoreSession: false,
+          sleepTabs: true,
+          sleepTabsAfterMinutes: DEFAULT_SLEEP_MINUTES,
+          openDownloadsOnStart: false,
+          stripTrackingParams: true,
+          newTabMode: 'full',
+          backgroundCategory: 'random',
+          security: {
+            blockTrackers: true,
+            forceHttps: true,
+            doNotTrack: false,
+            privateByDefault: false,
+          },
+        });
+      },
+
       // Device management
       deviceKey: (() => {
         const stored = localStorage.getItem('zyphora_device_key');
@@ -533,6 +636,9 @@ export const useSettingsStore = create<SettingsStore>()(
           authStatus: 'idle',
           authError: null,
           security: { ...current.security, ...stored.security },
+          // Key-wise merge, so a setting added in a later version arrives at
+          // its default instead of `undefined` for existing installs.
+          general: { ...DEFAULT_GENERAL_SETTINGS, ...stored.general },
           proxy,
           proxyEnabled: proxy !== null && stored.proxyEnabled === true,
         };

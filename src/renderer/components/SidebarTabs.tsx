@@ -126,6 +126,8 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   const [tabSearch, setTabSearch] = useState('');
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const account = useSettingsStore((s) => s.account);
+  const showTabPreviews = useSettingsStore((s) => s.general.showTabPreviews);
+  const showTabSearchButton = useSettingsStore((s) => s.general.showTabSearchButton);
 
   const filteredTabs = useMemo(() => {
     const q = tabSearch.toLowerCase().trim();
@@ -282,7 +284,8 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
 
           <div className="mx-3 my-1.5 h-px bg-[var(--border)] shrink-0" />
 
-          {/* Tab search */}
+          {/* Tab search — hidden when the tab search button is off. */}
+          {showTabSearchButton && (
           <div className="px-2 pb-1 shrink-0">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
               <Search size={13} className="text-[var(--text-faint)] shrink-0" />
@@ -304,6 +307,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               )}
             </div>
           </div>
+          )}
 
           {/* Active Tabs label */}
           <div className="px-3 pt-1 pb-0.5 shrink-0 flex items-center justify-between">
@@ -366,7 +370,14 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                       className={`flex-1 truncate text-sm leading-none ${
                         isAsleep ? 'opacity-50' : ''
                       }`}
-                      title={isAsleep ? 'Suspended to save memory — click to reload' : undefined}
+                      title={
+                        isAsleep
+                          ? 'Suspended to save memory — click to reload'
+                          : // Tab previews are opt-in in General settings.
+                            showTabPreviews
+                            ? `${tab.title || 'New Tab'}${tab.url && tab.url !== 'about:blank' ? `\n${tab.url}` : ''}`
+                            : undefined
+                      }
                     >
                       {tab.title || 'New Tab'}
                     </span>

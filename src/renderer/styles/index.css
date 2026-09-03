@@ -206,3 +206,54 @@ textarea:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Accessibility (General settings → Accessibility) ──
+ *
+ * These classes are toggled on <html> by useApplyGeneralSettings. They style
+ * the browser chrome; page content is handled by Chromium preferences pushed
+ * to the main process (font sizes, zoom) so a site cannot opt out of them.
+ */
+
+/* "High contrast mode": strengthen borders, text and focus so the chrome stays
+   legible for low-vision users. Deliberately a token override rather than a
+   third theme — the light/dark choice still applies underneath. */
+html.high-contrast {
+  --border: rgba(255, 255, 255, 0.42);
+  --border-strong: rgba(255, 255, 255, 0.72);
+  --text: #ffffff;
+  --text-muted: #e6e6ea;
+  --text-faint: #c8c8d0;
+  --hover: rgba(255, 255, 255, 0.16);
+  --active: rgba(255, 255, 255, 0.24);
+  --focus-ring: #ffffff;
+}
+
+html.high-contrast[data-theme='light'] {
+  --border: rgba(0, 0, 0, 0.5);
+  --border-strong: rgba(0, 0, 0, 0.8);
+  --text: #000000;
+  --text-muted: #1c1c1f;
+  --text-faint: #38383f;
+  --hover: rgba(0, 0, 0, 0.12);
+  --active: rgba(0, 0, 0, 0.2);
+  --focus-ring: #000000;
+}
+
+/* "Reduce animations": the same treatment the OS-level preference already
+   gets, applied on request rather than only when the system asks. */
+html.reduce-animations *,
+html.reduce-animations *::before,
+html.reduce-animations *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* "Always show focus indicator": draw the ring on :focus, not only on
+   :focus-visible, so it survives pointer interaction too. */
+html.always-focus :focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+

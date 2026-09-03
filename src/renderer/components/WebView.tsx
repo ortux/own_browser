@@ -4,6 +4,7 @@ import { webviewRegistry } from '../stores/webviewRegistry';
 import { applySponsorBlock } from '../lib/sponsorBlock';
 import { isAllowedNavigationUrl } from '../../shared/navigation';
 import { useSettingsStore } from '../stores/settingsStore';
+import { caretBrowsingScript } from '../lib/caretBrowsing';
 
 interface WebViewProps {
   tab: Tab;
@@ -42,6 +43,15 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     webviewRegistry.register(tab.id, el);
     return () => webviewRegistry.unregister(tab.id);
   }, [tab.id]);
+
+  // Caret browsing can be toggled while a page is already open, so subscribe
+  // to it rather than only injecting on navigation.
+  const caretBrowsing = useSettingsStore((state) => state.general.caretBrowsing);
+  useEffect(() => {
+    const el = webviewRef.current;
+    if (!el || !attachedRef.current) return;
+    void el.executeJavaScript(caretBrowsingScript(caretBrowsing)).catch(() => {});
+  }, [caretBrowsing]);
 
   // Imperatively navigate only when the store URL changes to something the
   // webview is NOT already on. Internal SPA navigations report their new URL
@@ -190,7 +200,11 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       if (!url || url === 'about:blank') return;
       void window.browserAPI.zoom
         .get(url)
-        .then(({ factor }) => {
+        .then(({ factor: saved }) => {
+          // A site with no saved level uses the "Default page zoom" from
+          // Accessibility settings rather than a hard-coded 100%.
+          const defaultZoom = useSettingsStore.getState().general.defaultZoom;
+          const factor = saved === 1 ? defaultZoom : saved;
           // The tab may have navigated again while this was in flight.
           try {
             if (el.getURL() === url && el.getZoomFactor() !== factor) {
@@ -203,9 +217,17 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
         .catch(() => {});
     };
 
+    // Caret browsing has to be re-injected on every page: it lives in the
+    // guest document, which a navigation replaces.
+    const applyCaretBrowsing = () => {
+      const enabled = useSettingsStore.getState().general.caretBrowsing;
+      void el.executeJavaScript(caretBrowsingScript(enabled)).catch(() => {});
+    };
+
     const onDidNavigate = () => {
       reportNavigationState();
       applySavedZoom();
+      applyCaretBrowsing();
     };
 
     const onRenderProcessGone = (event: Electron.RenderProcessGoneEvent) => {
@@ -237,6 +259,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     el.addEventListener('did-start-loading', onLoadStart);
     el.addEventListener('did-stop-loading', reportNavigationState);
     el.addEventListener('dom-ready', applySavedZoom);
+    el.addEventListener('dom-ready', applyCaretBrowsing);
     el.addEventListener('page-title-updated', onTitleUpdated as EventListener);
     el.addEventListener('page-favicon-updated', onFaviconUpdated as EventListener);
     el.addEventListener('found-in-page', onFoundInPage);
@@ -252,6 +275,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       el.removeEventListener('did-start-loading', onLoadStart);
       el.removeEventListener('did-stop-loading', reportNavigationState);
       el.removeEventListener('dom-ready', applySavedZoom);
+      el.removeEventListener('dom-ready', applyCaretBrowsing);
       el.removeEventListener('page-title-updated', onTitleUpdated as EventListener);
       el.removeEventListener('page-favicon-updated', onFaviconUpdated as EventListener);
       el.removeEventListener('found-in-page', onFoundInPage);

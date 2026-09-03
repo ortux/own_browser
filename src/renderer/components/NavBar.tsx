@@ -32,6 +32,8 @@ interface NavBarProps {
   onNavigate: (url: string) => void;
   onOpenSettings: () => void;
   onHome: () => void;
+  /** From General settings → Home button. */
+  showHomeButton?: boolean;
   onBookmark?: () => void;
   isBookmarked?: boolean;
   onOpenDownloads?: () => void;
@@ -78,6 +80,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   onStop,
   onNavigate,
   onHome,
+  showHomeButton = true,
   onBookmark,
   isBookmarked = false,
   onOpenDownloads,
@@ -89,6 +92,14 @@ export const NavBar: React.FC<NavBarProps> = ({
   const [isFocused, setIsFocused] = useState(false);
   const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
   const getSearchEngine = useSettingsStore((s) => s.getSearchEngine);
+  // Address-bar behaviour, from General settings.
+  const searchSuggestions = useSettingsStore((s) => s.general.searchSuggestions);
+  const historySuggestions = useSettingsStore((s) => s.general.searchHistorySuggestions);
+  const bookmarkSuggestions = useSettingsStore((s) => s.general.searchBookmarkSuggestions);
+  const searchFromAddressBar = useSettingsStore((s) => s.general.searchFromAddressBar);
+  const showFullUrl = useSettingsStore((s) => s.general.showFullUrl);
+  const showLoadingIndicator = useSettingsStore((s) => s.general.showLoadingIndicator);
+  const compactToolbar = useSettingsStore((s) => s.general.compactToolbar);
   const engine = getSearchEngine();
 
   // ── Ad blocker state (mirrors SecuritySettings.blockTrackers) ──
@@ -130,18 +141,45 @@ export const NavBar: React.FC<NavBarProps> = ({
     return unsub;
   }, []);
 
-  const loadSuggestions = useCallback(async (q: string) => {
-    if (!window.browserAPI) return;
-    const request = ++suggestionRequest.current;
-    try {
-      const data = q.trim()
-        ? await window.browserAPI.history.search(q.trim())
-        : await window.browserAPI.history.get();
-      if (request === suggestionRequest.current) setHistory(data);
-    } catch {
-      if (request === suggestionRequest.current) setHistory([]);
-    }
-  }, []);
+  const loadSuggestions = useCallback(
+    async (q: string) => {
+      if (!window.browserAPI || !searchSuggestions) {
+        setHistory([]);
+        return;
+      }
+      const request = ++suggestionRequest.current;
+      const query = q.trim();
+      try {
+        // Each source is opt-in, so a user who turned one off never sees it
+        // reappear behind the other.
+        const [fromHistory, fromBookmarks] = await Promise.all([
+          historySuggestions
+            ? query
+              ? window.browserAPI.history.search(query)
+              : window.browserAPI.history.get()
+            : Promise.resolve([]),
+          bookmarkSuggestions && query
+            ? window.browserAPI.bookmarks.search(query)
+            : Promise.resolve([]),
+        ]);
+        // Bookmarks are reshaped into the history entry shape the suggestion
+        // list already renders, rather than forking the list markup.
+        const bookmarkEntries: HistoryEntry[] = fromBookmarks.map((bookmark, index) => ({
+          id: -(index + 1),
+          url: bookmark.url,
+          title: bookmark.title,
+          favicon: bookmark.favicon ?? null,
+          visited_at: Date.now(),
+        }));
+        if (request === suggestionRequest.current) {
+          setHistory([...bookmarkEntries, ...fromHistory]);
+        }
+      } catch {
+        if (request === suggestionRequest.current) setHistory([]);
+      }
+    },
+    [searchSuggestions, historySuggestions, bookmarkSuggestions]
+  );
 
   // Fetch (de-duplicated by domain) suggestions whenever the typed query changes.
   // Debouncing prevents an IPC/database round-trip for every keystroke.
@@ -315,7 +353,7 @@ export const NavBar: React.FC<NavBarProps> = ({
     if (!isFocused) {
       setInput(activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '');
     }
-  }, [activeTab?.url, activeTab?.id, isFocused]);
+  }, [activeTab?.url, activeTab?.id, isFocused, showFullUrl]);
 
   const handleFocus = () => {
     setIsFocused(true);
@@ -343,6 +381,10 @@ export const NavBar: React.FC<NavBarProps> = ({
     }
     const raw = input.trim();
     if (!raw) return;
+    if (!looksLikeUrl(raw) && !searchFromAddressBar) {
+      // Searching from the address bar is off: only real addresses navigate.
+      return;
+    }
     const url = looksLikeUrl(raw) ? raw : buildSearchUrl(raw);
     onNavigate(url);
     setIsFocused(false);
@@ -381,7 +423,11 @@ export const NavBar: React.FC<NavBarProps> = ({
   };
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 bg-[var(--chrome)] border-t border-[var(--border)] shrink-0">
+    <div
+      className={`flex items-center gap-1 bg-[var(--chrome)] border-t border-[var(--border)] shrink-0 ${
+        compactToolbar ? 'px-1.5 py-0.5' : 'px-2 py-1.5'
+      }`}
+    >
       {/* Navigation buttons */}
       <button
         onClick={onBack}
@@ -419,14 +465,16 @@ export const NavBar: React.FC<NavBarProps> = ({
         </button>
       )}
 
-      {/* Home button */}
-      <button
-        onClick={onHome}
-        className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)]"
-        title="Home (new tab)"
-      >
-        <Home size={16} />
-      </button>
+      {/* Home button — shown only when enabled in General settings. */}
+      {showHomeButton && (
+        <button
+          onClick={onHome}
+          className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)]"
+          title="Home"
+        >
+          <Home size={16} />
+        </button>
+      )}
 
       {/* Address / search bar */}
       <div className="relative flex-1 mx-1">
@@ -506,7 +554,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           <input
             ref={searchRef}
             type="text"
-            value={isFocused ? input : displayUrl(input)}
+            value={isFocused || showFullUrl ? input : displayUrl(input)}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={handleFocus}
@@ -518,7 +566,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           />
 
           {/* Loading indicator inside bar */}
-          {isLoading && !isFocused && (
+          {isLoading && !isFocused && showLoadingIndicator && (
             <div className="w-3 h-3 rounded-full border-2 border-[var(--text-faint)] border-t-transparent animate-spin shrink-0" />
           )}
         </div>

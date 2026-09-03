@@ -477,6 +477,23 @@ const browserAPI = {
     },
   },
 
+  /**
+   * General settings the main process must enforce (Accept-Language, guest
+   * font sizes, download behaviour, launch-at-login, default browser).
+   * The renderer settings store remains the source of truth.
+   */
+  general: {
+    apply: (
+      settings: import('../shared/generalSettings').MainGeneralSettings
+    ): Promise<import('../shared/generalSettings').MainGeneralSettings> =>
+      ipcRenderer.invoke('general:apply', settings),
+    getLaunchAtLogin: (): Promise<boolean> => ipcRenderer.invoke('general:launch-at-login:get'),
+    setLaunchAtLogin: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('general:launch-at-login:set', enabled),
+    isDefaultBrowser: (): Promise<boolean> => ipcRenderer.invoke('general:default-browser:get'),
+    makeDefaultBrowser: (): Promise<boolean> => ipcRenderer.invoke('general:default-browser:set'),
+  },
+
   /** DNS-over-HTTPS mode. Changes apply on the next launch. */
   dns: {
     getMode: (): Promise<'automatic' | 'secure'> => ipcRenderer.invoke('dns:get-mode'),

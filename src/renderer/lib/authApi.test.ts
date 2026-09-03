@@ -5,7 +5,7 @@ import { createAuthApiClient } from './authApi';
 
 function makeMockFetch() {
   const calls: Array<{ input: string; init?: RequestInit }> = [];
-  const queue: Array<{ ok: boolean; body: any; status?: number }> = [];
+  const queue: Array<{ ok: boolean; body: unknown; status?: number }> = [];
 
   const fetchMock = async (input: string | URL | Request, init?: RequestInit) => {
     calls.push({ input: String(input), init });
@@ -32,8 +32,28 @@ function makeMockFetch() {
   };
 }
 
-test('auth base URL resolves from environment configuration', () => {
-  assert.equal(getApiBaseUrl(), 'http://localhost:8080');
+test('auth base URL falls back to the production API when unconfigured', () => {
+  delete process.env.VITE_API_BASE_URL;
+  delete process.env.API_BASE_URL;
+  assert.equal(getApiBaseUrl(), 'https://api-zyphora.obliqllc.xyz');
+});
+
+test('auth base URL is overridable through the environment', () => {
+  process.env.API_BASE_URL = 'http://localhost:8080';
+  try {
+    assert.equal(getApiBaseUrl(), 'http://localhost:8080');
+  } finally {
+    delete process.env.API_BASE_URL;
+  }
+});
+
+test('auth base URL trims surrounding whitespace', () => {
+  process.env.VITE_API_BASE_URL = '  https://staging.example.com  ';
+  try {
+    assert.equal(getApiBaseUrl(), 'https://staging.example.com');
+  } finally {
+    delete process.env.VITE_API_BASE_URL;
+  }
 });
 
 test('auth client sends register payload and stores token data', async () => {

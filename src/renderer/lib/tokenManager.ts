@@ -4,6 +4,7 @@
  */
 
 import { getApiBaseUrl } from './config';
+import { log } from './logger';
 
 export interface StoredTokens {
   access_token: string;
@@ -87,12 +88,12 @@ export async function refreshAccessToken(baseUrl: string = getApiBaseUrl()): Pro
 } | null> {
   const tokens = getStoredTokens();
   if (!tokens?.refresh_token) {
-    console.debug('[token] No refresh token available');
+    if (import.meta.env.DEV) log.debug('[token] No refresh token available');
     return null;
   }
 
   try {
-    console.debug('[token] Attempting to refresh access token');
+    if (import.meta.env.DEV) log.debug('[token] Attempting to refresh access token');
     const response = await fetch(`${baseUrl}/auth/refresh`, {
       method: 'POST',
       mode: 'cors',
@@ -101,7 +102,7 @@ export async function refreshAccessToken(baseUrl: string = getApiBaseUrl()): Pro
     });
 
     if (response.status === 401 || response.status === 403) {
-      console.debug('[token] Refresh failed with 401/403 - logging out');
+      if (import.meta.env.DEV) log.debug('[token] Refresh failed with 401/403 - logging out');
       clearTokens();
       return null;
     }
@@ -115,7 +116,7 @@ export async function refreshAccessToken(baseUrl: string = getApiBaseUrl()): Pro
     const data = await response.json();
     if (data.tokens) {
       saveTokens(data.tokens);
-      console.debug('[token] Token refreshed successfully');
+      if (import.meta.env.DEV) log.debug('[token] Token refreshed successfully');
       return data.tokens;
     }
 
@@ -131,7 +132,7 @@ export async function refreshAccessToken(baseUrl: string = getApiBaseUrl()): Pro
  * Returns valid token or null if refresh fails
  */
 export async function ensureValidToken(baseUrl: string = getApiBaseUrl()): Promise<string | null> {
-  let token = getAccessToken();
+  const token = getAccessToken();
   if (token) {
     return token; // Token is still valid
   }

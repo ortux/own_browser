@@ -49,6 +49,11 @@ export function isSleepExempt(tab: Tab, activeTabId: string): boolean {
   if (tab.pinned) return true;
   // Mid-navigation; discarding now would throw away the in-flight load.
   if (tab.loading) return true;
+  // Private tabs live in an in-memory `temp:` partition. Unmounting the
+  // webview tears that session down, so "waking" the tab would reload it with
+  // no cookies, no storage and no login — silently logging the user out of
+  // whatever they were doing. Memory is reclaimed when the tab is closed.
+  if (tab.privateMode) return true;
   // Nothing to restore from: a blank or internal page has no URL to reload,
   // so suspending it saves a trivial amount and loses the tab's identity.
   if (!tab.url || tab.url === 'about:blank') return true;

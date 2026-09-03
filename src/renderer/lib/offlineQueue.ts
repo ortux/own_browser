@@ -3,6 +3,8 @@
  * Handles offline scenarios and queues operations for later sync
  */
 
+import { log } from './logger';
+
 export interface QueuedOperation {
   id: string;
   type: 'history' | 'bookmark' | 'settings';
@@ -33,14 +35,14 @@ class OfflineQueue {
    */
   private setupOnlineListeners(): void {
     window.addEventListener('online', () => {
-      console.log('[offline] Back online - starting sync');
+      if (import.meta.env.DEV) log.info('[offline] Back online - starting sync');
       this.isOnline = true;
       this.notifyListeners(true);
       this.processPendingOperations();
     });
 
     window.addEventListener('offline', () => {
-      console.log('[offline] Offline - queueing operations');
+      if (import.meta.env.DEV) log.info('[offline] Offline - queueing operations');
       this.isOnline = false;
       this.notifyListeners(false);
     });
@@ -99,7 +101,7 @@ class OfflineQueue {
     this.queue.push(operation);
     this.saveQueue();
 
-    console.debug('[offline] Operation queued:', operation.id);
+    if (import.meta.env.DEV) log.debug('[offline] Operation queued:', operation.id);
 
     // Try to process if online
     if (this.isConnected()) {
@@ -194,7 +196,7 @@ class OfflineQueue {
       const stored = localStorage.getItem(QUEUE_STORAGE_KEY);
       if (stored) {
         this.queue = JSON.parse(stored);
-        console.debug('[offline] Loaded queue with', this.queue.length, 'operations');
+        if (import.meta.env.DEV) log.debug('[offline] Loaded queue with', this.queue.length, 'operations');
       }
     } catch (error) {
       console.error('[offline] Failed to load queue:', error);
@@ -203,45 +205,61 @@ class OfflineQueue {
   }
 
   /**
-   * Process pending operations (must be implemented by caller)
-   * This is called when coming back online
+   * Hand the queue to whoever registered a drain handler.
+   *
+   * This used to fire a `zyphora:sync-queue` CustomEvent that nothing ever
+   * listened for, and it cleared `syncInProgress` synchronously without
+   * waiting for any subscriber. The queue therefore grew forever and silently
+   * shed its oldest entries at MAX_QUEUE_SIZE. Now a registered handler is
+   * awaited, and operations it processes successfully are removed.
    */
-  private processPendingOperations(): void {
+  private async processPendingOperations(): Promise<void> {
     if (this.syncInProgress || !this.isConnected()) return;
     if (this.queue.length === 0) return;
+    if (!drainHandler) {
+      if (import.meta.env.DEV) log.debug('[offline] No drain handler registered; leaving queue intact');
+      return;
+    }
 
     this.syncInProgress = true;
-    console.log('[offline] Processing', this.queue.length, 'pending operations');
+    try {
+      const operations = this.getPendingOperations();
+      if (import.meta.env.DEV) log.debug('[offline] Processing', operations.length, 'pending operations');
+      const processedIds = await drainHandler(operations);
+      for (const id of processedIds) this.removeOperation(id);
+    } catch (error) {
+      console.error('[offline] Queue drain failed:', error);
+    } finally {
+      this.syncInProgress = false;
+    }
+  }
 
-    // Emit event for subscribers to handle actual sync
-    const event = new CustomEvent('zyphora:sync-queue', {
-      detail: { operations: this.getPendingOperations() },
-    });
-    window.dispatchEvent(event);
-
-    this.syncInProgress = false;
+  /** Force a drain attempt (e.g. right after signing in). */
+  flush(): void {
+    void this.processPendingOperations();
   }
 }
+
+/**
+ * Drains queued operations. Returns the ids that were handled successfully so
+ * the queue can drop exactly those and retry the rest.
+ */
+export type QueueDrainHandler = (operations: QueuedOperation[]) => Promise<string[]>;
+
+let drainHandler: QueueDrainHandler | null = null;
 
 // Export singleton instance
 export const offlineQueue = new OfflineQueue();
 
 /**
- * Listen for sync queue events
+ * Register the handler that actually performs queued sync work. Returns an
+ * unsubscribe function. Only one handler is active at a time.
  */
-export function onSyncQueue(
-  callback: (operations: QueuedOperation[]) => Promise<void>
-): () => void {
-  const handler = async (event: Event) => {
-    if (event instanceof CustomEvent && event.detail?.operations) {
-      try {
-        await callback(event.detail.operations);
-      } catch (error) {
-        console.error('[offline] Sync queue handler error:', error);
-      }
-    }
+export function onSyncQueue(callback: QueueDrainHandler): () => void {
+  drainHandler = callback;
+  // Anything queued while offline (or before sign-in) drains immediately.
+  offlineQueue.flush();
+  return () => {
+    if (drainHandler === callback) drainHandler = null;
   };
-
-  window.addEventListener('zyphora:sync-queue', handler);
-  return () => window.removeEventListener('zyphora:sync-queue', handler);
 }

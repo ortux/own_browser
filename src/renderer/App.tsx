@@ -3,7 +3,9 @@ import { BrowserWindow } from './components/BrowserWindow';
 import { AccountWelcome } from './components/AccountWelcome';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { useSettingsStore } from './stores/settingsStore';
-import { initHistorySync } from './lib/historySync';
+import { initHistorySync, syncHistoryWithDevice } from './lib/historySync';
+import { initBookmarksSync, syncBookmarksWithDevice } from './lib/bookmarksSync';
+import { offlineQueue, onSyncQueue } from './lib/offlineQueue';
 import './styles/index.css';
 
 const AUTH_PROMPT_INTERVAL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -26,12 +28,45 @@ function App() {
     };
   }, []);
 
-  // Initialize history sync when authenticated
+  // Initialize history and bookmark sync when authenticated. Bookmark sync was
+  // fully implemented but never started, so bookmarks silently never synced.
   useEffect(() => {
     if (!account) return;
 
-    const cleanup = initHistorySync(5 * 60 * 1000); // Sync every 5 minutes
-    return cleanup;
+    const stopHistorySync = initHistorySync(5 * 60 * 1000); // Sync every 5 minutes
+    const stopBookmarksSync = initBookmarksSync(5 * 60 * 1000);
+    return () => {
+      stopHistorySync();
+      stopBookmarksSync();
+    };
+  }, [account]);
+
+  // Drain anything queued while offline or signed out. Without a registered
+  // handler the queue only ever grew and shed its oldest entries.
+  useEffect(() => {
+    if (!account) return;
+
+    return onSyncQueue(async (operations) => {
+      const processed: string[] = [];
+      for (const operation of operations) {
+        try {
+          // Settings have no server-side endpoint yet, so those entries are
+          // dropped rather than retried forever.
+          if (operation.type === 'history') {
+            await syncHistoryWithDevice({ batch: true });
+          } else if (operation.type === 'bookmark') {
+            await syncBookmarksWithDevice();
+          }
+          processed.push(operation.id);
+        } catch (error) {
+          offlineQueue.markOperationFailed(
+            operation.id,
+            error instanceof Error ? error.message : 'sync failed'
+          );
+        }
+      }
+      return processed;
+    });
   }, [account]);
 
   // Hydration is near-instant from local storage. Rendering a bare surface

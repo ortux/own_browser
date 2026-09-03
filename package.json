@@ -1,10 +1,10 @@
 {
-  "name": "own-browser",
+  "name": "zyphora",
   "version": "0.0.1",
-  "description": "A secure, privacy-focused desktop web browser built with Electron, React, and Go",
+  "description": "A secure, privacy-focused desktop web browser built with Electron and React",
   "type": "module",
   "main": "./dist/main/index.js",
-  "author": "Browser Team",
+  "author": "Suprit Pahari <supritpahari123@gmail.com>",
   "license": "MIT",
   "engines": {
     "node": ">=22.12.0"
@@ -12,9 +12,10 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc && electron-vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "electron-vite preview",
     "start": "electron dist/main/index.js",
-    "test": "npm run test:adblock && npm run test:auth && npm run test:passwords && npm run test:session && npm run test:session-restore && npm run test:tracking && npm run test:retention && npm run test:window-state && npm run test:tab-audio && npm run test:tab-sleep && npm run test:tab-order",
+    "test": "npm run test:adblock && npm run test:auth && npm run test:passwords && npm run test:session && npm run test:session-restore && npm run test:tracking && npm run test:retention && npm run test:window-state && npm run test:tab-audio && npm run test:tab-sleep && npm run test:tab-order && npm run test:navigation && npm run test:agent && npm run test:agent-config && npm run test:agent-downloads && npm run test:agent-store",
     "test:adblock": "esbuild src/main/adblock.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
     "test:auth": "esbuild src/renderer/lib/authApi.test.ts --bundle --platform=node --format=esm --outfile=.tmp-auth-test.mjs && node .tmp-auth-test.mjs && node -e \"require('fs').unlinkSync('.tmp-auth-test.mjs')\"",
     "pack": "npm run build && electron-builder --dir",
@@ -30,7 +31,12 @@
     "test:window-state": "esbuild src/main/windowState.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --external:sql.js --outfile=.tmp-window-state-test.mjs && node .tmp-window-state-test.mjs && node -e \"require('fs').unlinkSync('.tmp-window-state-test.mjs')\"",
     "test:tab-audio": "esbuild src/main/tabAudio.test.ts --bundle --platform=node --format=esm --outfile=.tmp-tab-audio-test.mjs && node .tmp-tab-audio-test.mjs && node -e \"require('fs').unlinkSync('.tmp-tab-audio-test.mjs')\"",
     "test:tab-sleep": "esbuild src/shared/tabSleep.test.ts --bundle --platform=node --format=esm --outfile=.tmp-tab-sleep-test.mjs && node .tmp-tab-sleep-test.mjs && node -e \"require('fs').unlinkSync('.tmp-tab-sleep-test.mjs')\"",
-    "test:tab-order": "esbuild src/shared/tabOrder.test.ts --bundle --platform=node --format=esm --outfile=.tmp-tab-order-test.mjs && node .tmp-tab-order-test.mjs && node -e \"require('fs').unlinkSync('.tmp-tab-order-test.mjs')\""
+    "test:tab-order": "esbuild src/shared/tabOrder.test.ts --bundle --platform=node --format=esm --outfile=.tmp-tab-order-test.mjs && node .tmp-tab-order-test.mjs && node -e \"require('fs').unlinkSync('.tmp-tab-order-test.mjs')\"",
+    "test:navigation": "esbuild src/shared/navigation.test.ts --bundle --platform=node --format=esm --outfile=.tmp-navigation-test.mjs && node .tmp-navigation-test.mjs && node -e \"require('fs').unlinkSync('.tmp-navigation-test.mjs')\"",
+    "test:agent": "esbuild src/shared/agent.test.ts --bundle --platform=node --format=esm --outfile=.tmp-agent-test.mjs && node .tmp-agent-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agent-test.mjs')\"",
+    "test:agent-config": "esbuild src/shared/agentConfig.test.ts --bundle --platform=node --format=esm --outfile=.tmp-agentconfig-test.mjs && node .tmp-agentconfig-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agentconfig-test.mjs')\"",
+    "test:agent-downloads": "esbuild src/main/agentDownloads.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --outfile=.tmp-agentdl-test.mjs && node .tmp-agentdl-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agentdl-test.mjs')\"",
+    "test:agent-store": "esbuild src/main/agentConfigStore.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --outfile=.tmp-agentstore-test.mjs && node .tmp-agentstore-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agentstore-test.mjs')\""
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -95,6 +101,9 @@
         "x-scheme-handler/http",
         "x-scheme-handler/https"
       ]
-    }
+    },
+    "asarUnpack": [
+      "**/node_modules/sql.js/dist/*.wasm"
+    ]
   }
 }

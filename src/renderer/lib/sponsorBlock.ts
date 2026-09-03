@@ -58,6 +58,26 @@ function validSegments(value: unknown): SponsorSegment[] {
     .slice(0, MAX_SEGMENTS);
 }
 
+/**
+ * The privacy-preserving hash-prefix endpoint answers with an array of
+ * *videos*, not segments:
+ *   [{ videoID: "abc", hash: "…", segments: [ { segment: [s, e], … } ] }, …]
+ *
+ * Every video sharing the 4-character SHA-256 prefix comes back, which is the
+ * whole point — the server never learns which one was requested. Feeding that
+ * outer array straight into the segment validator matched nothing, so
+ * SponsorBlock silently never skipped anything.
+ */
+function segmentsForVideo(payload: unknown, videoId: string): SponsorSegment[] {
+  if (!Array.isArray(payload)) return [];
+  const match = payload.find(
+    (entry) =>
+      entry && typeof entry === 'object' && (entry as { videoID?: unknown }).videoID === videoId
+  );
+  if (!match) return [];
+  return validSegments((match as { segments?: unknown }).segments);
+}
+
 export async function fetchSponsorSegments(videoId: string): Promise<SponsorSegment[]> {
   const prefix = await hashPrefix(videoId);
   const query = new URLSearchParams({
@@ -75,7 +95,7 @@ export async function fetchSponsorSegments(videoId: string): Promise<SponsorSegm
     clearTimeout(timeout);
   }
   if (!response.ok) return [];
-  return validSegments(await response.json());
+  return segmentsForVideo(await response.json(), videoId);
 }
 
 function skipperScript(segments: SponsorSegment[]): string {
@@ -97,7 +117,11 @@ function skipperScript(segments: SponsorSegment[]): string {
           state.lastEnd = -1;
         }
       };
-      document.addEventListener('timeupdate', check, true);
+      // 'timeupdate' does not bubble, so a listener on document only fires in
+      // the capture phase — and only for a <video> that already existed. Poll
+      // instead: it is cheap, and it survives YouTube swapping the element out
+      // during SPA navigation.
+      setInterval(check, 250);
       window[key] = state;
     }
   })(${JSON.stringify(segments)});`;

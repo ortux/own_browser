@@ -2,10 +2,11 @@ import { sortPinnedFirst, reorderTabs as reorderTabList, setPinned } from '../sh
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   clipboard,
-  globalShortcut,
+  powerMonitor,
   session,
   shell,
   webContents,
@@ -17,7 +18,18 @@ import {
   isAllowedNavigationUrl,
   isHttpNavigationUrl,
   normalizeNavigationUrl,
+  INTERNAL_PAGES,
+  INTERNAL_PAGE_TITLES,
 } from '../shared/navigation';
+import { stripTrackingParams } from '../shared/trackingParams';
+import {
+  loadClosedTabs,
+  scheduleClosedTabsSave,
+  flushClosedTabsSave,
+  removeClosedTabsFile,
+  MAX_CLOSED_TABS,
+  type ClosedTabRecord,
+} from './closedTabs';
 import { registerPexelsHandlers } from './pexels';
 import { getZoomForUrl, setZoomForUrl, clearZoomLevels, flushZoomLevels } from './zoom';
 import { loadWindowState, trackWindowState, flushWindowState } from './windowState';
@@ -60,6 +72,7 @@ import {
   deletePassword,
   clearPasswords,
   closeDb,
+  flushDb,
   initDb,
 } from './db';
 import {
@@ -74,10 +87,15 @@ import {
   getSiteBlockedRequests,
   setNetworkSecuritySettings,
   isForceHttpsEnabled,
+  isStripTrackingEnabled,
   attachAdblockToSession,
   detachAdblockFromSession,
 } from './adblock';
-import { initCertificateMonitor, getCertInfo } from './certificate';
+import {
+  initCertificateMonitor,
+  attachCertificateMonitorToSession,
+  getCertInfo,
+} from './certificate';
 import {
   configureSessionPermissions,
   clearPermissionDecisions,
@@ -85,8 +103,43 @@ import {
   getPermissionDecisions,
   setPermissionDecision,
   clearPermissionDecision,
+  loadPermissionDecisions,
+  flushPermissionDecisions,
 } from './permissions';
-import { configureAdGuardDns } from './dns';
+import { configureAdGuardDns, getDnsMode, setDnsMode } from './dns';
+import { getReaderScript } from './readerScript';
+import { type AgentEvent, type AgentProfileField } from '../shared/agent';
+import type { AgentConfig } from '../shared/agentConfig';
+import {
+  getAgentConfig,
+  updateAgentConfig,
+  resetAgentConfig,
+  addMemory,
+  updateMemory,
+  deleteMemory,
+  clearMemories,
+  clearActivity,
+  dropSessionMemories,
+} from './agentConfigStore';
+import { startScheduler, stopScheduler, setTaskRunner, runTaskNow } from './agentScheduler';
+import { setNotifyWindow } from './agentNotify';
+import {
+  getProfileForDisplay,
+  setProfile,
+  setApiKey,
+  hasApiKey,
+  clearAgentProfile,
+  AgentSecretUnavailableError,
+} from './agentProfile';
+import {
+  initAgentRunner,
+  runAgent,
+  stopAgent,
+  respondToAgent,
+  isAgentRunning,
+  pauseAgent,
+  resumeAgent,
+} from './agentRunner';
 import {
   initDownloads,
   attachDownloadsToSession,
@@ -94,6 +147,8 @@ import {
   getDownloads,
   setDownloadPath,
   cancelDownload,
+  pauseDownload,
+  resumeDownload,
   retryDownload,
   removeDownload,
   clearDownloads,
@@ -126,15 +181,76 @@ function canOpenInTab(value: string): boolean {
   return isHttpNavigationUrl(value);
 }
 
+/**
+ * Hosts that legitimately have no HTTPS endpoint. Upgrading these breaks local
+ * development servers and appliances on the LAN for no security benefit.
+ */
+function isHttpsUpgradeExempt(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
+}
+
 function upgradeHttpUrl(value: string): string | null {
   try {
     const url = new URL(value);
     if (url.protocol !== 'http:') return null;
+    if (isHttpsUpgradeExempt(url.hostname)) return null;
     url.protocol = 'https:';
     return url.toString();
   } catch {
     return null;
   }
+}
+
+/**
+ * URLs we already tried to upgrade, per guest.
+ *
+ * A site that redirects https back to http would otherwise ping-pong forever:
+ * will-navigate upgrades, the server 302s back down, will-navigate upgrades
+ * again. Remembering the attempt lets the second pass through fall back to the
+ * plain http URL instead of looping.
+ */
+const httpsUpgradeAttempts = new Map<number, Set<string>>();
+
+function shouldAttemptHttpsUpgrade(webContentsId: number, url: string): boolean {
+  let attempted = httpsUpgradeAttempts.get(webContentsId);
+  if (!attempted) {
+    attempted = new Set<string>();
+    httpsUpgradeAttempts.set(webContentsId, attempted);
+  }
+  if (attempted.has(url)) return false;
+  // Bound the set so a long-lived tab cannot grow it without limit.
+  if (attempted.size > 100) attempted.clear();
+  attempted.add(url);
+  return true;
+}
+
+/**
+ * Same one-shot guard as the HTTPS upgrade, for tracking-param stripping: the
+ * loadURL() below re-enters will-navigate, so without a memo a site that
+ * re-adds the parameter on redirect would ping-pong forever.
+ */
+const paramStripAttempts = new Map<number, Set<string>>();
+
+function shouldAttemptParamStrip(webContentsId: number, url: string): boolean {
+  let attempted = paramStripAttempts.get(webContentsId);
+  if (!attempted) {
+    attempted = new Set<string>();
+    paramStripAttempts.set(webContentsId, attempted);
+  }
+  if (attempted.has(url)) return false;
+  if (attempted.size > 100) attempted.clear();
+  attempted.add(url);
+  return true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -201,7 +317,12 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
         value.webContentsId > 0
       );
     case 'security-settings':
-      return typeof value.forceHttps === 'boolean' && typeof value.doNotTrack === 'boolean';
+      return (
+        typeof value.forceHttps === 'boolean' &&
+        typeof value.doNotTrack === 'boolean' &&
+        (value.stripTracking === undefined || typeof value.stripTracking === 'boolean')
+      );
+    case 'private-by-default':
     case 'session-restore-setting':
       return typeof value.enabled === 'boolean';
     case 'history-retention':
@@ -241,7 +362,9 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
         isBoundedString(value.password, 8_192)
       );
     case 'reader-toggle':
-      return isBoundedString(value.tabId, 200) && isBoundedString(value.script, 100_000);
+      return isBoundedString(value.tabId, 200);
+    case 'reader-is-active':
+      return isBoundedString(value.tabId, 200);
     default:
       return false;
   }
@@ -290,6 +413,38 @@ function isProxyInfo(value: unknown): value is ProxyInfo {
 let mainWindow: BrowserWindow | null = null;
 const tabs: Map<string, Tab> = new Map();
 const closedTabs: Tab[] = [];
+
+/** Rebuild the persisted view of `closedTabs`. */
+function closedTabRecords(): ClosedTabRecord[] {
+  return closedTabs.map((tab) => ({
+    url: tab.url,
+    title: tab.title,
+    favicon: tab.favicon,
+    pinned: tab.pinned,
+    muted: tab.muted,
+    closedAt: Date.now(),
+  }));
+}
+
+/** Seed the in-memory list from disk so Ctrl+Shift+T survives a restart. */
+function hydrateClosedTabs(): void {
+  if (closedTabs.length) return;
+  for (const record of loadClosedTabs()) {
+    closedTabs.push({
+      id: `closed-${nextTabId++}`,
+      url: record.url,
+      title: record.title || record.url,
+      favicon: record.favicon,
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+      privateMode: false,
+      muted: record.muted,
+      audible: false,
+      pinned: record.pinned,
+    });
+  }
+}
 const managedSessions = new Set<Electron.Session>();
 const tabByWebContentsId = new Map<number, string>();
 
@@ -330,11 +485,26 @@ function createWindow() {
       webviewTag: true,
       preload: path.join(__dirname, '../preload/index.js'),
     },
-    icon: path.join(__dirname, '../../public/icon.png'),
+    // Must resolve inside dist/, which is all electron-builder packages.
+    // ../../public/icon.png pointed outside the bundle, so packaged builds
+    // launched with no window icon at all.
+    icon: path.join(__dirname, '../renderer/icon.png'),
   });
   if (savedWindow.maximised) mainWindow.maximize();
   trackWindowState(mainWindow);
   setMainWindow(mainWindow);
+  setNotifyWindow(mainWindow);
+
+  // Keep the custom title bar's maximize/restore icon truthful. Without these
+  // the button always rendered the "maximize" glyph, including when the window
+  // was already maximized (or was maximized by the OS, not by our button).
+  const sendMaximizedState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('window:maximized-changed', mainWindow.isMaximized());
+  };
+  mainWindow.on('maximize', sendMaximizedState);
+  mainWindow.on('unmaximize', sendMaximizedState);
+  mainWindow.webContents.on('did-finish-load', sendMaximizedState);
 
   const isDev = process.env.NODE_ENV === 'development';
   const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? (isDev ? 'http://localhost:5173' : '');
@@ -404,7 +574,14 @@ function restoreOpenTabs(): boolean {
   return true;
 }
 
-function createNewTab(rawUrl?: string, privateMode = false): string {
+/**
+ * Mirrors the renderer's `security.privateByDefault`. Held in main because
+ * tabs are created here for popups, restored sessions and the launch tab, none
+ * of which pass through the renderer's create-tab call.
+ */
+let privateByDefault = false;
+
+function createNewTab(rawUrl?: string, privateMode = privateByDefault): string {
   const url = rawUrl ? normalizeNavigationUrl(rawUrl) : null;
   if (rawUrl && !url) {
     console.warn('[navigation] refused unsupported new-tab URL:', rawUrl);
@@ -413,15 +590,10 @@ function createNewTab(rawUrl?: string, privateMode = false): string {
 
   const tabId = `tab-${nextTabId++}`;
   // Give internal pages a friendly title up-front so the tab strip reads well.
-  const isInternal = !!url && url.startsWith('zyphora://');
   const title =
     !url || url === 'about:blank'
       ? 'New Tab'
-      : isInternal
-        ? url === 'zyphora://downloads'
-          ? 'Downloads'
-          : 'Zyphora'
-        : 'Loading...';
+      : (INTERNAL_PAGE_TITLES[url] ?? (url.startsWith('zyphora://') ? 'Zyphora' : 'Loading...'));
   const tab: Tab = {
     id: tabId,
     url: url || 'about:blank',
@@ -465,9 +637,29 @@ function routePopupToTab(popup: BrowserWindow, privateMode: boolean): void {
 
   popup.webContents.on('did-navigate', routeNavigation);
   popup.webContents.on('did-navigate-in-page', routeNavigation);
+
+  // An about:blank popup that never navigates would otherwise sit around as a
+  // hidden, unmanaged BrowserWindow with a blank tab shadowing it. Give the
+  // opener a short window to perform its redirect, then reclaim both.
+  const abandonTimer = setTimeout(() => {
+    if (popup.isDestroyed()) return;
+    const tab = tabs.get(tabId);
+    if (tab && tab.url === 'about:blank') {
+      tabs.delete(tabId);
+      if (activeTabId === tabId) {
+        activeTabId = Array.from(tabs.keys())[0] ?? activeTabId;
+      }
+      updateRendererState();
+    }
+    popup.close();
+  }, 30_000);
+
   popup.on('closed', () => {
-    popup.webContents.removeListener('did-navigate', routeNavigation);
-    popup.webContents.removeListener('did-navigate-in-page', routeNavigation);
+    clearTimeout(abandonTimer);
+    if (!popup.webContents.isDestroyed()) {
+      popup.webContents.removeListener('did-navigate', routeNavigation);
+      popup.webContents.removeListener('did-navigate-in-page', routeNavigation);
+    }
   });
 }
 
@@ -475,15 +667,16 @@ function closeTab(tabId: string) {
   const tab = tabs.get(tabId);
   if (tab && !tab.privateMode) {
     closedTabs.unshift({ ...tab });
-    closedTabs.splice(20);
+    closedTabs.splice(MAX_CLOSED_TABS);
+    scheduleClosedTabsSave(closedTabRecords());
   }
   tabs.delete(tabId);
 
   if (tabs.size === 0) {
-    // No tabs left — close the browser window
-    if (mainWindow) {
-      mainWindow.close();
-    }
+    // Closing the last tab used to quit the application outright, discarding
+    // the whole session without warning. Every mainstream browser leaves an
+    // empty new tab instead; quitting stays an explicit action.
+    createNewTab();
     return;
   }
 
@@ -498,11 +691,41 @@ function closeTab(tabId: string) {
 function restoreClosedTab(index = 0): string {
   const snapshot = closedTabs.splice(index, 1)[0];
   if (!snapshot) return '';
-  return createNewTab(snapshot.url, false);
+  scheduleClosedTabsSave(closedTabRecords());
+
+  // Only non-private tabs are ever recorded, so the restored tab is non-private
+  // by construction. Carry the pinned and muted flags across: reopening a tab
+  // that comes back unpinned and unmuted is a silent loss of user intent.
+  const tabId = createNewTab(snapshot.url, false);
+  if (!tabId) return '';
+
+  const restored = tabs.get(tabId);
+  if (restored) {
+    restored.pinned = snapshot.pinned;
+    restored.muted = snapshot.muted;
+    restored.title = snapshot.title || restored.title;
+    restored.favicon = snapshot.favicon;
+    if (restored.pinned) applyTabOrder(sortPinnedFirst(Array.from(tabs.values())));
+    updateRendererState();
+  }
+  return tabId;
 }
 
 function getClosedTabs(): Tab[] {
   return closedTabs.map((tab) => ({ ...tab }));
+}
+
+/**
+ * Forget the recently-closed list.
+ *
+ * These records hold the URL and title of every non-private tab closed this
+ * session, so leaving them intact meant Ctrl+Shift+T could resurrect the exact
+ * pages the user had just erased with "clear browsing data".
+ */
+function clearClosedTabs(): void {
+  closedTabs.length = 0;
+  removeClosedTabsFile();
+  updateRendererState();
 }
 
 /**
@@ -613,10 +836,11 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       break;
     }
     case 'create-tab':
-      createNewTab(undefined, message.privateMode ?? false);
+      // `undefined` (no explicit choice) falls through to privateByDefault.
+      createNewTab(undefined, message.privateMode);
       break;
     case 'create-tab-url':
-      createNewTab(message.url, message.privateMode ?? false);
+      createNewTab(message.url, message.privateMode);
       break;
     case 'close-tab':
       closeTab(message.tabId);
@@ -676,10 +900,14 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       updateRendererState();
       break;
     }
+    case 'private-by-default':
+      privateByDefault = message.enabled;
+      break;
     case 'security-settings':
       setNetworkSecuritySettings({
         forceHttps: message.forceHttps,
         doNotTrack: message.doNotTrack,
+        stripTracking: message.stripTracking,
       });
       break;
     case 'session-restore-setting':
@@ -782,10 +1010,24 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
     case 'reader-toggle': {
       const wc = guestContentsForTab(message.tabId);
       if (!wc || wc.isDestroyed()) return { ok: false, reason: 'tab-not-ready' };
-      const activated = await wc
-        .executeJavaScript(message.script)
-        .catch(() => false);
+      // SECURITY: the script is read from our own bundle here rather than
+      // accepted over IPC. Taking a script string from the renderer made
+      // `executeJavaScript` a general-purpose code-execution sink in every
+      // guest page — harmless while the only caller was the trusted shell,
+      // but an unacceptable primitive to leave lying around once model output
+      // can influence renderer state.
+      const activated = await wc.executeJavaScript(getReaderScript()).catch(() => false);
       return { ok: true, activated: Boolean(activated) };
+    }
+    case 'reader-is-active': {
+      // Read the flag the injected script sets, so the toolbar reflects the
+      // page's actual state after an in-page navigation rather than a stale
+      // renderer-side guess.
+      const wc = guestContentsForTab(message.tabId);
+      if (!wc || wc.isDestroyed()) return false;
+      return wc
+        .executeJavaScript('!!window.__zyphoraReaderActive')
+        .catch(() => false);
     }
     case 'get-state':
       return getState();
@@ -901,22 +1143,75 @@ app.on('ready', async () => {
   registerProxyHandlers();
   registerAdblockHandlers();
   registerCertHandlers();
+  registerDnsHandlers();
+  registerAgentHandlers();
+
+  // Scheduled tasks reuse the ordinary agent run loop, so a task behaves
+  // exactly as if the user had typed its prompt into the sidebar.
+  setTaskRunner(async (task) => {
+    const config = getAgentConfig();
+    if (isAgentRunning()) return { ok: false, summary: 'The agent was busy.' };
+    try {
+      await runAgent(task.prompt, config);
+      return { ok: true, summary: 'Completed.' };
+    } catch (error) {
+      return { ok: false, summary: error instanceof Error ? error.message : 'Failed.' };
+    }
+  });
+  startScheduler();
+  loadPermissionDecisions();
+  hydrateClosedTabs();
   registerPermissionHandlers();
   registerShellHandlers();
   registerDownloadHandlers();
   createWindow();
 
-  // Global shortcut — opens the Downloads page as a new tab (zyphora://downloads).
-  // Registered at the OS level so it fires even when a webview has keyboard focus.
-  globalShortcut.register('CommandOrControl+J', () => {
-    createNewTab('zyphora://downloads');
-  });
+  // Ctrl/Cmd+J opens the Downloads page. This was a globalShortcut, which
+  // registers at the OS level and stole the key from every other application
+  // even when Zyphora was not focused. A Menu accelerator still fires while a
+  // webview holds keyboard focus, without the system-wide grab.
+  const downloadsMenu = Menu.buildFromTemplate([
+    {
+      label: 'Zyphora',
+      submenu: [
+        {
+          label: 'Downloads',
+          accelerator: 'CommandOrControl+J',
+          click: () => createNewTab(INTERNAL_PAGES.downloads),
+        },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+  ]);
+  Menu.setApplicationMenu(downloadsMenu);
+});
+
+// A laptop suspending (or an OS-initiated shutdown that never reaches
+// will-quit) would otherwise lose up to a second of debounced database writes.
+powerMonitor.on('suspend', () => {
+  flushDb();
 });
 
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
+  stopScheduler();
+  // Session-scoped memories are promised not to outlive the session.
+  dropSessionMemories();
   flushWindowState();
   flushZoomLevels();
+  flushPermissionDecisions();
+  flushClosedTabsSave(closedTabRecords());
   // Write synchronously before the process goes away; the debounced timer
   // would otherwise be discarded along with the event loop.
   if (restoreSessionEnabled) {
@@ -940,9 +1235,13 @@ ipcMain.on('passwords:capture-preload-path', (event) => {
 // ── DB IPC handlers ──────────────────────────────────────────────────────────
 
 function registerDbHandlers() {
-  ipcMain.handle('db:history:get', (event) => {
+  ipcMain.handle('db:history:get', (event, limit: unknown) => {
     assertTrustedMainFrame(event);
-    return getHistory();
+    // Sync needs a deeper window than the History page does. getHistory()
+    // clamps to its own maximum, so an oversized request is harmless.
+    const requested =
+      typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0 ? limit : undefined;
+    return getHistory(requested);
   });
   ipcMain.handle('db:history:search', (event, query: unknown) => {
     assertTrustedMainFrame(event);
@@ -1065,6 +1364,8 @@ function registerPrivacyHandlers() {
     resetBlockedStats();
     clearPermissionDecisions();
     clearZoomLevels();
+    clearClosedTabs();
+    clearAgentProfile();
     for (const ses of managedSessions) {
       await ses.clearStorageData({
         storages: [
@@ -1145,6 +1446,220 @@ function registerAdblockHandlers() {
 }
 
 // ── Certificate IPC handlers ─────────────────────────────────────────────────
+
+function registerAgentHandlers() {
+  initAgentRunner({
+    guestForTab: (tabId) => guestContentsForTab(tabId),
+    activeTabId: () => activeTabId,
+    listTabs: () =>
+      Array.from(tabs.values()).map((tab) => ({
+        tabId: tab.id,
+        title: tab.title,
+        url: tab.url,
+        active: tab.id === activeTabId,
+      })),
+    createTab: (url) => createNewTab(url),
+    activateTab: (tabId) => {
+      if (tabs.has(tabId)) {
+        activeTabId = tabId;
+        updateRendererState();
+      }
+    },
+    closeTab: (tabId) => closeTab(tabId),
+    navigate: (tabId, url) => {
+      const normalized = normalizeNavigationUrl(url);
+      if (!normalized) return;
+      const wc = guestContentsForTab(tabId);
+      if (wc && !wc.isDestroyed()) void wc.loadURL(normalized);
+      const tab = tabs.get(tabId);
+      if (tab) {
+        tab.url = normalized;
+        tab.loading = true;
+        updateRendererState();
+      }
+    },
+    emit: (event: AgentEvent) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('agent:event', event);
+      }
+    },
+  });
+
+  // ── Config ────────────────────────────────────────────────────────────────
+  // The renderer is a view over main's config; every write goes through the
+  // store so the policy floor is re-applied and the change is persisted.
+
+  ipcMain.handle('agent:config:get', (event) => {
+    assertTrustedMainFrame(event);
+    return { config: getAgentConfig(), hasApiKey: hasApiKey() };
+  });
+
+  ipcMain.handle('agent:config:update', (event, patch: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isRecord(patch)) throw new Error('Invalid config patch.');
+    // The store validates and clamps; a bad key simply loses to the default.
+    return updateAgentConfig(patch as Partial<AgentConfig>);
+  });
+
+  ipcMain.handle('agent:config:reset', (event) => {
+    assertTrustedMainFrame(event);
+    return resetAgentConfig();
+  });
+
+  // ── Memory ────────────────────────────────────────────────────────────────
+
+  ipcMain.handle('agent:memory:add', (event, content: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(content, 2_000)) throw new Error('Invalid memory.');
+    return addMemory(content);
+  });
+
+  ipcMain.handle('agent:memory:update', (event, value: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isRecord(value) || !isBoundedString(value.id, 100) || !isBoundedString(value.content, 2_000)) {
+      throw new Error('Invalid memory.');
+    }
+    updateMemory(value.id, value.content);
+    return getAgentConfig().memory;
+  });
+
+  ipcMain.handle('agent:memory:delete', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(id, 100)) throw new Error('Invalid memory id.');
+    deleteMemory(id);
+    return getAgentConfig().memory;
+  });
+
+  ipcMain.handle('agent:memory:clear', (event) => {
+    assertTrustedMainFrame(event);
+    clearMemories();
+    return getAgentConfig().memory;
+  });
+
+  // ── Activity ──────────────────────────────────────────────────────────────
+
+  ipcMain.handle('agent:activity:clear', (event) => {
+    assertTrustedMainFrame(event);
+    clearActivity();
+    return [];
+  });
+
+  // ── Files ─────────────────────────────────────────────────────────────────
+
+  ipcMain.handle('agent:files:pick-folder', async (event) => {
+    assertTrustedMainFrame(event);
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose a folder the agent may use',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    return result.filePaths[0];
+  });
+
+  // ── Scheduled tasks ───────────────────────────────────────────────────────
+
+  ipcMain.handle('agent:task:run-now', async (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(id, 100)) throw new Error('Invalid task id.');
+    return runTaskNow(id);
+  });
+
+  ipcMain.handle('agent:key:set', (event, key: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(key, 500)) throw new Error('Invalid API key.');
+    try {
+      setApiKey(key);
+      return { ok: true };
+    } catch (error) {
+      if (error instanceof AgentSecretUnavailableError) {
+        return { ok: false, reason: 'keychain-unavailable' };
+      }
+      throw error;
+    }
+  });
+
+  ipcMain.handle('agent:profile:get', (event) => {
+    assertTrustedMainFrame(event);
+    return getProfileForDisplay();
+  });
+
+  ipcMain.handle('agent:profile:set', (event, fields: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!Array.isArray(fields) || fields.length > 100) throw new Error('Invalid profile.');
+    const clean: AgentProfileField[] = [];
+    for (const field of fields) {
+      if (!isRecord(field)) continue;
+      if (!isBoundedString(field.key, 100) || !isBoundedString(field.label, 200)) continue;
+      if (!isBoundedString(field.value, 5_000)) continue;
+      clean.push({
+        key: field.key,
+        label: field.label,
+        value: field.value,
+        secret: field.secret === true,
+      });
+    }
+    try {
+      setProfile(clean);
+      return { ok: true };
+    } catch (error) {
+      if (error instanceof AgentSecretUnavailableError) {
+        return { ok: false, reason: 'keychain-unavailable' };
+      }
+      throw error;
+    }
+  });
+
+  ipcMain.handle('agent:run', async (event, goal: unknown) => {
+    assertTrustedMainFrame(event);
+    const config = getAgentConfig();
+    if (config.autonomy === 'stopped') throw new Error('The agent is stopped.');
+    if (!isBoundedString(goal, 10_000)) throw new Error('Invalid goal.');
+    if (isAgentRunning()) throw new Error('The agent is already running.');
+    void runAgent(goal, config);
+    return { ok: true };
+  });
+
+  ipcMain.handle('agent:pause', (event) => {
+    assertTrustedMainFrame(event);
+    pauseAgent();
+    return { ok: true };
+  });
+
+  ipcMain.handle('agent:resume', (event) => {
+    assertTrustedMainFrame(event);
+    resumeAgent();
+    return { ok: true };
+  });
+
+  ipcMain.handle('agent:stop', (event) => {
+    assertTrustedMainFrame(event);
+    stopAgent();
+    return { ok: true };
+  });
+
+  ipcMain.handle('agent:respond', (event, value: unknown) => {
+    assertTrustedMainFrame(event);
+    if (typeof value !== 'boolean' && !isBoundedString(value, 10_000)) {
+      throw new Error('Invalid response.');
+    }
+    respondToAgent(value);
+    return { ok: true };
+  });
+}
+
+function registerDnsHandlers() {
+  ipcMain.handle('dns:get-mode', (event) => {
+    assertTrustedMainFrame(event);
+    return getDnsMode();
+  });
+  ipcMain.handle('dns:set-mode', (event, mode: unknown) => {
+    assertTrustedMainFrame(event);
+    if (mode !== 'automatic' && mode !== 'secure') throw new Error('Invalid DNS mode.');
+    setDnsMode(mode);
+    return mode;
+  });
+}
 
 function registerCertHandlers() {
   ipcMain.handle('cert:get', (event, hostname: unknown) => {
@@ -1253,6 +1768,16 @@ function registerDownloadHandlers() {
     assertDownloadId(id);
     return cancelDownload(id);
   });
+  ipcMain.handle('download:pause', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return pauseDownload(id);
+  });
+  ipcMain.handle('download:resume', (event, id: unknown) => {
+    assertTrustedMainFrame(event);
+    assertDownloadId(id);
+    return resumeDownload(id);
+  });
   ipcMain.handle('download:retry', (event, id: unknown) => {
     assertTrustedMainFrame(event);
     assertDownloadId(id);
@@ -1297,9 +1822,24 @@ ipcMain.on('window:close', (event) => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
+  if (process.platform === 'darwin') return;
+
+  // "Let tasks run when the browser is closed" keeps the process alive after
+  // the last window so the scheduler can still fire. Only honoured when there
+  // is actually an active task to run — otherwise a user who enabled this once
+  // would have an invisible process they cannot get rid of.
+  const config = getAgentConfig();
+  const hasPendingTasks =
+    config.runWhenClosed &&
+    config.autonomy !== 'stopped' &&
+    config.tasks.some((task) => task.status === 'active');
+
+  if (hasPendingTasks) {
+    console.log('[agent] staying alive in the background for scheduled tasks');
+    return;
   }
+
+  app.quit();
 });
 
 app.on('activate', () => {
@@ -1307,6 +1847,65 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+// ── OAuth navigation allowlist ───────────────────────────────────────────────
+
+/**
+ * Identity providers the auth flow is allowed to navigate to.
+ *
+ * SECURITY: these are matched against the parsed hostname, never with
+ * `url.includes(...)`. Substring matching accepted `https://evil.com/?x=
+ * google.com` and `https://google.com.attacker.net` as trusted providers.
+ */
+const OAUTH_PROVIDER_HOSTS = [
+  'accounts.google.com',
+  'github.com',
+  'login.microsoftonline.com',
+  'login.live.com',
+];
+
+/** The backend that issues and receives the OAuth redirect. */
+function authApiHost(): string {
+  const configured =
+    process.env.VITE_API_BASE_URL || process.env.API_BASE_URL || 'https://api-zyphora.obliqllc.xyz';
+  try {
+    return new URL(configured).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/** True when `value`'s host is exactly `host` or a subdomain of it. */
+function hostMatches(value: string, host: string): boolean {
+  if (!host) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase().replace(/\.$/, '');
+    return hostname === host || hostname.endsWith(`.${host}`);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A URL that belongs to the sign-in flow: an identity provider, or the
+ * Zyphora backend that mints the callback. Only https is accepted for remote
+ * hosts; localhost is allowed over http for local backend development.
+ */
+function isOAuthFlowUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+
+  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  if (isLocalhost) return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  if (parsed.protocol !== 'https:') return false;
+
+  if (OAUTH_PROVIDER_HOSTS.some((host) => hostMatches(value, host))) return true;
+  return hostMatches(value, authApiHost());
+}
 
 // SECURITY: Prevent dangerous protocols in the main renderer window only.
 // Webview tags manage their own navigation separately.
@@ -1321,18 +1920,11 @@ app.on('web-contents-created', (_event, contents) => {
   if (contentsType === 'window') {
     contents.on('will-navigate', (event, navigationUrl) => {
       const isShell = contents === mainWindow?.webContents;
-      const isTrustOAuthProvider =
-        navigationUrl.includes('accounts.google.com') ||
-        navigationUrl.includes('google.com') ||
-        navigationUrl.includes('github.com') ||
-        navigationUrl.includes('login.microsoft.com') ||
-        navigationUrl.includes('live.com') ||
-        navigationUrl.includes('githubusercontent.com');
       const allowed = isShell
         ? navigationUrl.startsWith('http://localhost') ||
           navigationUrl.startsWith('https://localhost') ||
           navigationUrl.startsWith('file://') ||
-          isTrustOAuthProvider
+          isOAuthFlowUrl(navigationUrl)
         : isHttpNavigationUrl(navigationUrl) || navigationUrl === 'about:blank';
       if (!allowed) event.preventDefault();
     });
@@ -1343,6 +1935,9 @@ app.on('web-contents-created', (_event, contents) => {
     attachAdblockToSession(contents.session);
     configureSessionPermissions(contents.session, () => mainWindow);
     attachDownloadsToSession(contents.session);
+    // Webviews each get their own session, so the padlock needs a verify proc
+    // installed here too — not just on the default session.
+    attachCertificateMonitorToSession(contents.session);
     const webviewSession = contents.session;
     const webviewId = contents.id;
 
@@ -1362,15 +1957,33 @@ app.on('web-contents-created', (_event, contents) => {
         managedSessions.delete(webviewSession);
       }
       tabByWebContentsId.delete(webviewId);
+      httpsUpgradeAttempts.delete(webviewId);
+      paramStripAttempts.delete(webviewId);
     });
 
     // A remote page must not be able to navigate a guest into an internal or
     // local-file URL. Address-bar navigation is performed programmatically by
     // the trusted shell and is not affected by this event.
     contents.on('will-navigate', (event, navigationUrl) => {
+      // Strip tracking parameters here, not just in the address bar. Most
+      // utm_*/fbclid junk arrives via a link click or a redirect, neither of
+      // which goes through the renderer's handleNavigate().
+      if (isStripTrackingEnabled() && isHttpNavigationUrl(navigationUrl)) {
+        const cleaned = stripTrackingParams(navigationUrl);
+        if (cleaned !== navigationUrl && shouldAttemptParamStrip(contents.id, navigationUrl)) {
+          event.preventDefault();
+          void contents.loadURL(cleaned).catch((error: unknown) => {
+            console.warn('[navigation] tracking-param strip failed:', error);
+          });
+          return;
+        }
+      }
       if (isForceHttpsEnabled()) {
         const upgraded = upgradeHttpUrl(navigationUrl);
-        if (upgraded) {
+        // Only upgrade a given URL once per guest. Without this an
+        // https→http redirect chain loops forever, because loadURL() re-enters
+        // this very handler.
+        if (upgraded && shouldAttemptHttpsUpgrade(contents.id, navigationUrl)) {
           event.preventDefault();
           void contents.loadURL(upgraded).catch((error: unknown) => {
             console.warn('[navigation] HTTPS upgrade failed:', error);
@@ -1404,13 +2017,13 @@ app.on('web-contents-created', (_event, contents) => {
       /^https?:\/\/localhost(?::\d+)?\/auth\.html(?:\?.*)?$/.test(url) ||
       /^file:\/\/\/.*\/auth\.html(?:\?.*)?$/.test(url);
 
-    // Allow OAuth provider popups (backend redirects and external providers)
-    const isOAuthProvider =
-      /^https:\/\/(accounts\.google\.com|github\.com|login\.microsoft\.com)/.test(url) ||
-      /^https?:\/\/localhost(?::\d+)?\/auth\/social\//.test(url) ||
-      /^https?:\/\/localhost(?::\d+)?\/auth\/social\/[^/]+\/callback/.test(url);
+    // Allow OAuth popups: the identity providers themselves and the Zyphora
+    // backend that issues the auth URL and receives the callback redirect.
+    // Only the trusted shell may open these; a webview asking for a provider
+    // popup is a phishing vector, not a sign-in.
+    const isOAuthPopup = contentsType === 'window' && isOAuthFlowUrl(url);
 
-    if (isTrustedAuthPortal || isOAuthProvider) {
+    if (isTrustedAuthPortal || isOAuthPopup) {
       return { action: 'allow' };
     }
 

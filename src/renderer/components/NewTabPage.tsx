@@ -4,6 +4,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { takeImage, fetchNew } from '../lib/backgroundCache';
 import type { PexelsImage } from '../../shared/types';
 import appIcon from '../../../public/icon.png';
+import { accountDisplayName } from '../stores/settingsStore';
 
 interface NewTabPageProps {
   onSearch: (url: string) => void;
@@ -237,9 +238,12 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
           {bg && bgVisible && (
             <a
               href={bg.link}
-              target="_blank"
               rel="noreferrer"
               onClick={(e) => {
+                // Navigate in the current tab. target="_blank" is not honoured
+                // for the shell document, so the anchor needs to drive the
+                // browser's own navigation for the required Pexels
+                // attribution link to actually work.
                 e.preventDefault();
                 if (bg.link) onSearch(bg.link);
               }}
@@ -260,7 +264,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
             className="text-2xl font-medium tracking-tight"
             style={{ color: onPhoto(isPhoto, PHOTO_TEXT, 'var(--text)') }}
           >
-            {greeting}, {account?.name ?? 'Guest'}
+            {greeting}, {accountDisplayName(account)}
           </h1>
 
           {/* Quote — cross-fades every 30 s */}

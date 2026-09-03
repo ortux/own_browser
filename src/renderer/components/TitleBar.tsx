@@ -1,8 +1,12 @@
 import React from 'react';
-import { Minus, Square, X } from 'lucide-react';
+import { Minus, Square, Copy, X } from 'lucide-react';
 import appIcon from '../../../public/icon.png';
 
 export const TitleBar: React.FC = () => {
+  const [maximized, setMaximized] = React.useState(false);
+
+  React.useEffect(() => window.browserAPI?.onMaximizedChanged?.(setMaximized), []);
+
   const minimize = () => window.browserAPI?.minimizeWindow();
   const maximize = () => window.browserAPI?.maximizeWindow();
   const close = () => window.browserAPI?.closeWindow();
@@ -47,9 +51,10 @@ export const TitleBar: React.FC = () => {
         <button
           onClick={maximize}
           className="flex items-center justify-center w-12 h-full text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)] transition-colors"
-          title="Maximize / Restore"
+          title={maximized ? 'Restore' : 'Maximize'}
+          aria-label={maximized ? 'Restore' : 'Maximize'}
         >
-          <Square size={11} strokeWidth={1.5} />
+          {maximized ? <Copy size={11} strokeWidth={1.5} /> : <Square size={11} strokeWidth={1.5} />}
         </button>
         <button
           onClick={close}

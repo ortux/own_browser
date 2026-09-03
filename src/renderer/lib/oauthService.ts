@@ -134,13 +134,19 @@ export function waitForOAuthCallback(
 
       try {
         const url = popup.location.href;
-        // Wait until the popup lands on our callback page
-        if (
-          (!url.includes('auth-callback.html') && !url.includes('/auth/social')) ||
-          url === 'about:blank'
-        ) {
-          return;
-        }
+        if (!url || url === 'about:blank') return;
+
+        // Wait until the popup lands on a page that actually carries the
+        // callback result. Reading location.href only succeeds once the popup
+        // is same-origin-readable, but the backend may redirect to its own
+        // domain rather than a bundled auth-callback.html, so key off the
+        // presence of callback parameters instead of a specific filename.
+        const search = popup.location.search || '';
+        const hasCallbackParams =
+          /[?&](token|access_token|error)=/.test(search) ||
+          url.includes('auth-callback.html') ||
+          url.includes('/auth/social');
+        if (!hasCallbackParams) return;
 
         const params = new URLSearchParams(popup.location.search);
         const error = params.get('error');
@@ -159,11 +165,16 @@ export function waitForOAuthCallback(
 
         if (!accessToken) return; // not on callback page yet
 
-        let user: OAuthCallbackPayload['user'] | null = null;
+        // The `user` query parameter is attacker-influenced JSON, so parse it
+        // as unknown and narrow, rather than asserting a shape onto it.
+        let user: Partial<OAuthCallbackPayload['user']> & { display_name?: string } = {};
         try {
-          user = JSON.parse(decodeURIComponent(userRaw));
+          const parsed: unknown = JSON.parse(decodeURIComponent(userRaw));
+          if (parsed && typeof parsed === 'object') {
+            user = parsed as Partial<OAuthCallbackPayload['user']> & { display_name?: string };
+          }
         } catch {
-          /* ignore */
+          /* ignore — a malformed user blob still leaves the tokens usable */
         }
 
         cleanup();
@@ -175,11 +186,14 @@ export function waitForOAuthCallback(
             expires_in: expiresIn,
           },
           user: {
-            ...(user as any),
-            name: (user as any)?.name || (user as any)?.display_name || '',
+            id: typeof user.id === 'number' ? user.id : 0,
+            email: typeof user.email === 'string' ? user.email : '',
+            role: user.role,
+            // The backend has used both spellings for this field.
+            name: user.name || user.display_name || '',
           },
           provider,
-        } as OAuthCallbackPayload);
+        });
       } catch {
         // Cross-origin — popup is on Google/GitHub, not our domain yet, keep waiting
       }
@@ -235,47 +249,5 @@ export async function executeOAuthFlow(
     if (popup && !popup.closed) {
       popup.close();
     }
-  }
-}
-
-/**
- * Handle OAuth callback in popup window
- * This function should be called from the callback HTML page
- */
-export function handleOAuthCallback(
-  tokens: { access_token: string; refresh_token: string; token_type: string; expires_in: number },
-  user: { id: number; email: string; role?: string; name?: string },
-  provider: string
-): void {
-  // Send tokens back to opener (main window)
-  if (window.opener) {
-    window.opener.postMessage(
-      {
-        type: 'zyphora-oauth-callback',
-        tokens,
-        user,
-        provider,
-      },
-      '*'
-    );
-  } else {
-    console.error('OAuth callback: No opener window found');
-  }
-}
-
-/**
- * Handle OAuth errors in popup
- */
-export function handleOAuthError(error: string): void {
-  if (window.opener) {
-    window.opener.postMessage(
-      {
-        type: 'zyphora-oauth-callback',
-        error,
-      },
-      '*'
-    );
-  } else {
-    console.error('OAuth error:', error);
   }
 }

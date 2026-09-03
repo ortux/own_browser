@@ -1,6 +1,10 @@
 import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -39,6 +43,10 @@ export default defineConfig({
     },
   },
   renderer: {
+    // The renderer root is src/renderer, so Vite would otherwise look for
+    // src/renderer/public and silently ship nothing. The OAuth callback pages
+    // and the app icon live in the repo-root public/ folder.
+    publicDir: resolve(__dirname, 'public'),
     resolve: {
       alias: {
         '@': '/src/renderer',

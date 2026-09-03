@@ -9,15 +9,47 @@
  */
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
 
+/**
+ * Internal pages, rendered by the shell rather than loaded into a webview.
+ *
+ * Kept as an explicit allowlist rather than a `zyphora://` prefix test: an
+ * unknown internal URL should fail to navigate, not open a blank tab that
+ * looks broken.
+ */
+export const INTERNAL_PAGES = {
+  downloads: 'zyphora://downloads',
+  settings: 'zyphora://settings',
+} as const;
+
+export type InternalPageUrl = (typeof INTERNAL_PAGES)[keyof typeof INTERNAL_PAGES];
+
+const INTERNAL_URLS: ReadonlySet<string> = new Set(Object.values(INTERNAL_PAGES));
+
+/** Titles shown in the tab strip before any page-level title arrives. */
+export const INTERNAL_PAGE_TITLES: Record<string, string> = {
+  [INTERNAL_PAGES.downloads]: 'Downloads',
+  [INTERNAL_PAGES.settings]: 'Settings',
+};
+
+export function isInternalPageUrl(value: string): boolean {
+  return INTERNAL_URLS.has(value.trim());
+}
+
 export function isAllowedNavigationUrl(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed === 'about:blank') return true;
-  if (trimmed === 'zyphora://downloads') return true;
+  if (isInternalPageUrl(trimmed)) return true;
 
   try {
     const parsed = new URL(trimmed);
     if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) return false;
-    return parsed.protocol === 'file:' || Boolean(parsed.hostname);
+    if (parsed.protocol === 'file:') {
+      // A genuine local file URL is file:///path — the host is empty. A
+      // non-empty host means a UNC/remote path such as file://evil.com/share,
+      // which must not be loadable from the address bar.
+      return parsed.hostname === '' || parsed.hostname === 'localhost';
+    }
+    return Boolean(parsed.hostname);
   } catch {
     return false;
   }

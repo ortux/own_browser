@@ -168,8 +168,7 @@ const browserAPI = {
 
   /** Notifies when the window is maximized or restored. */
   onMaximizedChanged: (callback: (maximized: boolean) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, maximized: boolean) =>
-      callback(maximized);
+    const handler = (_event: Electron.IpcRendererEvent, maximized: boolean) => callback(maximized);
     ipcRenderer.on('window:maximized-changed', handler);
     return () => {
       ipcRenderer.removeListener('window:maximized-changed', handler);
@@ -447,12 +446,19 @@ const browserAPI = {
     },
     setApiKey: (key: string): Promise<{ ok: boolean; reason?: string }> =>
       ipcRenderer.invoke('agent:key:set', key),
+    /**
+     * Models the saved Gemini key can actually use. Never throws across IPC —
+     * the caller gets `{ ok: false, error }` and can keep its existing list.
+     */
+    listModels: (): Promise<
+      | { ok: true; models: Array<{ id: string; label: string; description?: string }> }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('agent:models:list'),
     getProfile: (): Promise<import('../shared/agent').AgentProfileField[]> =>
       ipcRenderer.invoke('agent:profile:get'),
     setProfile: (
       fields: import('../shared/agent').AgentProfileField[]
-    ): Promise<{ ok: boolean; reason?: string }> =>
-      ipcRenderer.invoke('agent:profile:set', fields),
+    ): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke('agent:profile:set', fields),
     run: (goal: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('agent:run', goal),
     stop: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('agent:stop'),
     /** Pause after the current step; the agent parks until resumed. */
@@ -475,6 +481,23 @@ const browserAPI = {
         ipcRenderer.removeListener('agent:event', handler);
       };
     },
+  },
+
+  /**
+   * General settings the main process must enforce (Accept-Language, guest
+   * font sizes, download behaviour, launch-at-login, default browser).
+   * The renderer settings store remains the source of truth.
+   */
+  general: {
+    apply: (
+      settings: import('../shared/generalSettings').MainGeneralSettings
+    ): Promise<import('../shared/generalSettings').MainGeneralSettings> =>
+      ipcRenderer.invoke('general:apply', settings),
+    getLaunchAtLogin: (): Promise<boolean> => ipcRenderer.invoke('general:launch-at-login:get'),
+    setLaunchAtLogin: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('general:launch-at-login:set', enabled),
+    isDefaultBrowser: (): Promise<boolean> => ipcRenderer.invoke('general:default-browser:get'),
+    makeDefaultBrowser: (): Promise<boolean> => ipcRenderer.invoke('general:default-browser:set'),
   },
 
   /** DNS-over-HTTPS mode. Changes apply on the next launch. */

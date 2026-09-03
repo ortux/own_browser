@@ -21,6 +21,7 @@ import { PasswordsPanel } from './PasswordsPanel';
 import { CommandPalette } from './CommandPalette';
 import { SiteSettingsPopover } from './SiteSettingsPopover';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useApplyGeneralSettings } from './settings/useGeneralSettings';
 import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
 import { useBookmarks } from '../hooks/useBookmarks';
@@ -72,8 +73,13 @@ export const BrowserWindow: React.FC = () => {
   const restoreSession = useSettingsStore((s) => s.restoreSession);
   const stripTracking = useSettingsStore((s) => s.stripTrackingParams);
   const historyRetentionDays = useSettingsStore((s) => s.historyRetentionDays);
+  const general = useSettingsStore((s) => s.general);
   const sleepTabs = useSettingsStore((state) => state.sleepTabs);
   const sleepTabsAfterMinutes = useSettingsStore((state) => state.sleepTabsAfterMinutes);
+
+  // Pushes the Chromium/OS-owned General settings to the main process and the
+  // accessibility flags to the shell document. Mounted once, here.
+  useApplyGeneralSettings();
 
   // ── UI state ──
   const [authMode, setAuthMode] = useState<AuthPortalMode | null>(null);
@@ -396,7 +402,6 @@ export const BrowserWindow: React.FC = () => {
   // and you can keep it open while browsing in another tab.
   const isSettings = activeTab?.url === INTERNAL_PAGES.settings;
 
-
   // Keep internal pages showing a friendly tab title (the webview never loads
   // them, so main never receives a real title for zyphora:// URLs).
   React.useEffect(() => {
@@ -412,9 +417,7 @@ export const BrowserWindow: React.FC = () => {
   // Keep network security settings in sync with the main process before a
   // renderer-initiated navigation can happen.
   React.useEffect(() => {
-    window.browserAPI.security
-      .set({ forceHttps, doNotTrack, stripTracking })
-      .catch(() => {});
+    window.browserAPI.security.set({ forceHttps, doNotTrack, stripTracking }).catch(() => {});
   }, [forceHttps, doNotTrack, stripTracking]);
 
   // Main starts with session capture off and only learns the user's choice
@@ -491,6 +494,23 @@ export const BrowserWindow: React.FC = () => {
     })();
   }, [proxyEnabled, savedProxy, setProxy, setProxyEnabled]);
 
+  /**
+   * "Open specific pages" on startup.
+   *
+   * Main creates the launch tab before the renderer has hydrated its persisted
+   * settings, so the pages are opened here, once, and only while that launch
+   * tab is still blank — otherwise a restored session would be buried under
+   * them.
+   */
+  const startupPagesOpened = React.useRef(false);
+  React.useEffect(() => {
+    if (startupPagesOpened.current) return;
+    if (general.startupMode !== 'specific-pages' || general.startupPages.length === 0) return;
+    if (tabs.length !== 1 || tabs[0].url !== 'about:blank') return;
+    startupPagesOpened.current = true;
+    for (const url of general.startupPages) createTabWithUrl(url);
+  }, [general.startupMode, general.startupPages, tabs, createTabWithUrl]);
+
   // ── Optionally open the Downloads page when a new download begins ──
   const openDownloadsOnStart = useSettingsStore((s) => s.openDownloadsOnStart);
   React.useEffect(() => {
@@ -503,23 +523,27 @@ export const BrowserWindow: React.FC = () => {
 
   return (
     <div className="relative flex h-screen w-screen overflow-hidden bg-[var(--bg)]">
-      {/* Left sidebar */}
-      <SidebarTabs
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onTabClick={handleTabClick}
-        onTabClose={closeTab}
-        onTabToggleMuted={toggleTabMuted}
-        sleepingTabIds={sleeping}
-        onTabTogglePinned={toggleTabPinned}
-        onTabReorder={reorderTabs}
-        onNewTab={createNewBrowserTab}
-        onOpenSettings={openSettings}
-        onOpenHistory={() => togglePanel('history')}
-        onOpenBookmarks={() => togglePanel('bookmarks')}
-        onOpenRecentlyClosed={() => togglePanel('closed')}
-        onOpenPasswords={passwordManagerEnabled ? () => togglePanel('passwords') : undefined}
-      />
+      {/* Left sidebar — hidden when "Show sidebar" is off in General settings. */}
+      {general.showSidebar && (
+        <SidebarTabs
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onTabClick={handleTabClick}
+          onTabClose={closeTab}
+          onTabToggleMuted={toggleTabMuted}
+          sleepingTabIds={sleeping}
+          onTabTogglePinned={toggleTabPinned}
+          onTabReorder={reorderTabs}
+          onNewTab={createNewBrowserTab}
+          onOpenSettings={openSettings}
+          onOpenHistory={() => togglePanel('history')}
+          onOpenBookmarks={() => togglePanel('bookmarks')}
+          onOpenRecentlyClosed={() => togglePanel('closed')}
+          onOpenPasswords={passwordManagerEnabled ? () => togglePanel('passwords') : undefined}
+          onToggleAgent={agentAvailable ? () => setAgentOpen((v) => !v) : undefined}
+          agentOpen={agentOpen}
+        />
+      )}
 
       {/* Main column */}
       <div className="flex flex-col flex-1 min-w-0">
@@ -602,7 +626,14 @@ export const BrowserWindow: React.FC = () => {
               onStop={stop}
               onNavigate={handleNavigate}
               onOpenSettings={openSettings}
-              onHome={() => handleNavigate('about:blank')}
+              showHomeButton={general.showHomeButton}
+              onHome={() =>
+                handleNavigate(
+                  general.homepageMode === 'custom' && general.homepageUrl
+                    ? general.homepageUrl
+                    : 'about:blank'
+                )
+              }
               onBookmark={handleBookmarkToggle}
               isBookmarked={activeTab?.url ? isBookmarked(activeTab.url) : false}
               onOpenDownloads={() => createTabWithUrl(INTERNAL_PAGES.downloads)}
@@ -703,16 +734,22 @@ export const BrowserWindow: React.FC = () => {
       />
 
       {/* Site settings popover (anchored to the navbar gear button) */}
-      {siteSettingsOpen && activeTab?.url && (() => {
-        let host = '';
-        try { host = new URL(activeTab.url).hostname.toLowerCase(); } catch { host = ''; }
-        if (!host) return null;
-        return (
-          <div className="absolute bottom-12 right-[180px] z-50">
-            <SiteSettingsPopover host={host} onClose={() => setSiteSettingsOpen(false)} />
-          </div>
-        );
-      })()}
+      {siteSettingsOpen &&
+        activeTab?.url &&
+        (() => {
+          let host = '';
+          try {
+            host = new URL(activeTab.url).hostname.toLowerCase();
+          } catch {
+            host = '';
+          }
+          if (!host) return null;
+          return (
+            <div className="absolute bottom-12 right-[180px] z-50">
+              <SiteSettingsPopover host={host} onClose={() => setSiteSettingsOpen(false)} />
+            </div>
+          );
+        })()}
     </div>
   );
 };

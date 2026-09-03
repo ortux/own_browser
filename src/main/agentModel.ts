@@ -179,7 +179,9 @@ function buildSystemPrompt(): string {
   // they are still framed as guidance rather than as a rule override.
   const custom = config.advanced.systemInstructions.trim();
   if (custom) {
-    parts.push(`THE USER'S STANDING INSTRUCTIONS (follow unless they conflict with a rule above):\n${custom}`);
+    parts.push(
+      `THE USER'S STANDING INSTRUCTIONS (follow unless they conflict with a rule above):\n${custom}`
+    );
   }
 
   return parts.join('\n\n');
@@ -251,4 +253,62 @@ export async function planNextAction(
       : undefined;
 
   return { action, reason };
+}
+
+export interface GeminiModel {
+  /** Bare id, e.g. `gemini-2.0-flash` — what the config stores. */
+  id: string;
+  /** Human label from the API, falling back to the id. */
+  label: string;
+  description?: string;
+}
+
+/**
+ * List the models the configured key can actually use.
+ *
+ * The hardcoded list went stale every time Google shipped a model, and it also
+ * lied: not every key has access to every model. Asking the API is the only
+ * honest answer. Only models that can do `generateContent` are returned —
+ * embedding models would fail at plan time.
+ */
+export async function listModels(signal?: AbortSignal): Promise<GeminiModel[]> {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('No Gemini API key configured. Add one in Settings → AI Agent.');
+
+  const timeout = AbortSignal.timeout(20_000);
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+
+  const response = await fetch(`${ENDPOINT}?key=${encodeURIComponent(apiKey)}&pageSize=200`, {
+    signal: combined,
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    // Never surface the key, which is in the request URL.
+    if (response.status === 400 && body.includes('API_KEY_INVALID')) {
+      throw new Error('That Gemini API key was rejected. Check it in Settings → AI Agent.');
+    }
+    if (response.status === 429) {
+      throw new Error('Gemini rate limit reached. Wait a moment and try again.');
+    }
+    throw new Error(`Could not load the model list (${response.status}).`);
+  }
+
+  const data = (await response.json()) as {
+    models?: Array<{
+      name?: string;
+      displayName?: string;
+      description?: string;
+      supportedGenerationMethods?: string[];
+    }>;
+  };
+
+  return (data.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+    .map((m) => {
+      const id = (m.name ?? '').replace(/^models\//, '');
+      return { id, label: m.displayName || id, description: m.description };
+    })
+    .filter((m) => m.id.length > 0)
+    .sort((a, b) => a.id.localeCompare(b.id));
 }

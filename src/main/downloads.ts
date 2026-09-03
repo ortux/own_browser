@@ -6,13 +6,29 @@
  * state in memory, and pushes live updates to the renderer.
  */
 
-import { app, session, shell, dialog } from 'electron';
+import { app, session, shell, dialog, Notification } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import type { Download } from '../shared/types';
 
 let mainWindow: Electron.BrowserWindow | null = null;
 let downloadPath = '';
+
+/**
+ * User-facing download behaviour, owned by General settings and pushed here
+ * from the renderer. Defaults mirror DEFAULT_GENERAL_SETTINGS so the very
+ * first download (before settings hydrate) behaves the same as afterwards.
+ */
+let preferences = {
+  askWhereToSave: false,
+  notifications: true,
+  autoOpen: false,
+  clearCompleted: false,
+};
+
+export function setDownloadPreferences(next: Partial<typeof preferences>): void {
+  preferences = { ...preferences, ...next };
+}
 
 // In-memory store of download records + the live Electron.DownloadItem handles.
 // We must keep a reference to each in-flight `item`, or Electron may
@@ -122,8 +138,17 @@ export function attachDownloadsToSession(ses: Electron.Session): void {
     } catch {
       /* ignore — best effort; Electron will report an error on save */
     }
-    const savePath = uniqueSavePath(dir, filename);
-    item.setSavePath(savePath);
+    let savePath: string;
+    if (preferences.askWhereToSave) {
+      // Leaving the save path unset is what makes Electron show the native
+      // dialog; we only pre-fill it. The real destination is read back from
+      // the item once it is known.
+      savePath = path.join(dir, filename);
+      item.setSaveDialogOptions({ defaultPath: savePath });
+    } else {
+      savePath = uniqueSavePath(dir, filename);
+      item.setSavePath(savePath);
+    }
 
     const rec: Download = {
       id,
@@ -188,8 +213,44 @@ export function attachDownloadsToSession(ses: Electron.Session): void {
           /* best effort */
         }
       }
+      // With a save dialog the destination is only known once the user picked
+      // it, so refresh the record from the item before reporting completion.
+      if (preferences.askWhereToSave) {
+        try {
+          const chosen = item.getSavePath();
+          if (chosen) {
+            r.path = chosen;
+            r.filename = path.basename(chosen);
+          }
+        } catch {
+          /* item already released */
+        }
+      }
       // The download is finished — releasing our handle is now safe.
       items.delete(id);
+
+      if (r.state === 'completed') {
+        if (preferences.notifications && Notification.isSupported()) {
+          try {
+            const notification = new Notification({
+              title: 'Download complete',
+              body: r.filename,
+            });
+            const openedPath = r.path;
+            notification.on('click', () => {
+              void shell.openPath(openedPath);
+            });
+            notification.show();
+          } catch {
+            /* notifications are best effort */
+          }
+        }
+        if (preferences.autoOpen) void shell.openPath(r.path);
+        // "Clear completed downloads from the panel" only drops the record —
+        // the file itself is never touched.
+        if (preferences.clearCompleted) records.delete(id);
+      }
+
       notify();
     });
   });

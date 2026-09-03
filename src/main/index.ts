@@ -31,6 +31,18 @@ import {
   type ClosedTabRecord,
 } from './closedTabs';
 import { registerPexelsHandlers } from './pexels';
+import {
+  applyGuestPreferences,
+  applyStartupSwitches,
+  configureSession as configureGeneralSession,
+  getLaunchAtLogin,
+  getMainGeneralSettings,
+  isDefaultBrowser,
+  makeDefaultBrowser,
+  setLaunchAtLogin,
+  setMainGeneralSettings,
+} from './generalSettings';
+import type { MainGeneralSettings } from '../shared/generalSettings';
 import { getZoomForUrl, setZoomForUrl, clearZoomLevels, flushZoomLevels } from './zoom';
 import { loadWindowState, trackWindowState, flushWindowState } from './windowState';
 import {
@@ -528,6 +540,35 @@ function createWindow() {
     console.error('[renderer] process exited:', details.reason, details.exitCode);
   });
 
+  // "Warn before closing multiple tabs": a window holding several tabs is a
+  // whole working session, so confirm before discarding it.
+  let closeConfirmed = false;
+  mainWindow.on('close', (event) => {
+    if (closeConfirmed || !mainWindow || mainWindow.isDestroyed()) return;
+    if (!getMainGeneralSettings().warnClosingMultipleTabs) return;
+    const openTabs = tabs.size;
+    if (openTabs < 2) return;
+
+    event.preventDefault();
+    const { response } = dialog.showMessageBoxSync
+      ? {
+          response: dialog.showMessageBoxSync(mainWindow, {
+            type: 'question',
+            buttons: [`Close ${openTabs} tabs`, 'Cancel'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'Close window',
+            message: `Close ${openTabs} tabs?`,
+            detail: 'The tabs you have open will be closed.',
+          }),
+        }
+      : { response: 0 };
+    if (response === 0) {
+      closeConfirmed = true;
+      mainWindow.close();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -608,7 +649,22 @@ function createNewTab(rawUrl?: string, privateMode = privateByDefault): string {
   };
 
   tabs.set(tabId, tab);
-  activeTabId = tabId;
+
+  // "Open new tabs next to the current tab": rebuild the order with the new
+  // tab immediately after the opener rather than at the end of the strip.
+  const { openTabsNextToCurrent, switchToNewTab } = getMainGeneralSettings();
+  if (openTabsNextToCurrent && activeTabId && tabs.has(activeTabId)) {
+    const ordered = [...tabs.values()].filter((entry) => entry.id !== tabId);
+    const openerIndex = ordered.findIndex((entry) => entry.id === activeTabId);
+    if (openerIndex >= 0) {
+      ordered.splice(openerIndex + 1, 0, tab);
+      applyTabOrder(sortPinnedFirst(ordered));
+    }
+  }
+
+  // "Switch to a new tab immediately". When off, the tab opens in the
+  // background and focus stays where the user was working.
+  if (switchToNewTab || !activeTabId || !tabs.has(activeTabId)) activeTabId = tabId;
   updateRendererState();
 
   return tabId;
@@ -665,7 +721,9 @@ function routePopupToTab(popup: BrowserWindow, privateMode: boolean): void {
 
 function closeTab(tabId: string) {
   const tab = tabs.get(tabId);
-  if (tab && !tab.privateMode) {
+  // "Reopen closed tabs" off means Ctrl+Shift+T has nothing to restore, so
+  // there is no reason to keep a record of what was closed either.
+  if (tab && !tab.privateMode && getMainGeneralSettings().reopenClosedTabs) {
     closedTabs.unshift({ ...tab });
     closedTabs.splice(MAX_CLOSED_TABS);
     scheduleClosedTabsSave(closedTabRecords());
@@ -673,10 +731,14 @@ function closeTab(tabId: string) {
   tabs.delete(tabId);
 
   if (tabs.size === 0) {
-    // Closing the last tab used to quit the application outright, discarding
-    // the whole session without warning. Every mainstream browser leaves an
-    // empty new tab instead; quitting stays an explicit action.
-    createNewTab();
+    // "Keep browser open when the last tab is closed" (on by default): leave
+    // an empty new tab rather than quitting. When the user turned it off,
+    // closing the last tab closes the window, as they asked.
+    if (getMainGeneralSettings().keepOpenOnLastTabClose) {
+      createNewTab();
+    } else {
+      mainWindow?.close();
+    }
     return;
   }
 
@@ -1025,9 +1087,7 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       // renderer-side guess.
       const wc = guestContentsForTab(message.tabId);
       if (!wc || wc.isDestroyed()) return false;
-      return wc
-        .executeJavaScript('!!window.__zyphoraReaderActive')
-        .catch(() => false);
+      return wc.executeJavaScript('!!window.__zyphoraReaderActive').catch(() => false);
     }
     case 'get-state':
       return getState();
@@ -1122,6 +1182,10 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
   return { success: true };
 });
 
+// Chromium reads a few of these from command-line switches, so they must be
+// appended before the app becomes ready.
+applyStartupSwitches();
+
 app.on('ready', async () => {
   initProxyAutoApply(); // must be before createWindow so session-created fires
   initCertificateMonitor();
@@ -1145,6 +1209,8 @@ app.on('ready', async () => {
   registerCertHandlers();
   registerDnsHandlers();
   registerAgentHandlers();
+  registerGeneralSettingsHandlers();
+  configureGeneralSession(session.defaultSession);
 
   // Scheduled tasks reuse the ordinary agent run loop, so a task behaves
   // exactly as if the user had typed its prompt into the sidebar.
@@ -1516,7 +1582,11 @@ function registerAgentHandlers() {
 
   ipcMain.handle('agent:memory:update', (event, value: unknown) => {
     assertTrustedMainFrame(event);
-    if (!isRecord(value) || !isBoundedString(value.id, 100) || !isBoundedString(value.content, 2_000)) {
+    if (
+      !isRecord(value) ||
+      !isBoundedString(value.id, 100) ||
+      !isBoundedString(value.content, 2_000)
+    ) {
       throw new Error('Invalid memory.');
     }
     updateMemory(value.id, value.content);
@@ -1563,6 +1633,23 @@ function registerAgentHandlers() {
     assertTrustedMainFrame(event);
     if (!isBoundedString(id, 100)) throw new Error('Invalid task id.');
     return runTaskNow(id);
+  });
+
+  /**
+   * Ask Gemini which models this key can use. Runs here because the key never
+   * leaves the main process; the renderer only ever sees the resulting list.
+   */
+  ipcMain.handle('agent:models:list', async (event) => {
+    assertTrustedMainFrame(event);
+    try {
+      const { listModels } = await import('./agentModel');
+      return { ok: true as const, models: await listModels() };
+    } catch (error) {
+      return {
+        ok: false as const,
+        error: error instanceof Error ? error.message : 'Could not load the model list.',
+      };
+    }
   });
 
   ipcMain.handle('agent:key:set', (event, key: unknown) => {
@@ -1658,6 +1745,52 @@ function registerDnsHandlers() {
     if (mode !== 'automatic' && mode !== 'secure') throw new Error('Invalid DNS mode.');
     setDnsMode(mode);
     return mode;
+  });
+}
+
+/**
+ * General settings the main process must enforce.
+ *
+ * The renderer store stays the single source of truth — these handlers only
+ * receive its values and translate them into OS/Chromium state.
+ */
+function registerGeneralSettingsHandlers() {
+  ipcMain.handle('general:apply', (event, value: unknown) => {
+    assertTrustedMainFrame(event);
+    const incoming = value as Partial<MainGeneralSettings> | null;
+    if (!incoming || typeof incoming !== 'object') throw new Error('Invalid general settings.');
+    const merged: MainGeneralSettings = { ...getMainGeneralSettings(), ...incoming };
+    if (!isBoundedString(merged.acceptLanguages, 200)) {
+      throw new Error('Invalid Accept-Language value.');
+    }
+    for (const key of ['defaultFontSize', 'minimumFontSize', 'defaultZoom'] as const) {
+      if (typeof merged[key] !== 'number' || !Number.isFinite(merged[key])) {
+        throw new Error(`Invalid ${key}.`);
+      }
+    }
+    setMainGeneralSettings(merged);
+    return merged;
+  });
+
+  ipcMain.handle('general:launch-at-login:get', (event) => {
+    assertTrustedMainFrame(event);
+    return getLaunchAtLogin();
+  });
+
+  ipcMain.handle('general:launch-at-login:set', (event, enabled: unknown) => {
+    assertTrustedMainFrame(event);
+    if (typeof enabled !== 'boolean') throw new Error('Invalid launch-at-login value.');
+    return setLaunchAtLogin(enabled);
+  });
+
+  ipcMain.handle('general:default-browser:get', (event) => {
+    assertTrustedMainFrame(event);
+    return isDefaultBrowser();
+  });
+
+  ipcMain.handle('general:default-browser:set', (event) => {
+    assertTrustedMainFrame(event);
+    return makeDefaultBrowser();
   });
 }
 
@@ -1935,6 +2068,7 @@ app.on('web-contents-created', (_event, contents) => {
     attachAdblockToSession(contents.session);
     configureSessionPermissions(contents.session, () => mainWindow);
     attachDownloadsToSession(contents.session);
+    configureGeneralSession(contents.session);
     // Webviews each get their own session, so the padlock needs a verify proc
     // installed here too — not just on the default session.
     attachCertificateMonitorToSession(contents.session);
@@ -2061,6 +2195,8 @@ app.on('web-contents-created', (_event, contents) => {
       }
       webPreferences.nodeIntegration = false;
       webPreferences.contextIsolation = true;
+      // Accessibility font sizes and default zoom, from General settings.
+      applyGuestPreferences(webPreferences);
     });
   }
 

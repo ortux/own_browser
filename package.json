@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "electron-vite preview",
     "start": "electron dist/main/index.js",
-    "test": "npm run test:adblock && npm run test:auth && npm run test:passwords && npm run test:session && npm run test:session-restore && npm run test:tracking && npm run test:retention && npm run test:window-state && npm run test:tab-audio && npm run test:tab-sleep && npm run test:tab-order && npm run test:navigation && npm run test:agent && npm run test:agent-config && npm run test:agent-downloads && npm run test:agent-store",
+    "test": "npm run test:adblock && npm run test:auth && npm run test:passwords && npm run test:session && npm run test:session-restore && npm run test:tracking && npm run test:retention && npm run test:window-state && npm run test:tab-audio && npm run test:tab-sleep && npm run test:tab-order && npm run test:navigation && npm run test:agent && npm run test:agent-config && npm run test:agent-downloads && npm run test:agent-store && npm run test:general-settings && npm run test:settings-search",
     "test:adblock": "esbuild src/main/adblock.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
     "test:auth": "esbuild src/renderer/lib/authApi.test.ts --bundle --platform=node --format=esm --outfile=.tmp-auth-test.mjs && node .tmp-auth-test.mjs && node -e \"require('fs').unlinkSync('.tmp-auth-test.mjs')\"",
     "pack": "npm run build && electron-builder --dir",
@@ -36,7 +36,9 @@
     "test:agent": "esbuild src/shared/agent.test.ts --bundle --platform=node --format=esm --outfile=.tmp-agent-test.mjs && node .tmp-agent-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agent-test.mjs')\"",
     "test:agent-config": "esbuild src/shared/agentConfig.test.ts --bundle --platform=node --format=esm --outfile=.tmp-agentconfig-test.mjs && node .tmp-agentconfig-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agentconfig-test.mjs')\"",
     "test:agent-downloads": "esbuild src/main/agentDownloads.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --outfile=.tmp-agentdl-test.mjs && node .tmp-agentdl-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agentdl-test.mjs')\"",
-    "test:agent-store": "esbuild src/main/agentConfigStore.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --outfile=.tmp-agentstore-test.mjs && node .tmp-agentstore-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agentstore-test.mjs')\""
+    "test:agent-store": "esbuild src/main/agentConfigStore.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --outfile=.tmp-agentstore-test.mjs && node .tmp-agentstore-test.mjs && node -e \"require('fs').unlinkSync('.tmp-agentstore-test.mjs')\"",
+    "test:general-settings": "esbuild src/shared/generalSettings.test.ts --bundle --platform=node --format=esm --outfile=.tmp-general-test.mjs && node .tmp-general-test.mjs && node -e \"require('fs').unlinkSync('.tmp-general-test.mjs')\"",
+    "test:settings-search": "esbuild src/renderer/components/settings/searchIndex.test.ts --bundle --platform=node --format=esm --outfile=.tmp-settings-search-test.mjs && node .tmp-settings-search-test.mjs && node -e \"require('fs').unlinkSync('.tmp-settings-search-test.mjs')\""
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

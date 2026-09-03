@@ -217,10 +217,23 @@ export const TextInput: React.FC<{
   label: string;
   error?: string;
   onEnter?: () => void;
+  /** Commit-on-blur, for fields that validate their value. */
+  onBlur?: () => void;
   type?: string;
   className?: string;
   monospace?: boolean;
-}> = ({ value, onChange, placeholder, label, error, onEnter, type = 'text', className = '', monospace }) => (
+}> = ({
+  value,
+  onChange,
+  placeholder,
+  label,
+  error,
+  onEnter,
+  onBlur,
+  type = 'text',
+  className = '',
+  monospace,
+}) => (
   <div className={className}>
     <input
       aria-label={label}
@@ -232,6 +245,7 @@ export const TextInput: React.FC<{
       onKeyDown={(e) => {
         if (e.key === 'Enter') onEnter?.();
       }}
+      onBlur={onBlur}
       className={`w-full rounded-md bg-[var(--surface-2)] px-3 py-2 text-[13px] text-[var(--text)] outline-none placeholder:text-[var(--text-faint)] focus:ring-2 ${
         error ? 'ring-2 ring-[var(--danger)]' : 'focus:ring-[var(--accent)]'
       } ${monospace ? 'font-[family-name:var(--font-mono)]' : ''}`}

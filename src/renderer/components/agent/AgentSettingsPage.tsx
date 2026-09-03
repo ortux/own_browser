@@ -61,8 +61,18 @@ const SECTIONS = [
 
 type SectionId = (typeof SECTIONS)[number]['id'];
 
-export const AgentSettingsPage: React.FC = () => {
-  const [section, setSection] = React.useState<SectionId>('general');
+export const AgentSettingsPage: React.FC<{ initialSection?: string }> = ({ initialSection }) => {
+  const [section, setSection] = React.useState<SectionId>(
+    (SECTIONS.find((s) => s.id === initialSection)?.id ?? 'general') as SectionId
+  );
+
+  // The browser settings sidebar links straight at individual agent sections
+  // (Agent Permissions, Memory, AI Models), so follow the prop when it changes.
+  React.useEffect(() => {
+    const match = SECTIONS.find((s) => s.id === initialSection);
+    if (match) setSection(match.id);
+  }, [initialSection]);
+
   const loading = useAgentConfig((s) => s.loading);
   const error = useAgentConfig((s) => s.error);
   const config = useAgentConfig((s) => s.config);

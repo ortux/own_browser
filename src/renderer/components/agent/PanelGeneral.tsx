@@ -1,5 +1,5 @@
 import React from 'react';
-import { Eye, EyeOff, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, RefreshCw } from 'lucide-react';
 import { useAgentConfig } from '../../stores/agentConfigStore';
 import {
   AGENT_PROVIDERS,
@@ -35,10 +35,45 @@ export const PanelGeneral: React.FC = () => {
   const [keyStatus, setKeyStatus] = React.useState('');
   const [saving, setSaving] = React.useState(false);
 
-  const provider = AGENT_PROVIDERS.find((p) => p.id === config.general.provider) ?? AGENT_PROVIDERS[0];
+  // Models the saved key can actually use. Empty until we have asked the API;
+  // until then we fall back to the built-in list so the dropdown is never blank.
+  const [liveModels, setLiveModels] = React.useState<Array<{ id: string; label: string }>>([]);
+  const [modelsError, setModelsError] = React.useState('');
+  const [loadingModels, setLoadingModels] = React.useState(false);
+
+  const provider =
+    AGENT_PROVIDERS.find((p) => p.id === config.general.provider) ?? AGENT_PROVIDERS[0];
 
   const patchGeneral = (patch: Partial<typeof config.general>) =>
     update({ general: { ...config.general, ...patch } });
+
+  const refreshModels = React.useCallback(async () => {
+    setLoadingModels(true);
+    setModelsError('');
+    try {
+      const result = await window.browserAPI.agent.listModels();
+      if (result.ok) {
+        setLiveModels(result.models.map((m) => ({ id: m.id, label: m.label })));
+      } else {
+        setLiveModels([]);
+        setModelsError(result.error);
+      }
+    } catch {
+      setLiveModels([]);
+      setModelsError('Could not reach the model list.');
+    } finally {
+      setLoadingModels(false);
+    }
+  }, []);
+
+  // Ask as soon as a key exists — on open, and again right after one is saved.
+  React.useEffect(() => {
+    if (hasApiKey) void refreshModels();
+    else {
+      setLiveModels([]);
+      setModelsError('');
+    }
+  }, [hasApiKey, refreshModels]);
 
   const saveKey = async () => {
     const key = apiKey.trim();
@@ -51,6 +86,7 @@ export const PanelGeneral: React.FC = () => {
         setApiKey('');
         setKeyStatus('Saved and encrypted with your system keychain.');
         await useAgentConfig.getState().load();
+        await refreshModels();
       } else if (result.reason === 'keychain-unavailable') {
         setKeyStatus('Your system keychain is unavailable, so the key was not saved.');
       } else {
@@ -61,12 +97,24 @@ export const PanelGeneral: React.FC = () => {
     }
   };
 
+  /**
+   * Prefer the live list, fall back to the built-in one. Either way the
+   * currently saved model stays selectable, so an unusual choice (or one from
+   * a key that has since changed) is never silently swapped out.
+   */
+  const modelOptions = React.useMemo(() => {
+    const base =
+      liveModels.length > 0
+        ? liveModels
+        : provider.models.map((m) => ({ id: m.id, label: m.label }));
+    return base.some((m) => m.id === config.general.model)
+      ? base
+      : [{ id: config.general.model, label: `${config.general.model} (current)` }, ...base];
+  }, [liveModels, provider, config.general.model]);
+
   return (
     <>
-      <Section
-        title="Identity"
-        description="What the agent is called when it talks to you."
-      >
+      <Section title="Identity" description="What the agent is called when it talks to you.">
         <Panel>
           <Row label="Agent name" description="Shown in the sidebar and in notifications." stacked>
             <TextInput
@@ -84,10 +132,7 @@ export const PanelGeneral: React.FC = () => {
         description="Which AI service the agent thinks with. Your key is stored encrypted on this computer and is never sent anywhere except the provider."
       >
         <Panel>
-          <Row
-            label="Provider"
-            description="The company whose AI model runs the agent."
-          >
+          <Row label="Provider" description="The company whose AI model runs the agent.">
             <Select
               label="Provider"
               className="w-64"
@@ -100,14 +145,37 @@ export const PanelGeneral: React.FC = () => {
             />
           </Row>
 
-          <Row label="Model" description="Faster models cost less; larger ones handle trickier pages.">
-            <Select
-              label="Model"
-              className="w-64"
-              value={config.general.model}
-              onChange={(v) => patchGeneral({ model: v })}
-              options={provider.models.map((m) => ({ id: m.id, label: m.label }))}
-            />
+          <Row
+            label="Model"
+            description={
+              liveModels.length > 0
+                ? 'These are the models your API key can use right now.'
+                : 'Faster models cost less; larger ones handle trickier pages.'
+            }
+          >
+            <div className="flex items-center gap-2">
+              <Select
+                label="Model"
+                className="w-64"
+                value={config.general.model}
+                onChange={(v) => patchGeneral({ model: v })}
+                options={modelOptions}
+              />
+              <button
+                onClick={() => void refreshModels()}
+                disabled={!hasApiKey || loadingModels}
+                title={hasApiKey ? 'Reload the model list' : 'Save an API key first'}
+                aria-label="Reload the model list"
+                className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+              >
+                <RefreshCw size={14} className={loadingModels ? 'animate-spin' : undefined} />
+              </button>
+            </div>
+            {modelsError && (
+              <p className="mt-2 text-[12px] text-[var(--text-muted)]" role="status">
+                {modelsError} Showing the built-in list instead.
+              </p>
+            )}
           </Row>
 
           <Row

@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import { DEFAULT_SLEEP_MINUTES, clampSleepMinutes } from '../../shared/tabSleep';
+import {
+  DEFAULT_GENERAL_SETTINGS,
+  normalizeSettingsUrl,
+  type GeneralSettings,
+} from '../../shared/generalSettings';
 import { persist } from 'zustand/middleware';
 import type { BackgroundCategory } from '../lib/backgroundCache';
 import { getApiBaseUrl } from '../lib/config';
@@ -153,19 +158,20 @@ interface SettingsStore {
   setRestoreSession: (enabled: boolean) => void;
 
   /**
-   * Browser feature level.
+   * Browser feature level — one switch for the whole product.
    *
    * 'minimal' is a deliberately reduced browser: heavier, non-essential
-   * subsystems (currently the AI agent) are hidden and never initialised.
-   * Distinct from `newTabMode`, which only styles the new-tab page.
+   * subsystems (the AI agent) are hidden and never initialised, and the new
+   * tab page drops its photo background, clock and quote for a plain surface.
+   *
+   * This used to be two independent settings (`browserMode` and
+   * `newTabMode`), which let you ask for a minimal browser and still get the
+   * maximal new tab page. They are now a single choice.
    */
   browserMode: 'minimal' | 'full';
   setBrowserMode: (mode: 'minimal' | 'full') => void;
 
-  // New-tab mode
-  newTabMode: 'minimal' | 'full';
   backgroundCategory: BackgroundCategory;
-  setNewTabMode: (mode: 'minimal' | 'full') => void;
   setBackgroundCategory: (category: BackgroundCategory) => void;
 
   // Proxy
@@ -179,6 +185,28 @@ interface SettingsStore {
   setDownloadPath: (path: string) => void;
   openDownloadsOnStart: boolean;
   setOpenDownloadsOnStart: (value: boolean) => void;
+
+  /**
+   * Everything the General settings page owns. One nested object rather than
+   * ~45 top-level keys, so persistence, reset and the settings-search index
+   * can all address it generically. Settings that already existed (theme,
+   * searchEngineId, restoreSession, sleepTabs, downloadPath …) are NOT
+   * duplicated here — the General page reads and writes those directly.
+   */
+  general: GeneralSettings;
+  setGeneral: <K extends keyof GeneralSettings>(key: K, value: GeneralSettings[K]) => void;
+  /** Returns false when the URL is not a usable http(s) address. */
+  addStartupPage: (url: string) => boolean;
+  updateStartupPage: (index: number, url: string) => boolean;
+  removeStartupPage: (index: number) => void;
+  addNeverTranslateLanguage: (id: string) => void;
+  removeNeverTranslateLanguage: (id: string) => void;
+  /**
+   * Restore browser preferences to their defaults. Deliberately does NOT touch
+   * bookmarks, saved passwords, history, downloaded files, or agent memory —
+   * those have their own explicit destructive actions.
+   */
+  resetBrowserSettings: () => void;
 
   // Device management
   deviceKey: string;
@@ -316,9 +344,7 @@ export const useSettingsStore = create<SettingsStore>()(
       browserMode: 'full',
       setBrowserMode: (mode) => set({ browserMode: mode }),
 
-      newTabMode: 'full',
       backgroundCategory: 'random',
-      setNewTabMode: (mode) => set({ newTabMode: mode }),
       setBackgroundCategory: (category) => set({ backgroundCategory: category }),
 
       proxy: null,
@@ -434,6 +460,81 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       },
 
+      // ── General settings ────────────────────────────────────────────────
+      general: { ...DEFAULT_GENERAL_SETTINGS },
+
+      setGeneral: (key, value) => set((s) => ({ general: { ...s.general, [key]: value } })),
+
+      addStartupPage: (url) => {
+        const normalized = normalizeSettingsUrl(url);
+        if (!normalized) return false;
+        set((s) => ({
+          general: {
+            ...s.general,
+            startupPages: [...s.general.startupPages, normalized].slice(0, 50),
+          },
+        }));
+        return true;
+      },
+
+      updateStartupPage: (index, url) => {
+        const normalized = normalizeSettingsUrl(url);
+        if (!normalized) return false;
+        set((s) => ({
+          general: {
+            ...s.general,
+            startupPages: s.general.startupPages.map((p, i) => (i === index ? normalized : p)),
+          },
+        }));
+        return true;
+      },
+
+      removeStartupPage: (index) =>
+        set((s) => ({
+          general: {
+            ...s.general,
+            startupPages: s.general.startupPages.filter((_, i) => i !== index),
+          },
+        })),
+
+      addNeverTranslateLanguage: (id) =>
+        set((s) => ({
+          general: {
+            ...s.general,
+            neverTranslateLanguages: [...new Set([...s.general.neverTranslateLanguages, id])],
+          },
+        })),
+
+      removeNeverTranslateLanguage: (id) =>
+        set((s) => ({
+          general: {
+            ...s.general,
+            neverTranslateLanguages: s.general.neverTranslateLanguages.filter((l) => l !== id),
+          },
+        })),
+
+      resetBrowserSettings: () => {
+        set({
+          general: { ...DEFAULT_GENERAL_SETTINGS },
+          // Pre-existing preferences the General page surfaces. Reset them too,
+          // otherwise "restore defaults" would leave half the page unchanged.
+          searchEngineId: 'duckduckgo',
+          theme: 'dark',
+          restoreSession: false,
+          sleepTabs: true,
+          sleepTabsAfterMinutes: DEFAULT_SLEEP_MINUTES,
+          openDownloadsOnStart: false,
+          stripTrackingParams: true,
+          backgroundCategory: 'random',
+          security: {
+            blockTrackers: true,
+            forceHttps: true,
+            doNotTrack: false,
+            privateByDefault: false,
+          },
+        });
+      },
+
       // Device management
       deviceKey: (() => {
         const stored = localStorage.getItem('zyphora_device_key');
@@ -525,14 +626,27 @@ export const useSettingsStore = create<SettingsStore>()(
       merge: (persisted, current) => {
         const stored = persisted as Partial<SettingsStore>;
         const proxy = sanitizeProxy(stored.proxy);
+        // Migration: `newTabMode` was folded into `browserMode`. Someone who
+        // had explicitly chosen a minimal new tab page asked for a quieter
+        // browser, so honour that rather than silently upgrading them.
+        const legacyNewTabMode = (stored as { newTabMode?: unknown }).newTabMode;
+        const browserMode =
+          stored.browserMode === 'minimal' || legacyNewTabMode === 'minimal'
+            ? ('minimal' as const)
+            : (stored.browserMode ?? current.browserMode);
+
         return {
           ...current,
           ...stored,
+          browserMode,
           // Always use the live config value — never restore from localStorage
           authBaseUrl: getApiBaseUrl(),
           authStatus: 'idle',
           authError: null,
           security: { ...current.security, ...stored.security },
+          // Key-wise merge, so a setting added in a later version arrives at
+          // its default instead of `undefined` for existing installs.
+          general: { ...DEFAULT_GENERAL_SETTINGS, ...stored.general },
           proxy,
           proxyEnabled: proxy !== null && stored.proxyEnabled === true,
         };

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  ArrowLeft,
   Check,
   Image as ImageIcon,
   Search as SearchIcon,
@@ -19,14 +18,17 @@ import {
   Download,
   FolderOpen,
   Trash2,
+  Bot,
 } from 'lucide-react';
 import { useSettingsStore, SEARCH_ENGINES } from '../stores/settingsStore';
 import { useProxy } from '../hooks/useProxy';
 import type { SecuritySettings } from '../stores/settingsStore';
 import type { AuthPortalMode } from './AuthPortal';
+import { invalidateHistory } from '../hooks/useHistory';
+import { accountDisplayName } from '../stores/settingsStore';
+import { AgentSettingsPage } from './agent/AgentSettingsPage';
 
 interface SettingsPageProps {
-  onBack: () => void;
   onOpenAuth: (mode: AuthPortalMode) => void;
 }
 
@@ -59,10 +61,15 @@ const SECURITY_OPTIONS: { key: keyof SecuritySettings; label: string; desc: stri
   },
 ];
 
+/**
+ * PRIVACY: resolve the engine's own /favicon.ico rather than proxying through
+ * Google's s2/favicons service, which would report every configured search
+ * engine — and the fact that Settings was opened — to Google.
+ */
 function engineFavicon(url: string): string | null {
   try {
-    const domain = new URL(url.replace(/%s/gi, '')).hostname;
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+    const parsed = new URL(url.replace(/%s/gi, ''));
+    return `${parsed.protocol}//${parsed.hostname}/favicon.ico`;
   } catch {
     return null;
   }
@@ -94,7 +101,7 @@ const MdSwitch: React.FC<{ checked: boolean; onChange: () => void; disabled?: bo
   </button>
 );
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }) => {
+export const SettingsPage: React.FC<SettingsPageProps> = ({ onOpenAuth }) => {
   const {
     searchEngineId,
     setSearchEngine,
@@ -105,6 +112,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
     setSecurityFlag,
     theme,
     setTheme,
+    browserMode,
+    setBrowserMode,
     newTabMode,
     setNewTabMode,
     downloadPath,
@@ -131,7 +140,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
   } = useSettingsStore();
 
   const [activeSection, setActiveSection] = useState<
-    'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads'
+    'general' | 'search' | 'appearance' | 'security' | 'proxy' | 'downloads' | 'aiAgent'
   >('general');
 
   const {
@@ -164,6 +173,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
   const [customError, setCustomError] = useState('');
   const [clearingData, setClearingData] = useState(false);
   const [clearDataStatus, setClearDataStatus] = useState('');
+  // DoH mode is a Chromium startup switch, so it is owned by the main process
+  // rather than the renderer settings store.
+  const [dnsMode, setDnsMode] = useState<'automatic' | 'secure'>('automatic');
+
+  useEffect(() => {
+    window.browserAPI.dns
+      .getMode()
+      .then(setDnsMode)
+      .catch(() => {});
+  }, []);
   const [passwordCount, setPasswordCount] = useState<number | null>(null);
   const [passwordStatus, setPasswordStatus] = useState('');
 
@@ -238,6 +257,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
     { id: 'search', label: 'Search engine', icon: SearchIcon },
     { id: 'appearance', label: 'Appearance', icon: ImageIcon },
     { id: 'security', label: 'Security', icon: Shield },
+    // The agent is a full-mode feature, so its whole settings category is
+    // absent in minimal mode rather than present-but-disabled.
+    ...(browserMode === 'full' ? [{ id: 'aiAgent' as const, label: 'AI Agent', icon: Bot }] : []),
     { id: 'downloads', label: 'Downloads', icon: Download },
     { id: 'proxy', label: 'Proxy', icon: Wifi },
   ] as const;
@@ -246,14 +268,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
     <div className="flex w-full h-full bg-[var(--bg)] text-[var(--text)] overflow-hidden">
       {/* Navigation rail */}
       <aside className="flex w-64 shrink-0 flex-col bg-[var(--surface)] h-full p-3">
-        <button
-          onClick={onBack}
-          className="mb-4 flex items-center gap-3 rounded-md px-4 py-2.5 text-sm font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
-        >
-          <ArrowLeft size={18} /> Back
-        </button>
-
-        <div className="px-4 pb-2 pt-3 text-xs font-medium tracking-[0.08em] text-[var(--text-faint)]">
+        <div className="px-4 pb-2 pt-4 text-xs font-medium tracking-[0.08em] text-[var(--text-faint)]">
           SETTINGS
         </div>
 
@@ -285,7 +300,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
 
       {/* Scrollable content */}
       <main className="flex-1 overflow-y-auto h-full relative">
-        <div className="mx-auto max-w-2xl px-10 py-12">
+        <div
+          className={`mx-auto px-10 py-12 ${
+            // The agent section carries its own sub-navigation column, so it
+            // needs more room than the single-column setting lists.
+            activeSection === 'aiAgent' ? 'max-w-5xl' : 'max-w-2xl'
+          }`}
+        >
           <h1 className="mb-10 text-[28px] font-normal leading-tight">
             {NAV_ITEMS.find((n) => n.id === activeSection)?.label}
           </h1>
@@ -301,7 +322,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                           Account
                         </p>
                         <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">
-                          {account.name}
+                          {accountDisplayName(account)}
                         </h2>
                       </div>
                       <button
@@ -497,6 +518,30 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               </MdCard>
 
               <MdCard className="space-y-3.5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text)]">Strict private DNS</div>
+                    <div className="mt-0.5 text-xs text-[var(--text-faint)]">
+                      Resolve every name through encrypted DNS-over-HTTPS, with no fallback.
+                    </div>
+                  </div>
+                  <MdSwitch
+                    checked={dnsMode === 'secure'}
+                    onChange={() => {
+                      const next = dnsMode === 'secure' ? 'automatic' : 'secure';
+                      setDnsMode(next);
+                      window.browserAPI.dns.setMode(next).catch(() => {});
+                    }}
+                  />
+                </div>
+                <div className="rounded-md bg-[var(--surface-2)] px-3 py-3 text-xs text-[var(--text-faint)]">
+                  {dnsMode === 'secure'
+                    ? 'Strict mode is fail-closed: if the encrypted resolver is unreachable, pages will not load rather than silently falling back to your network\u2019s DNS. Takes effect after a restart.'
+                    : 'Encrypted DNS is preferred, but Zyphora falls back to your system resolver if it is unreachable \u2014 so lookups can leak to your network. Takes effect after a restart.'}
+                </div>
+              </MdCard>
+
+              <MdCard className="space-y-3.5">
                 <div>
                   <div className="text-sm font-medium text-[var(--text)]">History retention</div>
                   <div className="mt-0.5 text-xs text-[var(--text-faint)]">
@@ -545,6 +590,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
                     setClearDataStatus('');
                     try {
                       await window.browserAPI.privacy.clearData();
+                      // History lives behind a cached hook; without this the
+                      // history panel and command palette keep offering the
+                      // entries that were just erased.
+                      invalidateHistory();
                       setClearDataStatus('Browsing data cleared.');
                     } catch {
                       setClearDataStatus('Could not clear all browsing data.');
@@ -698,6 +747,40 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               </div>
 
               <div>
+                <SectionLabel>Browser mode</SectionLabel>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    {
+                      id: 'minimal' as const,
+                      label: 'Minimal',
+                      desc: 'A lean browser. Advanced extras, including the AI agent, are hidden and never loaded.',
+                    },
+                    {
+                      id: 'full' as const,
+                      label: 'Full',
+                      desc: 'Everything Zyphora can do, including the AI agent sidebar (Ctrl+Shift+A).',
+                    },
+                  ].map((m) => {
+                    const active = browserMode === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setBrowserMode(m.id)}
+                        className={`flex flex-col items-start gap-2 rounded-md border px-4 py-4 text-left transition-all duration-150 ${
+                          active
+                            ? 'border-transparent bg-[var(--accent-soft)]'
+                            : 'border-[var(--border)] hover:bg-[var(--hover)]'
+                        }`}
+                      >
+                        <span className="text-sm font-medium text-[var(--text)]">{m.label}</span>
+                        <span className="text-xs text-[var(--text-faint)]">{m.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
                 <SectionLabel>New tab page</SectionLabel>
                 <div className="grid grid-cols-2 gap-3">
                   {[
@@ -796,6 +879,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onOpenAuth }
               </p>
             </div>
           )}
+
+          {activeSection === 'aiAgent' && <AgentSettingsPage />}
 
           {activeSection === 'proxy' && (
             <div className="space-y-4">

@@ -69,7 +69,15 @@ export type RendererToMainMessage =
   // Open a new tab directly at a given URL (used for internal pages like downloads)
   | { type: 'create-tab-url'; url: string; privateMode?: boolean }
   // Synchronise network privacy settings from the renderer.
-  | { type: 'security-settings'; forceHttps: boolean; doNotTrack: boolean }
+  | {
+      type: 'security-settings';
+      forceHttps: boolean;
+      doNotTrack: boolean;
+      stripTracking?: boolean;
+    }
+  // Applies "open new tabs in private mode" to tabs main creates itself
+  // (popups, restored sessions, the launch tab).
+  | { type: 'private-by-default'; enabled: boolean }
   | { type: 'session-restore-setting'; enabled: boolean }
   | { type: 'zoom-get'; url: string }
   | { type: 'zoom-set'; url: string; factor: number }
@@ -91,7 +99,8 @@ export type RendererToMainMessage =
   | { type: 'autofill-credentials'; tabId: string; username: string; password: string }
   // Toggle reading mode on the active tab's webview. The script source comes
   // from the renderer (it's a pure-DOM snippet, no Node APIs).
-  | { type: 'reader-toggle'; tabId: string; script: string };
+  | { type: 'reader-toggle'; tabId: string }
+  | { type: 'reader-is-active'; tabId: string };
 // IPC Messages from Main to Renderer
 export type MainToRendererMessage =
   | { type: 'state-updated'; state: BrowserState }
@@ -145,11 +154,29 @@ export interface PermissionRequest {
   mediaTypes?: string[];
 }
 
+/**
+ * TLS certificate summary for the address-bar padlock. Lives in shared because
+ * it crosses the IPC boundary — the renderer must not reach into src/main.
+ */
+export interface CertInfo {
+  present: boolean;
+  valid: boolean;
+  issuer?: string;
+  subject?: string;
+  validFrom?: string; // ISO string
+  validTo?: string; // ISO string
+  serialNumber?: string;
+  fingerprint?: string;
+  error?: string;
+}
+
 export interface Download {
   id: string;
   filename: string;
   url: string;
   state: 'progressing' | 'completed' | 'interrupted' | 'canceled';
+  /** True while a progressing download is paused. */
+  paused?: boolean;
   receivedBytes: number;
   totalBytes: number;
   percent: number; // 0..1

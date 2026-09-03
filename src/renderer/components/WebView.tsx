@@ -20,6 +20,10 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   // Tracks whether the guest webContents has actually attached. Webview methods
   // such as getURL()/getWebContentsId() throw "must be attached …" until then.
   const attachedRef = useRef(false);
+  // The last URL SponsorBlock was applied for. reportNavigationState fires on
+  // several events per page load, and without this each one re-hit the API and
+  // re-injected the skipper script.
+  const sponsorBlockUrlRef = useRef<string | null>(null);
   // Resolved by the preload bridge before first render, so capture works on the
   // very first page load. Never attached to private tabs.
   const capturePreloadPath = useRef(
@@ -131,7 +135,10 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
           return;
         }
 
-        void applySponsorBlock(el, url);
+        if (sponsorBlockUrlRef.current !== url) {
+          sponsorBlockUrlRef.current = url;
+          void applySponsorBlock(el, url);
+        }
         void window.browserAPI.sendMessage({
           type: 'webview-nav-state',
           tabId: tab.id,

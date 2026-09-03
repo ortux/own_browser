@@ -193,3 +193,17 @@ test('the configured interval is clamped to a sane range', () => {
   assert.equal(clampSleepMinutes(Number.NaN), DEFAULT_SLEEP_MINUTES);
   assert.equal(clampSleepMinutes(30.4), 30);
 });
+
+test('private tabs are never suspended', () => {
+  // Unmounting a private tab's webview destroys its in-memory `temp:` session,
+  // so reloading it would drop cookies and log the user out.
+  assert.equal(isSleepExempt(tab({ id: 'x', privateMode: true }), 'other'), true);
+
+  const tabs = [
+    tab({ id: 'normal' }),
+    tab({ id: 'private', privateMode: true }),
+  ];
+  const idle = { normal: NOW - 60 * MINUTE, private: NOW - 60 * MINUTE };
+  const sleeping = select(tabs, idle, { activeTabId: 'other' });
+  assert.deepEqual([...sleeping], ['normal']);
+});

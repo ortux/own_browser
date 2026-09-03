@@ -55,15 +55,23 @@ function load(): void {
       updatedAt: typeof updatedAt === 'number' ? updatedAt : 0,
     });
   }
+
+  // persist() caps what we write, but a hand-edited or older file can still be
+  // larger than the cap; trim on the way in too.
+  evictOldest();
+}
+
+/** Keep only the MAX_ENTRIES most recently touched origins. */
+function evictOldest(): void {
+  if (levels.size <= MAX_ENTRIES) return;
+  const sorted = [...levels.entries()].sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+  levels = new Map(sorted.slice(0, MAX_ENTRIES));
 }
 
 function persist(): void {
   // Evict the least recently touched entries rather than letting the file grow
   // for every site ever visited.
-  if (levels.size > MAX_ENTRIES) {
-    const sorted = [...levels.entries()].sort((a, b) => b[1].updatedAt - a[1].updatedAt);
-    levels = new Map(sorted.slice(0, MAX_ENTRIES));
-  }
+  evictOldest();
   writer.schedule(Object.fromEntries(levels));
 }
 

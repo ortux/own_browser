@@ -109,6 +109,12 @@ export const useBrowser = () => {
     if (wv) wv.reload();
   }, [store.activeTabId]);
 
+  /** Ctrl+Shift+R — reload bypassing the HTTP cache, as in every other browser. */
+  const hardReload = useCallback(() => {
+    const wv = webviewRegistry.get(store.activeTabId);
+    if (wv) wv.reloadIgnoringCache();
+  }, [store.activeTabId]);
+
   const stop = useCallback(() => {
     const wv = webviewRegistry.get(store.activeTabId);
     if (wv) wv.stop();
@@ -157,6 +163,7 @@ export const useBrowser = () => {
     goBack,
     goForward,
     reload,
+    hardReload,
     stop,
     duplicateTab,
     setTabMuted,

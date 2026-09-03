@@ -1,5 +1,7 @@
 import { useSettingsStore } from '../stores/settingsStore';
 import { createAuthApiClient } from './authApi';
+import { ensureValidToken } from './tokenManager';
+import { log } from './logger';
 
 export interface SyncHistoryOptions {
   batch?: boolean;
@@ -15,20 +17,26 @@ export async function syncHistoryWithDevice(options: SyncHistoryOptions = {}) {
   try {
     const store = useSettingsStore.getState();
     const { deviceKey } = store;
-    const tokens = localStorage.getItem('zyphora_tokens');
 
-    if (!tokens || !deviceKey) {
-      console.debug('[sync] Skipping history sync: no auth tokens or device key');
+    if (!deviceKey) {
+      if (import.meta.env.DEV) log.debug('[sync] Skipping history sync: no device key');
       return;
     }
 
-    const { access_token } = JSON.parse(tokens);
-    if (!access_token) return;
+    // Read through the token manager rather than localStorage directly: it
+    // owns the storage key and transparently refreshes an expired token.
+    const access_token = await ensureValidToken();
+    if (!access_token) {
+      if (import.meta.env.DEV) log.debug('[sync] Skipping history sync: no valid access token');
+      return;
+    }
 
     // Get local history
-    const historyList = await window.browserAPI.history.get();
+    // Ask for the full retained window; the default (200) silently truncated
+    // every sync, so older entries never reached the backend.
+    const historyList = await window.browserAPI.history.get(500);
     if (!historyList || historyList.length === 0) {
-      console.debug('[sync] No history to sync');
+      if (import.meta.env.DEV) log.debug('[sync] No history to sync');
       return;
     }
 
@@ -48,7 +56,7 @@ export async function syncHistoryWithDevice(options: SyncHistoryOptions = {}) {
     if (batch) {
       // Send all events in one request
       const result = await authApi.syncHistory({ device_key: deviceKey, events }, access_token);
-      console.debug('[sync] History synced:', result);
+      if (import.meta.env.DEV) log.debug('[sync] History synced:', result);
       return result;
     }
 
@@ -57,7 +65,7 @@ export async function syncHistoryWithDevice(options: SyncHistoryOptions = {}) {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const result = await authApi.syncHistory({ device_key: deviceKey, events }, access_token);
-        console.debug('[sync] History synced successfully on attempt', attempt + 1);
+        if (import.meta.env.DEV) log.debug('[sync] History synced successfully on attempt', attempt + 1);
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
@@ -82,24 +90,23 @@ export async function syncHistoryWithDevice(options: SyncHistoryOptions = {}) {
  * Syncs every N minutes or when window regains focus
  */
 export function initHistorySync(intervalMs: number = 5 * 60 * 1000) {
-  // Sync on focus
-  window.addEventListener('focus', async () => {
+  const run = async (reason: string) => {
     try {
       await syncHistoryWithDevice({ batch: true });
     } catch (error) {
-      console.debug('[sync] Focus sync failed (non-critical):', error);
+      if (import.meta.env.DEV) log.debug(`[sync] ${reason} sync failed (non-critical):`, error);
     }
-  });
+  };
 
-  // Periodic sync
-  const intervalId = setInterval(async () => {
-    try {
-      await syncHistoryWithDevice({ batch: true });
-    } catch (error) {
-      console.debug('[sync] Periodic sync failed (non-critical):', error);
-    }
-  }, intervalMs);
+  // Sync on focus. Kept as a named handler so the cleanup below can actually
+  // remove it — an anonymous listener here leaked one handler per sign-in.
+  const onFocus = () => void run('Focus');
+  window.addEventListener('focus', onFocus);
 
-  // Cleanup function
-  return () => clearInterval(intervalId);
+  const intervalId = setInterval(() => void run('Periodic'), intervalMs);
+
+  return () => {
+    window.removeEventListener('focus', onFocus);
+    clearInterval(intervalId);
+  };
 }

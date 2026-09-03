@@ -18,6 +18,7 @@ import {
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
 import { TabFavicon } from '../lib/fileIcon';
+import { accountDisplayName } from '../stores/settingsStore';
 
 interface SidebarTabsProps {
   tabs: Tab[];
@@ -212,12 +213,12 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
           <div className="shrink-0 pt-1 border-t border-[var(--border)] flex flex-col gap-0.5">
             <button
               onClick={onOpenSettings}
-              title={account ? account.name : 'Profile'}
+              title={account ? accountDisplayName(account) : 'Profile'}
               className="flex items-center justify-center w-full py-2 rounded-md hover:bg-[var(--hover)] transition-colors"
             >
               {account ? (
                 <Avatar
-                  name={account.name ?? account.email ?? 'User'}
+                  name={accountDisplayName(account)}
                   image={account.image}
                   size={22}
                 />
@@ -414,7 +415,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
             >
               {account ? (
                 <Avatar
-                  name={account.name ?? account.email ?? 'User'}
+                  name={accountDisplayName(account)}
                   image={account.image}
                   size={26}
                 />
@@ -425,7 +426,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               )}
               <div className="flex-1 text-left min-w-0">
                 <p className="text-sm font-medium text-[var(--text)] truncate leading-none">
-                  {account ? account.name : 'Guest'}
+                  {account ? accountDisplayName(account) : 'Guest'}
                 </p>
                 <p className="text-[11px] text-[var(--text-faint)] mt-0.5 truncate leading-none">
                   {account ? 'Signed in' : 'Not signed in'}

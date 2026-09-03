@@ -1,37 +1,30 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/index.css';
 import { warmCache } from './lib/backgroundCache';
 import { useSettingsStore } from './stores/settingsStore';
 
-// ── Purge any stale authBaseUrl persisted from a previous session ─────────────
-try {
-  const KEY = 'own-browser-settings';
-  const raw = localStorage.getItem(KEY);
-  if (raw) {
-    const parsed = JSON.parse(raw);
-    if (parsed?.state?.authBaseUrl) {
-      delete parsed.state.authBaseUrl;
-      localStorage.setItem(KEY, JSON.stringify(parsed));
-    }
-  }
-} catch {
-  /* best-effort */
-}
-// ─────────────────────────────────────────────────────────────────────────────
+// NOTE: no authBaseUrl migration is needed here — the settings store's
+// `partialize` never persists it and `merge` always re-derives it from config.
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
 
-console.log('[Renderer] Starting app...');
-console.log('[Renderer] browserAPI available:', !!window.browserAPI);
-
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );
+
+// A rejected promise with no handler would otherwise vanish into the void;
+// surfacing it in the main log is what makes these debuggable at all.
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[shell] unhandled promise rejection:', event.reason);
+});
 
 // Apply the saved theme on startup so it's correct before Settings is opened.
 function applyTheme() {

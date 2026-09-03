@@ -13,9 +13,26 @@ let mainWindowGetter: (() => WebContents | null) | null = null;
 let statsTimer: ReturnType<typeof setTimeout> | null = null;
 let forceHttps = true;
 let doNotTrack = false;
+/** Mirrors the renderer's `stripTrackingParams` setting; see index.ts will-navigate. */
+let stripTracking = true;
 const allowedSites = new Set<string>();
+/**
+ * Per-site block stats are only ever read for the site the user is currently
+ * looking at, but both maps grew for every host seen since launch. Cap them
+ * with FIFO eviction on the site key.
+ */
+const MAX_TRACKED_SITES = 300;
 const blockedBySite = new Map<string, number>();
 const blockedRequestsBySite = new Map<string, BlockedRequest[]>();
+
+function evictOldestSites(): void {
+  while (blockedBySite.size > MAX_TRACKED_SITES) {
+    const oldest = blockedBySite.keys().next();
+    if (oldest.done) break;
+    blockedBySite.delete(oldest.value);
+    blockedRequestsBySite.delete(oldest.value);
+  }
+}
 
 const configuredSessions = new Set<Electron.Session>();
 const blockingContexts = new WeakMap<
@@ -187,22 +204,56 @@ async function buildBlocker(): Promise<ElectronBlocker> {
   }
 }
 
+/**
+ * Wrap the blocker so YouTube and user-allowlisted sites bypass it.
+ *
+ * All three hooks must be wrapped, not just onBeforeRequest. Ghostery's
+ * BlockingContext also installs an onHeadersReceived handler (which rewrites
+ * CSP) and a cosmetic-filter injector, so allowlisting a site previously still
+ * left its CSP modified and elements hidden — "disable blocking for this site"
+ * only half worked.
+ *
+ * Safe to call after enableBlockingInSession(): BlockingContext dispatches
+ * through `blocker.onX(...)` on every request rather than capturing the method
+ * up front, so reassigning here is still picked up.
+ */
 function installYouTubeException(engine: ElectronBlocker): void {
-  const original = engine.onBeforeRequest.bind(engine);
+  const originalBeforeRequest = engine.onBeforeRequest.bind(engine);
   engine.onBeforeRequest = (details, callback) => {
     if (isProtectedYouTubeRequest(details) || isAllowedSiteRequest(details)) {
       callback({});
       return;
     }
-    original(details, callback);
+    originalBeforeRequest(details, callback);
+  };
+
+  const originalHeadersReceived = engine.onHeadersReceived.bind(engine);
+  engine.onHeadersReceived = (details, callback) => {
+    if (isYouTubeHost(details.url) || isAllowedSiteRequest(details)) {
+      callback({});
+      return;
+    }
+    originalHeadersReceived(details, callback);
+  };
+
+  const originalInject = engine.onInjectCosmeticFilters.bind(engine);
+  engine.onInjectCosmeticFilters = async (event, url, msg) => {
+    if (isAllowedSiteHost(hostFromUrl(url))) return;
+    return originalInject(event, url, msg);
   };
 }
 
 function installDntListener(ses: Electron.Session): void {
   if (dntListeners.has(ses)) return;
   const listener: DntListener = (details, callback) => {
-    if (doNotTrack && details.webContents?.getType() === 'webview') {
+    // Send DNT on all remote web traffic, not just <webview> guests. The old
+    // check meant sub-frames, workers and any request whose webContents is not
+    // reported as a webview silently omitted the header while the setting
+    // claimed to be on. The trusted shell window is still excluded: those are
+    // our own UI and backend calls, not sites the user is visiting.
+    if (doNotTrack && details.webContents?.getType() !== 'window') {
       details.requestHeaders.DNT = '1';
+      details.requestHeaders['Sec-GPC'] = '1';
     }
     callback({ requestHeaders: details.requestHeaders });
   };
@@ -236,13 +287,12 @@ export function attachAdblockToSession(ses: Electron.Session): void {
 export function detachAdblockFromSession(ses: Electron.Session): void {
   disableBlockingForSession(ses);
   configuredSessions.delete(ses);
-  // This removes only our listener in the current session architecture. The
-  // Ghostery context uses different webRequest events.
-  const listener = dntListeners.get(ses);
-  if (listener) {
-    ses.webRequest.onBeforeSendHeaders(null);
-    dntListeners.delete(ses);
-  }
+  // NOTE: webRequest.onBeforeSendHeaders(null) clears *every* handler on the
+  // session, not just ours — there is no per-listener removal in the API. The
+  // DNT listener is a no-op when `doNotTrack` is off and the session is being
+  // torn down anyway, so simply forget it rather than clobbering unrelated
+  // header logic that may have been installed on the same session.
+  dntListeners.delete(ses);
 }
 
 export function initAdblock(getMainWindow: () => WebContents | null): void {
@@ -255,33 +305,30 @@ export function initAdblock(getMainWindow: () => WebContents | null): void {
       installYouTubeException(engine);
       engine.on('request-blocked', (request) => {
         blockedCount++;
+        // Ghostery's Request class only keeps the source hostname in hashed
+        // form, so `_originalRequestDetails` (the Electron details object it
+        // was built from) is the only way back to the initiating page. That is
+        // an internal field, so treat it as untrusted: if a future version
+        // renames or drops it we fall back to the request's own URL rather
+        // than silently reporting zero for every site.
         const details = request._originalRequestDetails as
-          Electron.OnBeforeRequestListenerDetails | undefined;
-        const site = details?.webContents?.getURL()
-          ? (() => {
-              try {
-                return new URL(details.webContents.getURL()).hostname
-                  .toLowerCase()
-                  .replace(/^www\./, '');
-              } catch {
-                return '';
-              }
-            })()
-          : details?.referrer
-            ? (() => {
-                try {
-                  return new URL(details.referrer).hostname.toLowerCase().replace(/^www\./, '');
-                } catch {
-                  return '';
-                }
-              })()
-            : '';
+          | Pick<Electron.OnBeforeRequestListenerDetails, 'webContents' | 'referrer'>
+          | undefined;
+        let site = '';
+        try {
+          site = hostFromUrl(details?.webContents?.getURL() ?? '');
+        } catch {
+          site = '';
+        }
+        if (!site) site = hostFromUrl(details?.referrer ?? '');
+        if (!site) site = hostFromUrl(request.url);
         if (site) {
           blockedBySite.set(site, (blockedBySite.get(site) ?? 0) + 1);
           const requests = blockedRequestsBySite.get(site) ?? [];
           requests.unshift({ url: request.url, type: String(request.type), timestamp: Date.now() });
           requests.splice(50);
           blockedRequestsBySite.set(site, requests);
+          evictOldestSites();
         }
         emitStatsThrottled();
       });
@@ -307,9 +354,19 @@ export function setAdblockEnabled(value: boolean): void {
 export function setNetworkSecuritySettings(settings: {
   forceHttps: boolean;
   doNotTrack: boolean;
+  stripTracking?: boolean;
 }): void {
   forceHttps = Boolean(settings.forceHttps);
   doNotTrack = Boolean(settings.doNotTrack);
+  if (settings.stripTracking !== undefined) stripTracking = Boolean(settings.stripTracking);
+  // Push the new state to the renderer. Without this the Settings panel kept
+  // showing whatever the blocker last reported, so toggling Force-HTTPS or DNT
+  // appeared to do nothing until some unrelated event triggered an emit.
+  emitStats();
+}
+
+export function isStripTrackingEnabled(): boolean {
+  return stripTracking;
 }
 
 export function isForceHttpsEnabled(): boolean {

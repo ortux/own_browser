@@ -5,6 +5,7 @@
 
 import { apiClient } from './apiClient';
 import { useSettingsStore } from '../stores/settingsStore';
+import { log } from './logger';
 
 export interface BookmarkEntry {
   bookmark_id: string;
@@ -29,14 +30,14 @@ export async function syncBookmarksWithDevice() {
     const { deviceKey } = store;
 
     if (!deviceKey) {
-      console.debug('[bookmarks-sync] Skipping: no device key');
+      if (import.meta.env.DEV) log.debug('[bookmarks-sync] Skipping: no device key');
       return null;
     }
 
     // Get bookmarks from browser API
     const bookmarks = await window.browserAPI.bookmarks.get?.();
     if (!bookmarks || bookmarks.length === 0) {
-      console.debug('[bookmarks-sync] No bookmarks to sync');
+      if (import.meta.env.DEV) log.debug('[bookmarks-sync] No bookmarks to sync');
       return null;
     }
 
@@ -57,7 +58,7 @@ export async function syncBookmarksWithDevice() {
     );
 
     if (response.ok && response.data) {
-      console.debug('[bookmarks-sync] Synced:', response.data);
+      if (import.meta.env.DEV) log.debug('[bookmarks-sync] Synced:', response.data);
       return response.data;
     }
 
@@ -120,9 +121,11 @@ export async function addBookmark(url: string, title: string): Promise<BookmarkE
 /**
  * Remove bookmark locally
  */
-export async function removeBookmark(bookmarkId: string): Promise<boolean> {
+export async function removeBookmark(url: string): Promise<boolean> {
   try {
-    await window.browserAPI.bookmarks?.remove?.(bookmarkId);
+    // browserAPI.bookmarks.remove is keyed by URL, not by row id. This was
+    // being called with a bookmark id, so it silently deleted nothing.
+    await window.browserAPI.bookmarks?.remove?.(url);
     // Queue sync
     setTimeout(() => syncBookmarksWithDevice(), 100);
     return true;

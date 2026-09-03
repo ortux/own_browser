@@ -9,19 +9,28 @@
 
 import { session, app } from 'electron';
 
-export interface CertInfo {
-  present: boolean;
-  valid: boolean;
-  issuer?: string;
-  subject?: string;
-  validFrom?: string; // ISO string
-  validTo?: string; // ISO string
-  serialNumber?: string;
-  fingerprint?: string;
-  error?: string;
-}
+import type { CertInfo } from '../shared/types';
 
+export type { CertInfo };
+
+/**
+ * Cap the cert cache. A long browsing session touches thousands of hosts and
+ * this map was never pruned, so it grew for the lifetime of the process.
+ * Insertion order gives us a cheap FIFO eviction.
+ */
+const MAX_CERT_HOSTS = 500;
 const certByHost = new Map<string, CertInfo>();
+
+function rememberCert(hostname: string, info: CertInfo): void {
+  // Re-inserting moves the host to the end, so active sites are evicted last.
+  certByHost.delete(hostname);
+  certByHost.set(hostname, info);
+  while (certByHost.size > MAX_CERT_HOSTS) {
+    const oldest = certByHost.keys().next();
+    if (oldest.done) break;
+    certByHost.delete(oldest.value);
+  }
+}
 
 function toIso(seconds?: number): string | undefined {
   return typeof seconds === 'number' && !Number.isNaN(seconds)
@@ -29,14 +38,27 @@ function toIso(seconds?: number): string | undefined {
     : undefined;
 }
 
-export function initCertificateMonitor(): void {
+const monitoredSessions = new WeakSet<Electron.Session>();
+
+/**
+ * Record certificates for one session.
+ *
+ * Every <webview> gets its own session (and private tabs get a `temp:`
+ * partition), so watching only `defaultSession` meant the padlock reported
+ * "unknown" for essentially every real page load. Call this for each managed
+ * session as it appears.
+ */
+export function attachCertificateMonitorToSession(ses: Electron.Session): void {
+  if (monitoredSessions.has(ses)) return;
+  monitoredSessions.add(ses);
+
   // Called for every TLS connection. We record the cert + validity and then
   // defer to Chromium's default verification (we do NOT override it).
-  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+  ses.setCertificateVerifyProc((request, callback) => {
     try {
       const { hostname, certificate, errorCode } = request;
       if (hostname && certificate) {
-        certByHost.set(hostname.toLowerCase(), {
+        rememberCert(hostname.toLowerCase(), {
           present: true,
           valid: errorCode === 0,
           issuer: certificate.issuerName,
@@ -53,12 +75,16 @@ export function initCertificateMonitor(): void {
     // -3 = defer to the default built-in verification.
     callback(-3);
   });
+}
+
+export function initCertificateMonitor(): void {
+  attachCertificateMonitorToSession(session.defaultSession);
 
   // Fired when a certificate fails validation — record it as invalid.
   app.on('certificate-error', (_event, _webContents, url, error, certificate) => {
     try {
       const host = new URL(url).hostname.toLowerCase();
-      certByHost.set(host, {
+      rememberCert(host, {
         present: true,
         valid: false,
         issuer: certificate?.issuerName,

@@ -54,6 +54,20 @@ function score(text: string, query: string): number {
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = (props) => {
+  // Pulled out of `props` so the items useMemo can depend on the individual
+  // callbacks. Depending on the whole `props` object rebuilt the entire tab /
+  // bookmark / history list on every single parent render.
+  const {
+    onNewTab,
+    onOpenSettings,
+    onOpenDownloads,
+    onPrint,
+    onFind,
+    onReload,
+    onGoBack,
+    onGoForward,
+    onReaderToggle,
+  } = props;
   const tabs = useBrowserStore((s) => s.tabs);
   const activeTabId = useBrowserStore((s) => s.activeTabId);
   const { bookmarks } = useBookmarks();
@@ -91,29 +105,47 @@ export const CommandPalette: React.FC<CommandPaletteProps> = (props) => {
     for (const b of bookmarks) {
       out.push({ kind: 'bookmark', id: b.id, title: b.title || b.url, url: b.url });
     }
-    // De-dup history by url (most recent wins).
+    // De-dup history by url (most recent wins). The cap counts history only:
+    // it used to be measured against the whole list, so a user with 200+
+    // bookmarks got no history results in the palette at all.
+    const MAX_HISTORY_ITEMS = 200;
     const seen = new Set<string>();
+    let historyCount = 0;
     for (const h of history) {
       if (seen.has(h.url)) continue;
       seen.add(h.url);
       out.push({ kind: 'history', id: h.id, title: h.title || h.url, url: h.url });
-      if (out.length > 200) break;
+      if (++historyCount >= MAX_HISTORY_ITEMS) break;
     }
 
     // Built-in actions.
     out.push(
-      { kind: 'action', id: 'act:newtab', label: 'Open new tab', hint: 'Ctrl+T', run: props.onNewTab },
-      { kind: 'action', id: 'act:settings', label: 'Open settings', hint: 'Ctrl+,', run: props.onOpenSettings },
-      { kind: 'action', id: 'act:downloads', label: 'Open downloads', hint: 'Ctrl+J', run: props.onOpenDownloads },
-      { kind: 'action', id: 'act:print', label: 'Print page', hint: 'Ctrl+P', run: props.onPrint },
-      { kind: 'action', id: 'act:find', label: 'Find on page', hint: 'Ctrl+F', run: props.onFind },
-      { kind: 'action', id: 'act:reload', label: 'Reload', hint: 'Ctrl+R', run: props.onReload },
-      { kind: 'action', id: 'act:back', label: 'Go back', hint: 'Alt+←', run: props.onGoBack },
-      { kind: 'action', id: 'act:fwd', label: 'Go forward', hint: 'Alt+→', run: props.onGoForward },
-      { kind: 'action', id: 'act:reader', label: 'Toggle reading mode', hint: 'Ctrl+Shift+R', run: props.onReaderToggle },
+      { kind: 'action', id: 'act:newtab', label: 'Open new tab', hint: 'Ctrl+T', run: onNewTab },
+      { kind: 'action', id: 'act:settings', label: 'Open settings', hint: 'Ctrl+,', run: onOpenSettings },
+      { kind: 'action', id: 'act:downloads', label: 'Open downloads', hint: 'Ctrl+J', run: onOpenDownloads },
+      { kind: 'action', id: 'act:print', label: 'Print page', hint: 'Ctrl+P', run: onPrint },
+      { kind: 'action', id: 'act:find', label: 'Find on page', hint: 'Ctrl+F', run: onFind },
+      { kind: 'action', id: 'act:reload', label: 'Reload', hint: 'Ctrl+R', run: onReload },
+      { kind: 'action', id: 'act:back', label: 'Go back', hint: 'Alt+←', run: onGoBack },
+      { kind: 'action', id: 'act:fwd', label: 'Go forward', hint: 'Alt+→', run: onGoForward },
+      { kind: 'action', id: 'act:reader', label: 'Toggle reading mode', hint: 'Alt+R', run: onReaderToggle },
     );
     return out;
-  }, [tabs, activeTabId, bookmarks, history, props]);
+  }, [
+    tabs,
+    activeTabId,
+    bookmarks,
+    history,
+    onNewTab,
+    onOpenSettings,
+    onOpenDownloads,
+    onPrint,
+    onFind,
+    onReload,
+    onGoBack,
+    onGoForward,
+    onReaderToggle,
+  ]);
 
   // ── Filter / sort. ──────────────────────────────────────────────────────
   const ranked = useMemo(() => {

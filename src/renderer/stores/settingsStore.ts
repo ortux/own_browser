@@ -3,7 +3,7 @@ import { DEFAULT_SLEEP_MINUTES, clampSleepMinutes } from '../../shared/tabSleep'
 import { persist } from 'zustand/middleware';
 import type { BackgroundCategory } from '../lib/backgroundCache';
 import { getApiBaseUrl } from '../lib/config';
-import { saveTokens, clearTokens } from '../lib/tokenManager';
+import { saveTokens, clearTokens, getStoredTokens } from '../lib/tokenManager';
 import { apiClient } from '../lib/apiClient';
 
 export interface SearchEngine {
@@ -116,6 +116,8 @@ interface SettingsStore {
   markAuthPromptShown: () => void;
   chooseGuest: () => void;
   completeOnboarding: () => void;
+  /** Epoch ms when the user accepted the Terms of Service, or null. */
+  termsAcceptedAt: number | null;
   agreeToTerms: () => void;
 
   // Authentication
@@ -150,6 +152,16 @@ interface SettingsStore {
   restoreSession: boolean;
   setRestoreSession: (enabled: boolean) => void;
 
+  /**
+   * Browser feature level.
+   *
+   * 'minimal' is a deliberately reduced browser: heavier, non-essential
+   * subsystems (currently the AI agent) are hidden and never initialised.
+   * Distinct from `newTabMode`, which only styles the new-tab page.
+   */
+  browserMode: 'minimal' | 'full';
+  setBrowserMode: (mode: 'minimal' | 'full') => void;
+
   // New-tab mode
   newTabMode: 'minimal' | 'full';
   backgroundCategory: BackgroundCategory;
@@ -171,6 +183,8 @@ interface SettingsStore {
   // Device management
   deviceKey: string;
   deviceName: string;
+  /** Record a device name chosen before an account exists (onboarding). */
+  setDeviceName: (name: string) => void;
   registerDevice: (name: string, token: string) => Promise<void>;
 }
 
@@ -279,7 +293,9 @@ export const useSettingsStore = create<SettingsStore>()(
       markAuthPromptShown: () => set({ authPromptLastShownAt: Date.now() }),
       chooseGuest: () => set({ guestMode: true }),
       completeOnboarding: () => set({ onboardingCompleted: true }),
-      agreeToTerms: () => set({}),
+      termsAcceptedAt: null,
+      // Was `set({})` — a literal no-op, so consent was never recorded.
+      agreeToTerms: () => set({ termsAcceptedAt: Date.now() }),
 
       stripTrackingParams: true,
       setStripTrackingParams: (enabled) => set({ stripTrackingParams: enabled }),
@@ -296,6 +312,9 @@ export const useSettingsStore = create<SettingsStore>()(
 
       restoreSession: false,
       setRestoreSession: (enabled) => set({ restoreSession: enabled }),
+
+      browserMode: 'full',
+      setBrowserMode: (mode) => set({ browserMode: mode }),
 
       newTabMode: 'full',
       backgroundCategory: 'random',
@@ -319,10 +338,38 @@ export const useSettingsStore = create<SettingsStore>()(
       passwordManagerEnabled: false,
       setPasswordManagerEnabled: (enabled) => set({ passwordManagerEnabled: enabled }),
       signOut: async () => {
+        // Best-effort server-side revocation so the refresh token cannot be
+        // replayed. A network failure must never trap the user in a signed-in
+        // state, so the local teardown below runs regardless.
+        const refreshToken = getStoredTokens()?.refresh_token;
+        if (refreshToken) {
+          try {
+            await fetch(`${getApiBaseUrl()}/auth/logout`, {
+              method: 'POST',
+              mode: 'cors',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refresh_token: refreshToken }),
+            });
+          } catch {
+            /* offline or endpoint unavailable — local sign-out still applies */
+          }
+        }
+
         clearTokens();
         localStorage.removeItem('zyphora_user');
         localStorage.removeItem('zyphora_tokens'); // Clear old format
-        set({ account: null, authStatus: 'idle', authError: null });
+        // Anything queued for the previous account must not be replayed under
+        // the next one.
+        localStorage.removeItem('zyphora_sync_queue');
+        // The device registration belonged to that account; a later sign-in
+        // re-registers this device against the new one.
+        set({
+          account: null,
+          authStatus: 'idle',
+          authError: null,
+          deviceName: '',
+          guestMode: false,
+        });
       },
       signIn: async (email, password) => {
         set({ authStatus: 'loading', authError: null });
@@ -398,6 +445,7 @@ export const useSettingsStore = create<SettingsStore>()(
         return generated;
       })(),
       deviceName: '',
+      setDeviceName: (name: string) => set({ deviceName: name.trim().slice(0, 64) }),
       registerDevice: async (name: string, token?: string) => {
         try {
           const baseUrl = getApiBaseUrl();
@@ -461,9 +509,17 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: 'own-browser-settings',
       partialize: (state) => {
-        // Never persist authBaseUrl — always derive it fresh from config
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { authBaseUrl, authStatus, authError, ...rest } = state as any;
+        // Never persist authBaseUrl (always derived fresh from config) or the
+        // transient auth status/error. Destructuring `state` directly keeps
+        // this honest: if one of these keys is ever renamed the build fails,
+        // whereas the previous `state as any` would have silently started
+        // persisting it.
+        const {
+          authBaseUrl: _authBaseUrl,
+          authStatus: _authStatus,
+          authError: _authError,
+          ...rest
+        } = state;
         return { ...rest, proxy: sanitizeProxy(state.proxy) };
       },
       merge: (persisted, current) => {
@@ -484,3 +540,19 @@ export const useSettingsStore = create<SettingsStore>()(
     }
   )
 );
+
+/**
+ * A human label for an account.
+ *
+ * The backend's user payload has no `name` field — only `email` — so anything
+ * rendering `account.name` directly showed an empty string for every signed-in
+ * user. Fall back to the local part of the email, then to a generic label.
+ */
+export function accountDisplayName(account: AuthUser | null): string {
+  if (!account) return 'Guest';
+  const name = account.name?.trim();
+  if (name) return name;
+  const email = account.email?.trim();
+  if (email) return email.split('@')[0] || email;
+  return 'Account';
+}

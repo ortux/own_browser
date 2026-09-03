@@ -1,6 +1,6 @@
 # Own Browser
 
-A modern, privacy-focused desktop web browser built from scratch with Electron, React, TypeScript, and Go.
+A modern, privacy-focused desktop web browser built from scratch with Electron, React, and TypeScript.
 
 ## Overview
 
@@ -21,11 +21,13 @@ Own Browser prioritizes:
 - **State**: Zustand
 - **Build**: electron-vite
 
-### Planned (Phase 4+)
-- **Core Backend**: Go (privacy engine, security, storage)
-- **Database**: SQLite3 with encryption
-- **IPC**: Structured message protocol
-- **Web3**: EVM wallet, dApp support, ENS
+### Current
+- **Database**: SQLite via sql.js, with OS-keychain encryption for saved passwords
+- **IPC**: Structured, validated message protocol between renderer and main
+
+### Planned
+- Fingerprinting resistance
+- Web3: EVM wallet, dApp support, ENS
 
 ## Project Structure
 
@@ -41,7 +43,6 @@ own-browser/
 │   │   └── styles/        # Tailwind CSS
 │   └── shared/            # Shared types for IPC
 ├── public/                # Static assets
-├── core/                  # Go backend (future)
 ├── docs/                  # Documentation
 └── package.json           # Dependencies
 ```
@@ -65,13 +66,7 @@ own-browser/
 ┌─────────────────────────────────────────────┐
 │      Electron Main Process                  │
 │   Window management, IPC routing             │
-│   Go backend supervision                    │
-└────────────────────┬────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────┐
-│   Go Core (Phase 4+)                        │
-│   Privacy, Security, Storage, Encryption    │
+│   Privacy, security, storage, encryption    │
 └─────────────────────────────────────────────┘
 ```
 
@@ -90,7 +85,6 @@ own-browser/
 ### Prerequisites
 - Node.js 22.12+
 - npm or yarn
-- (Optional) Go 1.21+ for Phase 4+
 
 ### Installation
 
@@ -112,7 +106,23 @@ npm run lint
 
 # Format code
 npm run format
+
+# Typecheck and run the unit suites
+npm run typecheck
+npm test
 ```
+
+### Configuration
+
+All environment variables are optional; the browser runs without them and the
+relevant feature degrades gracefully. Copy `.env.example` to `.env` to set them.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `PEXELS_API_KEY` | New Tab background photos. Without it the New Tab page uses a plain themed background. | unset |
+| `VITE_API_BASE_URL` / `API_BASE_URL` | Sync + account backend. The main process also uses it to allowlist OAuth redirects. | `https://api-zyphora.obliqllc.xyz` |
+| `ZYPHORA_PROXY_LIST` | Comma-separated `ip:port:user:pass` proxy pool for the Settings proxy toggle. | unset |
+| `ZYPHORA_DNS_MODE` | `secure` for fail-closed DNS-over-HTTPS; anything else is fail-open. Overrides the Settings → Privacy toggle. | `automatic` |
 
 ## Current Capabilities
 
@@ -153,8 +163,8 @@ npm run format
 - Form handling
 - Link clicking
 
-### Phase 4: Go Integration
-- IPC to Go backend
+### Next up
+- Cross-device sync hardening
 - SQLite initialization
 - Configuration loading
 
@@ -226,7 +236,7 @@ Main process owns:
 - Local history, bookmarks, and settings are not encrypted at rest.
 - Ad blocking starts with Ghostery's ads-only network lists; cosmetic/scriptlet filtering is intentionally disabled for compatibility. See `docs/ADBLOCK.md`.
 - Proxy pools must be supplied through `ZYPHORA_PROXY_LIST`; unreliable proxies are rejected before they can interrupt browsing.
-- No Go integration, fingerprinting resistance, or Web3 support yet.
+- No fingerprinting resistance or Web3 support yet.
 
 ## Performance Targets
 

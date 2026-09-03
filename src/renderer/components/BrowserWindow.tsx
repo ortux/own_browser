@@ -6,6 +6,8 @@ import { WebView } from './WebView';
 import { useTabSleep } from '../hooks/useTabSleep';
 import { PermissionPrompt } from './PermissionPrompt';
 import { NewTabPage } from './NewTabPage';
+import { AgentSidebar } from './AgentSidebar';
+import { AgentQuickControls } from './agent/AgentQuickControls';
 import { SettingsPage } from './SettingsPage';
 import { AuthPortal, type AuthPortalMode } from './AuthPortal';
 import { DownloadsPage } from './DownloadsPage';
@@ -22,9 +24,8 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
 import { useBookmarks } from '../hooks/useBookmarks';
-import { normalizeNavigationUrl } from '../../shared/navigation';
+import { normalizeNavigationUrl, INTERNAL_PAGES } from '../../shared/navigation';
 import { stripTrackingParams } from '../../shared/trackingParams';
-import { getReaderScript } from '../lib/useReaderScript';
 
 function looksLikeUrl(input: string): boolean {
   const trimmed = input.trim();
@@ -50,6 +51,8 @@ interface PendingCredential {
   favicon?: string;
 }
 
+const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
+
 export const BrowserWindow: React.FC = () => {
   const tabs = useBrowserStore((s) => s.tabs);
   const activeTabId = useBrowserStore((s) => s.activeTabId);
@@ -73,7 +76,6 @@ export const BrowserWindow: React.FC = () => {
   const sleepTabsAfterMinutes = useSettingsStore((state) => state.sleepTabsAfterMinutes);
 
   // ── UI state ──
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthPortalMode | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
@@ -98,6 +100,7 @@ export const BrowserWindow: React.FC = () => {
     goBack,
     goForward,
     reload,
+    hardReload,
     stop,
     restoreClosedTab,
     zoom,
@@ -110,6 +113,23 @@ export const BrowserWindow: React.FC = () => {
   );
 
   // ── Navigation ── (defined before any callback that calls it)
+  /**
+   * Focus the existing Settings tab if there is one, otherwise open it.
+   * Matches how Chrome and Firefox treat their settings pages — asking for
+   * settings twice should not leave you with two of them.
+   */
+  const openSettings = useCallback(() => {
+    const existing = tabs.find((t) => t.url === INTERNAL_PAGES.settings);
+    if (existing) activateTab(existing.id);
+    else createTabWithUrl(INTERNAL_PAGES.settings);
+  }, [tabs, activateTab, createTabWithUrl]);
+
+  // The agent is a full-mode feature: in minimal mode it is never rendered and
+  // its shortcut does nothing.
+  const browserMode = useSettingsStore((s) => s.browserMode);
+  const agentAvailable = browserMode === 'full';
+  const [agentOpen, setAgentOpen] = React.useState(false);
+
   const handleNavigate = useCallback(
     (input: string) => {
       const trimmed = input.trim();
@@ -120,16 +140,17 @@ export const BrowserWindow: React.FC = () => {
       }
       const url = looksLikeUrl(trimmed) ? normalizeNavigationUrl(trimmed) : null;
       const destination = url ?? buildSearchUrl(trimmed);
-      const secureDestination =
-        forceHttps && destination.startsWith('http://')
-          ? `https://${destination.slice('http://'.length)}`
-          : destination;
+      // The main process enforces force-HTTPS on every guest navigation
+      // (including redirects and in-page links), and it exempts localhost and
+      // LAN hosts. Doing a second, cruder string-slice upgrade here only
+      // duplicated that logic with different behaviour, so leave it to main.
+      const secureDestination = destination;
       // Drop campaign/click-ID parameters before the URL reaches a webview, so
       // they never land in history or in a copied address either.
       const cleaned = stripTracking ? stripTrackingParams(secureDestination) : secureDestination;
       navigate(cleaned);
     },
-    [navigate, buildSearchUrl, forceHttps, stripTracking]
+    [navigate, buildSearchUrl, stripTracking]
   );
 
   const handleBookmarkToggle = useCallback(() => {
@@ -145,17 +166,35 @@ export const BrowserWindow: React.FC = () => {
   const handleReaderToggle = useCallback(async () => {
     if (!activeTabId || !activeTab?.url || !/^https?:\/\//.test(activeTab.url)) return;
     try {
-      const result = await window.browserAPI?.reader.toggle(activeTabId, getReaderScript());
+      const result = await window.browserAPI?.reader.toggle(activeTabId);
       if (result?.ok) setReaderActive(Boolean(result.activated));
     } catch (error) {
       console.error('[reader] toggle failed:', error);
     }
   }, [activeTabId, activeTab?.url]);
 
-  // Reader mode is page-scoped: when the URL changes, it is no longer active.
+  // Reader mode is page-scoped, so a URL change clears it. The injected flag
+  // lives in the page, though, and an in-page (SPA) navigation does not reset
+  // it — so re-read the real state from the guest instead of assuming, or the
+  // toolbar button toggles the wrong direction.
   React.useEffect(() => {
+    let cancelled = false;
     setReaderActive(false);
-  }, [activeTab?.id, activeTab?.url]);
+    if (!activeTabId) return;
+
+    void window.browserAPI?.reader
+      ?.isActive?.(activeTabId)
+      .then((active) => {
+        if (!cancelled) setReaderActive(Boolean(active));
+      })
+      .catch(() => {
+        /* guest may be gone; the false default is correct */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTabId, activeTab?.url]);
 
   // ── Password manager ──
   // Listen for capture events from the main process. The prompt is only ever
@@ -254,8 +293,12 @@ export const BrowserWindow: React.FC = () => {
         // panel, and Ctrl+P is print.
         e.preventDefault();
         if (activeTabId) toggleTabPinned(activeTabId);
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
-        // Mute/unmute the current tab, as in Firefox.
+      } else if (
+        e.key === 'm' &&
+        // Mute/unmute the current tab, as in Firefox. On macOS Cmd+M is the
+        // system minimize shortcut, so only Ctrl+M toggles mute there.
+        (isMac ? e.ctrlKey && !e.metaKey : e.ctrlKey || e.metaKey)
+      ) {
         e.preventDefault();
         if (activeTabId) toggleTabMuted(activeTabId);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
@@ -281,12 +324,21 @@ export const BrowserWindow: React.FC = () => {
         setPaletteOpen(true);
       } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault();
-        setSettingsOpen(true);
+        openSettings();
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         if (!passwordManagerEnabled) return;
         e.preventDefault();
         togglePanel('passwords');
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+        // Ctrl+Shift+A toggles the agent sidebar. No-op in minimal mode.
+        e.preventDefault();
+        if (agentAvailable) setAgentOpen((v) => !v);
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'R' || e.key === 'r')) {
+        // Ctrl+Shift+R is hard-reload everywhere else; reading mode moved to
+        // Alt+R so the muscle memory keeps working.
+        e.preventDefault();
+        hardReload();
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'r' || e.key === 'R')) {
         e.preventDefault();
         void handleReaderToggle();
       } else if (e.key === 'Escape') {
@@ -302,10 +354,6 @@ export const BrowserWindow: React.FC = () => {
           setFindOpen(false);
           return;
         }
-        if (settingsOpen) {
-          setSettingsOpen(false);
-          return;
-        }
         if (panel) {
           setPanel(null);
           return;
@@ -318,10 +366,11 @@ export const BrowserWindow: React.FC = () => {
     activeTabId,
     findOpen,
     panel,
-    settingsOpen,
     pendingCredential,
     paletteOpen,
     passwordManagerEnabled,
+    agentAvailable,
+    openSettings,
     createNewBrowserTab,
     createTabWithUrl,
     closeTab,
@@ -329,6 +378,7 @@ export const BrowserWindow: React.FC = () => {
     toggleTabMuted,
     toggleTabPinned,
     reload,
+    hardReload,
     restoreClosedTab,
     zoom,
     resetZoom,
@@ -340,7 +390,12 @@ export const BrowserWindow: React.FC = () => {
   ]);
 
   const isNewTab = !activeTab?.url || activeTab.url === 'about:blank';
-  const isDownloads = activeTab?.url === 'zyphora://downloads';
+  const isDownloads = activeTab?.url === INTERNAL_PAGES.downloads;
+  // Settings is a real page at zyphora://settings, so it lives in a tab like
+  // any other: it can be bookmarked in history, reopened with Ctrl+Shift+T,
+  // and you can keep it open while browsing in another tab.
+  const isSettings = activeTab?.url === INTERNAL_PAGES.settings;
+
 
   // Keep internal pages showing a friendly tab title (the webview never loads
   // them, so main never receives a real title for zyphora:// URLs).
@@ -357,8 +412,10 @@ export const BrowserWindow: React.FC = () => {
   // Keep network security settings in sync with the main process before a
   // renderer-initiated navigation can happen.
   React.useEffect(() => {
-    window.browserAPI.security.set({ forceHttps, doNotTrack }).catch(() => {});
-  }, [forceHttps, doNotTrack]);
+    window.browserAPI.security
+      .set({ forceHttps, doNotTrack, stripTracking })
+      .catch(() => {});
+  }, [forceHttps, doNotTrack, stripTracking]);
 
   // Main starts with session capture off and only learns the user's choice
   // once persisted settings have hydrated here.
@@ -372,9 +429,17 @@ export const BrowserWindow: React.FC = () => {
     window.browserAPI.history.setRetention(historyRetentionDays).catch(() => {});
   }, [historyRetentionDays]);
 
-  // The initial tab is created by the main process before the renderer can read
-  // persisted settings. Mark it private while it is still a blank page so the
-  // setting applies to the first tab as well.
+  // Tell main about "open new tabs in private mode" so tabs it creates on its
+  // own — popups, restored sessions, the launch tab — honour it too. Main
+  // starts with the setting off and only learns it once settings hydrate here.
+  React.useEffect(() => {
+    window.browserAPI
+      .sendMessage({ type: 'private-by-default', enabled: privateByDefault })
+      .catch(() => {});
+  }, [privateByDefault]);
+
+  // The launch tab is created before the renderer can read persisted settings,
+  // so retro-mark it while it is still blank.
   React.useEffect(() => {
     if (privateByDefault && activeTab?.url === 'about:blank' && !activeTab.privateMode) {
       window.browserAPI
@@ -431,7 +496,7 @@ export const BrowserWindow: React.FC = () => {
   React.useEffect(() => {
     if (!window.browserAPI?.downloads?.onStarted) return;
     const unsub = window.browserAPI.downloads.onStarted(() => {
-      if (openDownloadsOnStart) createTabWithUrl('zyphora://downloads');
+      if (openDownloadsOnStart) createTabWithUrl(INTERNAL_PAGES.downloads);
     });
     return unsub;
   }, [openDownloadsOnStart, createTabWithUrl]);
@@ -449,7 +514,7 @@ export const BrowserWindow: React.FC = () => {
         onTabTogglePinned={toggleTabPinned}
         onTabReorder={reorderTabs}
         onNewTab={createNewBrowserTab}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={openSettings}
         onOpenHistory={() => togglePanel('history')}
         onOpenBookmarks={() => togglePanel('bookmarks')}
         onOpenRecentlyClosed={() => togglePanel('closed')}
@@ -465,35 +530,33 @@ export const BrowserWindow: React.FC = () => {
           {/* Browser + navbar */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <div className="flex-1 overflow-hidden relative bg-[var(--bg)]">
-              {findOpen && !settingsOpen && (
+              {findOpen && !isSettings && (
                 <FindBar tabId={activeTabId || undefined} onClose={() => setFindOpen(false)} />
               )}
 
-              {/* Settings — full page, sits on top like chrome://settings */}
+              {/* Sign-in still overlays everything, since it is modal. */}
               {authMode && (
                 <div className="absolute inset-0 z-40 bg-[var(--bg)]">
                   <AuthPortal mode={authMode} onClose={() => setAuthMode(null)} />
                 </div>
               )}
 
-              {settingsOpen && !authMode && (
-                <div className="absolute inset-0 z-20 flex overflow-hidden bg-[var(--bg)]">
-                  <SettingsPage
-                    onBack={() => setSettingsOpen(false)}
-                    onOpenAuth={(mode) => setAuthMode(mode)}
-                  />
+              {/* Settings page (zyphora://settings) */}
+              {isSettings && !authMode && (
+                <div className="absolute inset-0 flex overflow-hidden bg-[var(--bg)]">
+                  <SettingsPage onOpenAuth={(mode) => setAuthMode(mode)} />
                 </div>
               )}
 
               {/* New tab page */}
-              {!settingsOpen && isNewTab && (
+              {isNewTab && (
                 <div className="absolute inset-0">
                   <NewTabPage onSearch={handleNavigate} />
                 </div>
               )}
 
               {/* Downloads page (zyphora://downloads) */}
-              {!settingsOpen && isDownloads && (
+              {isDownloads && (
                 <div className="absolute inset-0">
                   <DownloadsPage />
                 </div>
@@ -512,7 +575,7 @@ export const BrowserWindow: React.FC = () => {
                   <div
                     key={t.id}
                     className="absolute inset-0 w-full h-full"
-                    style={{ display: !settingsOpen && t.id === activeTabId ? 'flex' : 'none' }}
+                    style={{ display: t.id === activeTabId ? 'flex' : 'none' }}
                   >
                     <WebView tab={t} />
                   </div>
@@ -520,6 +583,15 @@ export const BrowserWindow: React.FC = () => {
 
               {/* Custom permission prompts (camera, mic, location, …) */}
               <PermissionPrompt />
+
+              {/* Agent status and permission requests, over the page area so
+                  the user never has to open Settings to regain control. */}
+              {agentAvailable && (
+                <AgentQuickControls
+                  currentUrl={activeTab?.url ?? ''}
+                  onOpenSettings={openSettings}
+                />
+              )}
             </div>
 
             <NavBar
@@ -529,11 +601,11 @@ export const BrowserWindow: React.FC = () => {
               onReload={reload}
               onStop={stop}
               onNavigate={handleNavigate}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={openSettings}
               onHome={() => handleNavigate('about:blank')}
               onBookmark={handleBookmarkToggle}
               isBookmarked={activeTab?.url ? isBookmarked(activeTab.url) : false}
-              onOpenDownloads={() => createTabWithUrl('zyphora://downloads')}
+              onOpenDownloads={() => createTabWithUrl(INTERNAL_PAGES.downloads)}
               onToggleReader={handleReaderToggle}
               readerActive={readerActive}
               onOpenSiteSettings={() => setSiteSettingsOpen((v) => !v)}
@@ -576,6 +648,17 @@ export const BrowserWindow: React.FC = () => {
               />
             </div>
           )}
+
+          {agentAvailable && (
+            <AgentSidebar
+              open={agentOpen}
+              onClose={() => setAgentOpen(false)}
+              onOpenSettings={() => {
+                setAgentOpen(false);
+                openSettings();
+              }}
+            />
+          )}
         </div>
       </div>
 
@@ -597,7 +680,7 @@ export const BrowserWindow: React.FC = () => {
       )}
 
       {/* Download-start notifications */}
-      <DownloadToast onOpenDownloads={() => createTabWithUrl('zyphora://downloads')} />
+      <DownloadToast onOpenDownloads={() => createTabWithUrl(INTERNAL_PAGES.downloads)} />
 
       {/* Command palette — global ⌘K overlay. */}
       <CommandPalette
@@ -609,8 +692,8 @@ export const BrowserWindow: React.FC = () => {
         onCloseTab={closeTab}
         onToggleMute={toggleTabMuted}
         onTogglePin={toggleTabPinned}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenDownloads={() => createTabWithUrl('zyphora://downloads')}
+        onOpenSettings={openSettings}
+        onOpenDownloads={() => createTabWithUrl(INTERNAL_PAGES.downloads)}
         onPrint={printPage}
         onFind={() => setFindOpen(true)}
         onReload={reload}

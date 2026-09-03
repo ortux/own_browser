@@ -165,6 +165,16 @@ const browserAPI = {
    */
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
+
+  /** Notifies when the window is maximized or restored. */
+  onMaximizedChanged: (callback: (maximized: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, maximized: boolean) =>
+      callback(maximized);
+    ipcRenderer.on('window:maximized-changed', handler);
+    return () => {
+      ipcRenderer.removeListener('window:maximized-changed', handler);
+    };
+  },
   closeWindow: () => ipcRenderer.send('window:close'),
 
   /**
@@ -177,8 +187,8 @@ const browserAPI = {
 
   /** History */
   history: {
-    get: (): Promise<import('../shared/types').HistoryEntry[]> =>
-      ipcRenderer.invoke('db:history:get'),
+    get: (limit?: number): Promise<import('../shared/types').HistoryEntry[]> =>
+      ipcRenderer.invoke('db:history:get', limit),
     search: (query: string): Promise<import('../shared/types').HistoryEntry[]> =>
       ipcRenderer.invoke('db:history:search', query),
     delete: (id: number): Promise<void> => ipcRenderer.invoke('db:history:delete', id),
@@ -296,7 +306,11 @@ const browserAPI = {
 
   /** Network privacy policy */
   security: {
-    set: (settings: { forceHttps: boolean; doNotTrack: boolean }): Promise<unknown> =>
+    set: (settings: {
+      forceHttps: boolean;
+      doNotTrack: boolean;
+      stripTracking?: boolean;
+    }): Promise<unknown> =>
       ipcRenderer.invoke('browser:message', { type: 'security-settings', ...settings }),
   },
 
@@ -334,6 +348,8 @@ const browserAPI = {
     defaultPath: (): Promise<string> => ipcRenderer.invoke('download:default-path'),
     pickFolder: (): Promise<string | null> => ipcRenderer.invoke('download:pick-folder'),
     cancel: (id: string): Promise<void> => ipcRenderer.invoke('download:cancel', id),
+    pause: (id: string): Promise<void> => ipcRenderer.invoke('download:pause', id),
+    resume: (id: string): Promise<void> => ipcRenderer.invoke('download:resume', id),
     retry: (id: string): Promise<void> => ipcRenderer.invoke('download:retry', id),
     remove: (id: string): Promise<void> => ipcRenderer.invoke('download:remove', id),
     clear: (): Promise<void> => ipcRenderer.invoke('download:clear'),
@@ -369,7 +385,7 @@ const browserAPI = {
 
   /** Certificate information for a given hostname. */
   cert: {
-    get: (hostname: string): Promise<import('../main/certificate').CertInfo | null> =>
+    get: (hostname: string): Promise<import('../shared/types').CertInfo | null> =>
       ipcRenderer.invoke('cert:get', hostname),
   },
 
@@ -386,8 +402,86 @@ const browserAPI = {
 
   /** Read the page as a clean typographic article (reading mode). */
   reader: {
-    toggle: (tabId: string, script: string): Promise<{ ok: boolean; activated?: boolean; reason?: string }> =>
-      ipcRenderer.invoke('browser:message', { type: 'reader-toggle', tabId, script }),
+    toggle: (tabId: string): Promise<{ ok: boolean; activated?: boolean; reason?: string }> =>
+      ipcRenderer.invoke('browser:message', { type: 'reader-toggle', tabId }),
+    /** Whether reading mode is currently applied to the tab's live page. */
+    isActive: (tabId: string): Promise<boolean> =>
+      ipcRenderer.invoke('browser:message', { type: 'reader-is-active', tabId }),
+  },
+
+  /** AI agent. Gated on browserMode === 'full' in the UI. */
+  agent: {
+    /** The whole agent configuration, owned and enforced by the main process. */
+    getConfig: (): Promise<{
+      config: import('../shared/agentConfig').AgentConfig;
+      hasApiKey: boolean;
+    }> => ipcRenderer.invoke('agent:config:get'),
+    updateConfig: (
+      patch: Partial<import('../shared/agentConfig').AgentConfig>
+    ): Promise<import('../shared/agentConfig').AgentConfig> =>
+      ipcRenderer.invoke('agent:config:update', patch),
+    resetConfig: (): Promise<import('../shared/agentConfig').AgentConfig> =>
+      ipcRenderer.invoke('agent:config:reset'),
+
+    memory: {
+      add: (content: string): Promise<import('../shared/agentConfig').MemoryEntry | null> =>
+        ipcRenderer.invoke('agent:memory:add', content),
+      update: (id: string, content: string): Promise<unknown> =>
+        ipcRenderer.invoke('agent:memory:update', { id, content }),
+      remove: (id: string): Promise<unknown> => ipcRenderer.invoke('agent:memory:delete', id),
+      clear: (): Promise<unknown> => ipcRenderer.invoke('agent:memory:clear'),
+    },
+
+    activity: {
+      clear: (): Promise<unknown> => ipcRenderer.invoke('agent:activity:clear'),
+    },
+
+    files: {
+      /** Open the OS folder picker. Returns null if the user cancelled. */
+      pickFolder: (): Promise<string | null> => ipcRenderer.invoke('agent:files:pick-folder'),
+    },
+
+    tasks: {
+      runNow: (id: string): Promise<{ ok: boolean; summary: string }> =>
+        ipcRenderer.invoke('agent:task:run-now', id),
+    },
+    setApiKey: (key: string): Promise<{ ok: boolean; reason?: string }> =>
+      ipcRenderer.invoke('agent:key:set', key),
+    getProfile: (): Promise<import('../shared/agent').AgentProfileField[]> =>
+      ipcRenderer.invoke('agent:profile:get'),
+    setProfile: (
+      fields: import('../shared/agent').AgentProfileField[]
+    ): Promise<{ ok: boolean; reason?: string }> =>
+      ipcRenderer.invoke('agent:profile:set', fields),
+    run: (goal: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('agent:run', goal),
+    stop: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('agent:stop'),
+    /** Pause after the current step; the agent parks until resumed. */
+    pause: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('agent:pause'),
+    resume: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('agent:resume'),
+    /**
+     * Answer the agent: true/false for a confirmation, 'always' to also trust
+     * the site, or free text to answer a question.
+     */
+    respond: (value: boolean | 'always' | string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('agent:respond', value),
+    /** Live run events: state changes, steps, confirmations. */
+    onEvent: (callback: (event: import('../shared/agent').AgentEvent) => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: import('../shared/agent').AgentEvent
+      ) => callback(payload);
+      ipcRenderer.on('agent:event', handler);
+      return () => {
+        ipcRenderer.removeListener('agent:event', handler);
+      };
+    },
+  },
+
+  /** DNS-over-HTTPS mode. Changes apply on the next launch. */
+  dns: {
+    getMode: (): Promise<'automatic' | 'secure'> => ipcRenderer.invoke('dns:get-mode'),
+    setMode: (mode: 'automatic' | 'secure'): Promise<'automatic' | 'secure'> =>
+      ipcRenderer.invoke('dns:set-mode', mode),
   },
 
   /** Open external URLs in the default browser. */

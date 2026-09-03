@@ -44,9 +44,15 @@ async function applyToSession(ses: Electron.Session, proxyRules: string): Promis
     // Credentials are handled by the app-level login event below. Chromium
     // does not accept credentials embedded in proxyRules.
     proxyRules,
-    // Shared public proxies are commonly blocked by Google. Keep Google on
-    // the user's direct connection so normal searches remain usable.
-    proxyBypassRules: 'localhost,127.0.0.1,<local>,google.com,*.google.com',
+    // Only loopback and LAN destinations bypass the proxy.
+    //
+    // Google used to be bypassed here because shared public proxies are often
+    // blocked by it — but that silently routed searches, the default engine,
+    // over the direct connection while the UI reported the proxy as active.
+    // A privacy control that quietly exempts the largest tracker is worse than
+    // no control at all; if a proxy cannot reach Google, verification fails and
+    // the user is told.
+    proxyBypassRules: 'localhost,127.0.0.1,<local>',
   });
 }
 

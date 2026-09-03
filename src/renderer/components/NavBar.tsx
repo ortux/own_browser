@@ -20,7 +20,7 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react';
 import type { Tab, HistoryEntry, Download, BlockedRequest } from '../../shared/types';
-import type { CertInfo } from '../../main/certificate';
+import type { CertInfo } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
 
 interface NavBarProps {
@@ -710,7 +710,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               ? 'text-[var(--accent-fg)] bg-[var(--accent-soft)]'
               : 'text-[var(--text-muted)] hover:text-[var(--text)]'
           }`}
-          title="Reading mode (Ctrl+Shift+R)"
+          title="Reading mode (Alt+R)"
           aria-label="Toggle reading mode"
         >
           <BookOpen size={16} />

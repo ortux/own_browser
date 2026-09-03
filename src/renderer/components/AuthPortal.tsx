@@ -180,14 +180,11 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
 
   const handleDeviceNameSubmit = async (deviceName: string) => {
     if (!authTokens) return;
-    try {
-      await useSettingsStore.getState().registerDevice(deviceName, authTokens.access_token);
-      setShowDeviceModal(false);
-      window.setTimeout(() => onClose(), 300);
-    } catch (error) {
-      // Error is already handled in registerDevice, just re-throw for modal to display
-      throw error;
-    }
+    // registerDevice already logs; let the error propagate so DeviceNameModal
+    // can render it inline.
+    await useSettingsStore.getState().registerDevice(deviceName, authTokens.access_token);
+    setShowDeviceModal(false);
+    window.setTimeout(() => onClose(), 300);
   };
 
   return (

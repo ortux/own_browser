@@ -10,6 +10,8 @@ import {
   AlertCircle,
   XCircle,
   Ban,
+  Pause,
+  Play,
   RotateCcw,
 } from 'lucide-react';
 import type { Download } from '../../shared/types';
@@ -130,7 +132,7 @@ export const DownloadsPage: React.FC = () => {
                     </div>
 
                     <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--text-faint)]">
-                      <span>{meta.label}</span>
+                      <span>{d.state === 'progressing' && d.paused ? 'Paused' : meta.label}</span>
                       <span>·</span>
                       <span>
                         {formatBytes(d.receivedBytes)}
@@ -144,7 +146,9 @@ export const DownloadsPage: React.FC = () => {
                       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
                         <div
                           className={`h-full rounded-full bg-[var(--accent)] ${
-                            indeterminate ? 'animate-pulse' : 'transition-[width] duration-200'
+                            indeterminate && !d.paused
+                              ? 'animate-pulse'
+                              : 'transition-[width] duration-200'
                           }`}
                           style={{ width: indeterminate ? '100%' : `${pct}%` }}
                         />
@@ -154,6 +158,20 @@ export const DownloadsPage: React.FC = () => {
 
                   {/* Actions */}
                   <div className="flex shrink-0 items-center gap-1">
+                    {d.state === 'progressing' && (
+                      <button
+                        onClick={() =>
+                          (d.paused
+                            ? window.browserAPI.downloads.resume(d.id)
+                            : window.browserAPI.downloads.pause(d.id)
+                          ).catch(() => {})
+                        }
+                        title={d.paused ? 'Resume' : 'Pause'}
+                        className="rounded-md p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                      >
+                        {d.paused ? <Play size={16} /> : <Pause size={16} />}
+                      </button>
+                    )}
                     {d.state === 'progressing' && (
                       <button
                         onClick={() => window.browserAPI.downloads.cancel(d.id).catch(() => {})}

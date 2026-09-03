@@ -147,9 +147,25 @@ export async function initDb(): Promise<void> {
   persist();
 }
 
-/** Write the in-memory database to disk. Call after every write. */
-function persist() {
+/**
+ * How long writes are coalesced before hitting the disk.
+ *
+ * sql.js has no incremental write path: persisting means serialising the whole
+ * database and rewriting the file. Doing that synchronously on every single
+ * row — addHistory fires on every page load — rewrites megabytes per
+ * navigation and stalls the main process. Batching turns a burst of writes
+ * into one file rewrite; `flushDb()` covers the shutdown case so nothing is
+ * lost.
+ */
+const PERSIST_DEBOUNCE_MS = 1_000;
+
+let persistTimer: NodeJS.Timeout | null = null;
+let persistPending = false;
+
+/** Serialise and atomically replace the database file. */
+function persistNow() {
   if (!_db || !_dbPath) return;
+  persistPending = false;
   const data = _db.export();
   const tempPath = `${_dbPath}.tmp-${process.pid}`;
   try {
@@ -163,6 +179,31 @@ function persist() {
     }
     console.error('[db] could not persist local data; continuing in memory:', error);
   }
+}
+
+/** Queue a debounced write. Call after every mutation. */
+function persist() {
+  if (!_db || !_dbPath) return;
+  persistPending = true;
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    persistNow();
+  }, PERSIST_DEBOUNCE_MS);
+  // Never hold the event loop open just to flush the database.
+  persistTimer.unref?.();
+}
+
+/**
+ * Write any pending changes immediately. Must be called before quitting, and
+ * any time losing the last second of writes would be unacceptable.
+ */
+export function flushDb() {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  if (persistPending) persistNow();
 }
 
 function db(): SqlDatabase {
@@ -209,14 +250,18 @@ export function addHistory(url: string, title: string, favicon?: string) {
   const exists = stmt.step();
   stmt.free();
   if (exists) {
-    // Still update the title/favicon on the existing row if we now have them
+    // Still update the title/favicon on the existing row if we now have them.
+    // Target the single most recent visit by id: the old query updated *every*
+    // row for this URL inside the window, rewriting unrelated history entries
+    // (SQLite has no UPDATE ... LIMIT without the optional compile flag).
     if (title && title !== 'Loading...') {
-      db().run(`UPDATE history SET title = ?, favicon = ? WHERE url = ? AND visited_at > ?`, [
-        title,
-        favicon ?? null,
-        url,
-        now - 30_000,
-      ]);
+      db().run(
+        `UPDATE history SET title = ?, favicon = ?
+         WHERE id = (
+           SELECT id FROM history WHERE url = ? ORDER BY visited_at DESC LIMIT 1
+         )`,
+        [title, favicon ?? null, url]
+      );
       persist();
     }
     return;
@@ -244,6 +289,7 @@ export function updateHistoryMetadata(url: string, title: string, favicon?: stri
 }
 
 export function getHistory(limit = 200): HistoryEntry[] {
+  // Default stays at 200 for the History page; sync passes 500 explicitly.
   const safe = safeLimit(limit, 200, 500);
   return queryObjects('SELECT * FROM history ORDER BY visited_at DESC LIMIT ?', [
     safe,
@@ -360,7 +406,7 @@ export function searchBookmarks(query: string): Bookmark[] {
 
 export function closeDb() {
   if (_db) {
-    persist();
+    flushDb();
     _db.close();
     _db = null;
   }
@@ -387,15 +433,40 @@ export interface SavedPassword {
  */
 const ENCRYPTED_PREFIX = 'v1:';
 
-function encryptSecret(plain: string): string {
-  try {
-    if (safeStorage.isEncryptionAvailable()) {
-      return ENCRYPTED_PREFIX + safeStorage.encryptString(plain).toString('base64');
-    }
-  } catch (error) {
-    console.error('[db] password encryption unavailable; storing as plaintext:', error);
+/** Raised when a credential cannot be encrypted; callers surface this to the UI. */
+export class PasswordEncryptionUnavailableError extends Error {
+  constructor() {
+    super(
+      'Passwords cannot be saved because no OS keychain is available to encrypt them. ' +
+        'Install a keyring (for example gnome-keyring or kwallet) and try again.'
+    );
+    this.name = 'PasswordEncryptionUnavailableError';
   }
-  return plain;
+}
+
+/**
+ * SECURITY: refuse to store a secret we cannot encrypt.
+ *
+ * This used to fall back to writing the password to zyphora.db in plaintext
+ * while the Settings UI still told the user their logins were "encrypted with
+ * your operating system keychain" — the exact opposite of the promise, and the
+ * default path on a Linux box with no keyring.
+ */
+function encryptSecret(plain: string): string {
+  let available = false;
+  try {
+    available = safeStorage.isEncryptionAvailable();
+  } catch (error) {
+    console.error('[db] could not query OS keychain availability:', error);
+  }
+  if (!available) throw new PasswordEncryptionUnavailableError();
+
+  try {
+    return ENCRYPTED_PREFIX + safeStorage.encryptString(plain).toString('base64');
+  } catch (error) {
+    console.error('[db] password encryption failed:', error);
+    throw new PasswordEncryptionUnavailableError();
+  }
 }
 
 function decryptSecret(stored: string): string {

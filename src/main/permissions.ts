@@ -1,4 +1,6 @@
+import { session } from 'electron';
 import type { PermissionRequest } from '../shared/types';
+import { DebouncedWriter, readJsonFile, isRecord } from './jsonStore';
 
 const decisions = new Map<string, boolean>();
 const configuredSessions = new WeakSet<Electron.Session>();
@@ -7,6 +9,8 @@ interface PendingRequest {
   callback: (allowed: boolean) => void;
   timer: ReturnType<typeof setTimeout>;
   key: string;
+  /** The decision table this request belongs to (default or a private session). */
+  table: Map<string, boolean>;
 }
 
 const pending = new Map<string, PendingRequest>();
@@ -53,6 +57,27 @@ function labelFor(permission: string, mediaTypes?: string[]): string {
   return PERMISSION_LABELS[permission] ?? permission;
 }
 
+/**
+ * Per-session decisions for private tabs.
+ *
+ * Normal tabs share the default session; a private tab gets its own `temp:`
+ * partition. Keying every decision by host alone meant an "Allow camera" made
+ * in a normal tab silently applied inside private tabs too, and a grant made
+ * in a private tab outlived it. Private sessions get their own table, which
+ * disappears with the session.
+ */
+const ephemeralDecisions = new WeakMap<Electron.Session, Map<string, boolean>>();
+
+function decisionsFor(ses: Electron.Session): Map<string, boolean> {
+  if (ses === session.defaultSession) return decisions;
+  let table = ephemeralDecisions.get(ses);
+  if (!table) {
+    table = new Map<string, boolean>();
+    ephemeralDecisions.set(ses, table);
+  }
+  return table;
+}
+
 /** Install conservative, user-visible permission handling for a session. */
 export function configureSessionPermissions(
   ses: Electron.Session,
@@ -61,9 +86,11 @@ export function configureSessionPermissions(
   if (configuredSessions.has(ses)) return;
   configuredSessions.add(ses);
 
+  const table = decisionsFor(ses);
+
   ses.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
     const host = hostFromUrl(requestingOrigin || webContents?.getURL() || '');
-    return decisions.get(decisionKey(host, permission)) === true;
+    return table.get(decisionKey(host, permission)) === true;
   });
 
   ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
@@ -79,7 +106,7 @@ export function configureSessionPermissions(
     }
 
     const key = decisionKey(host, permission);
-    const existing = decisions.get(key);
+    const existing = table.get(key);
     if (existing !== undefined) {
       safeCallback(callback, existing);
       return;
@@ -114,12 +141,12 @@ export function configureSessionPermissions(
         clearTimeout(rec.timer);
         pending.delete(requestId);
         pendingByKey.delete(rec.key);
-        decisions.set(rec.key, false);
+        rec.table.set(rec.key, false);
         safeCallback(callback, false);
       }
     }, 60_000);
 
-    pending.set(requestId, { callback, timer, key });
+    pending.set(requestId, { callback, timer, key, table });
     pendingByKey.set(key, requestId);
 
     try {
@@ -142,7 +169,7 @@ export function handlePermissionResponse(requestId: string, allow: boolean): voi
   clearTimeout(rec.timer);
   pending.delete(requestId);
   pendingByKey.delete(rec.key);
-  decisions.set(rec.key, allow);
+  rec.table.set(rec.key, allow);
   safeCallback(rec.callback, allow);
 }
 
@@ -156,6 +183,7 @@ function safeCallback(callback: (allowed: boolean) => void, allowed: boolean): v
 
 export function clearPermissionDecisions(): void {
   decisions.clear();
+  persistDecisions();
 }
 
 /** Snapshot of all current host+permission decisions, grouped by host. */
@@ -176,9 +204,45 @@ export function getPermissionDecisions(): Record<string, Record<string, boolean>
 export function setPermissionDecision(host: string, permission: string, allowed: boolean): void {
   if (!host) return;
   decisions.set(decisionKey(host, permission), allowed);
+  persistDecisions();
 }
 
 /** Remove a single host+permission decision entirely (falls back to prompt). */
 export function clearPermissionDecision(host: string, permission: string): void {
   decisions.delete(decisionKey(host, permission));
+  persistDecisions();
+}
+
+// ── Persistence ──────────────────────────────────────────────────────────────
+
+/**
+ * Site permission grants are presented in Site Settings as saved preferences,
+ * but they used to live only in memory — every "Allow camera" was forgotten on
+ * restart and the site prompted again. Persist them the same way zoom levels
+ * and window geometry are persisted.
+ *
+ * Only the default session's decisions are written; private-session grants are
+ * intentionally ephemeral.
+ */
+const FILENAME = 'permissions.json';
+const writer = new DebouncedWriter<Record<string, boolean>>(FILENAME, 1_000);
+
+function persistDecisions(): void {
+  writer.schedule(Object.fromEntries(decisions));
+}
+
+/** Write immediately, bypassing the debounce. Used on quit. */
+export function flushPermissionDecisions(): void {
+  writer.flush(Object.fromEntries(decisions));
+}
+
+/** Restore saved decisions. Call once during startup, before any webview. */
+export function loadPermissionDecisions(): void {
+  const parsed = readJsonFile(FILENAME);
+  if (!isRecord(parsed)) return;
+  for (const [key, allowed] of Object.entries(parsed)) {
+    if (typeof allowed !== 'boolean') continue;
+    if (typeof key !== 'string' || key.indexOf('\0') < 0) continue;
+    decisions.set(key, allowed);
+  }
 }

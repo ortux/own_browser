@@ -69,21 +69,42 @@ export class ApiClient {
           mode: 'cors',
         });
 
-        // Parse response
+        // Parse response. A non-JSON body (an HTML error page from a proxy,
+        // say) is a server-side problem, not a transient network fault, so it
+        // is reported rather than retried.
         const text = await response.text();
-        const data = text ? JSON.parse(text) : {};
+        let data: unknown = {};
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch {
+            return {
+              ok: false,
+              status: response.status,
+              error: `Malformed response from server (HTTP ${response.status})`,
+            };
+          }
+        }
+        const payload = data as { error?: string; message?: string };
 
         if (!response.ok) {
-          // Handle 401 - token might have been invalidated server-side
-          if (response.status === 401 && requireAuth && attempt < retries) {
+          // A 401 here means the token was rejected server-side even though it
+          // looked valid locally. Retrying is pointless: clearTokens() removes
+          // the refresh token, so the next ensureValidToken() can only fail.
+          // Clear the session and report the failure so the UI can re-auth.
+          if (response.status === 401 && requireAuth) {
             clearTokens();
-            continue; // Retry after clearing tokens (user will need to re-auth)
+            return {
+              ok: false,
+              status: 401,
+              error: 'Session expired - please sign in again',
+            };
           }
 
           return {
             ok: false,
             status: response.status,
-            error: data?.error || data?.message || `HTTP ${response.status}`,
+            error: payload?.error || payload?.message || `HTTP ${response.status}`,
             data: data as T,
           };
         }
@@ -96,7 +117,8 @@ export class ApiClient {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
-        // Don't retry on network errors immediately
+        // Back off before the *next* attempt only — sleeping after the final
+        // one just delayed the error the caller was already going to get.
         if (attempt < retries) {
           // Exponential backoff: 1s, 2s, 4s, etc.
           await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));

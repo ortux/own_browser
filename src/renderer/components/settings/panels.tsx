@@ -639,8 +639,6 @@ export const PerformancePanel: React.FC = () => {
   const setSleepTabsAfterMinutes = useSettingsStore((s) => s.setSleepTabsAfterMinutes);
   const browserMode = useSettingsStore((s) => s.browserMode);
   const setBrowserMode = useSettingsStore((s) => s.setBrowserMode);
-  const newTabMode = useSettingsStore((s) => s.newTabMode);
-  const setNewTabMode = useSettingsStore((s) => s.setNewTabMode);
 
   const {
     proxy,
@@ -677,27 +675,12 @@ export const PerformancePanel: React.FC = () => {
           )}
           <Row
             label="Browser mode"
-            description="Minimal hides heavier subsystems, including the AI agent, and never loads them."
+            description="Minimal is a quieter browser: the AI agent is hidden and never loaded, and the new tab page drops its photo background, clock and quote. Full enables everything."
           >
             <Select
               label="Browser mode"
               value={browserMode}
               onChange={(value) => setBrowserMode(value as 'minimal' | 'full')}
-              options={[
-                { id: 'minimal', label: 'Minimal' },
-                { id: 'full', label: 'Full' },
-              ]}
-              className="w-40"
-            />
-          </Row>
-          <Row
-            label="New tab page"
-            description="Full includes a fresh background image, clock and search."
-          >
-            <Select
-              label="New tab page"
-              value={newTabMode}
-              onChange={(value) => setNewTabMode(value as 'minimal' | 'full')}
               options={[
                 { id: 'minimal', label: 'Minimal' },
                 { id: 'full', label: 'Full' },

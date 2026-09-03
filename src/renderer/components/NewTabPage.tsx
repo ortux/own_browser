@@ -82,7 +82,9 @@ function onPhoto(isPhoto: boolean, photo: string, token: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
-  const newTabMode = useSettingsStore((s) => s.newTabMode);
+  // The new tab page follows the single browser mode: a minimal browser gets
+  // a minimal new tab page, rather than the two disagreeing.
+  const newTabMode = useSettingsStore((s) => s.browserMode);
   const backgroundCategory = useSettingsStore((s) => s.backgroundCategory);
   const account = useSettingsStore((s) => s.account);
 

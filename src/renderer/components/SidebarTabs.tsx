@@ -14,6 +14,7 @@ import {
   VolumeX,
   Pin,
   PinOff,
+  Bot,
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -39,6 +40,13 @@ interface SidebarTabsProps {
   onOpenRecentlyClosed: () => void;
   /** Omitted when the password manager is disabled in Settings. */
   onOpenPasswords?: () => void;
+  /**
+   * Toggle the AI Agent panel. Omitted in minimal browser mode, where the
+   * agent is never loaded — a button that cannot work is worse than no button.
+   */
+  onToggleAgent?: () => void;
+  /** Whether the agent panel is currently showing, so the button can reflect it. */
+  agentOpen?: boolean;
 }
 
 const COLLAPSED_W = 48;
@@ -121,6 +129,8 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onOpenBookmarks,
   onOpenRecentlyClosed,
   onOpenPasswords,
+  onToggleAgent,
+  agentOpen = false,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [tabSearch, setTabSearch] = useState('');
@@ -172,6 +182,21 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
           {iconBtn(<History size={15} />, 'History', onOpenHistory)}
           {iconBtn(<RotateCcw size={15} />, 'Recently closed', onOpenRecentlyClosed)}
           {onOpenPasswords && iconBtn(<KeyRound size={15} />, 'Passwords', onOpenPasswords)}
+          {onToggleAgent && (
+            <button
+              onClick={onToggleAgent}
+              title="AI Agent (Ctrl+Shift+A)"
+              aria-label="AI Agent"
+              aria-pressed={agentOpen}
+              className={`flex items-center justify-center w-full py-2.5 rounded-md transition-colors ${
+                agentOpen
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent-fg)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)]'
+              }`}
+            >
+              <Bot size={15} />
+            </button>
+          )}
 
           <div className="my-1 h-px bg-[var(--border)] mx-1" />
 
@@ -219,11 +244,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               className="flex items-center justify-center w-full py-2 rounded-md hover:bg-[var(--hover)] transition-colors"
             >
               {account ? (
-                <Avatar
-                  name={accountDisplayName(account)}
-                  image={account.image}
-                  size={22}
-                />
+                <Avatar name={accountDisplayName(account)} image={account.image} size={22} />
               ) : (
                 <User size={15} className="text-[var(--text-muted)]" />
               )}
@@ -280,33 +301,52 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                 {label}
               </button>
             ))}
+            {onToggleAgent && (
+              <button
+                onClick={onToggleAgent}
+                aria-pressed={agentOpen}
+                className={`flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm transition-colors ${
+                  agentOpen
+                    ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-fg)]'
+                    : 'text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]'
+                }`}
+              >
+                <span className="shrink-0 opacity-70">
+                  <Bot size={14} />
+                </span>
+                AI Agent
+                <kbd className="ml-auto text-[10px] tracking-wide text-[var(--text-faint)]">
+                  Ctrl+Shift+A
+                </kbd>
+              </button>
+            )}
           </div>
 
           <div className="mx-3 my-1.5 h-px bg-[var(--border)] shrink-0" />
 
           {/* Tab search — hidden when the tab search button is off. */}
           {showTabSearchButton && (
-          <div className="px-2 pb-1 shrink-0">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
-              <Search size={13} className="text-[var(--text-faint)] shrink-0" />
-              <input
-                type="text"
-                value={tabSearch}
-                onChange={(e) => setTabSearch(e.target.value)}
-                placeholder="Search tabs…"
-                className="flex-1 bg-transparent text-sm text-[var(--text)] placeholder-[var(--text-faint)] outline-none min-w-0"
-                style={{ WebkitUserSelect: 'text', userSelect: 'text' }}
-              />
-              {tabSearch && (
-                <button
-                  onClick={() => setTabSearch('')}
-                  className="text-[var(--text-faint)] hover:text-[var(--text)]"
-                >
-                  <X size={12} />
-                </button>
-              )}
+            <div className="px-2 pb-1 shrink-0">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--surface)] border border-[var(--border)] focus-within:border-[var(--accent)] transition-colors">
+                <Search size={13} className="text-[var(--text-faint)] shrink-0" />
+                <input
+                  type="text"
+                  value={tabSearch}
+                  onChange={(e) => setTabSearch(e.target.value)}
+                  placeholder="Search tabs…"
+                  className="flex-1 bg-transparent text-sm text-[var(--text)] placeholder-[var(--text-faint)] outline-none min-w-0"
+                  style={{ WebkitUserSelect: 'text', userSelect: 'text' }}
+                />
+                {tabSearch && (
+                  <button
+                    onClick={() => setTabSearch('')}
+                    className="text-[var(--text-faint)] hover:text-[var(--text)]"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
           )}
 
           {/* Active Tabs label */}
@@ -425,11 +465,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
               className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md hover:bg-[var(--hover)] transition-colors group"
             >
               {account ? (
-                <Avatar
-                  name={accountDisplayName(account)}
-                  image={account.image}
-                  size={26}
-                />
+                <Avatar name={accountDisplayName(account)} image={account.image} size={26} />
               ) : (
                 <div className="w-[26px] h-[26px] rounded-full border border-[var(--border)] flex items-center justify-center shrink-0">
                   <User size={13} className="text-[var(--text-muted)]" />

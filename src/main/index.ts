@@ -1087,9 +1087,7 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
       // renderer-side guess.
       const wc = guestContentsForTab(message.tabId);
       if (!wc || wc.isDestroyed()) return false;
-      return wc
-        .executeJavaScript('!!window.__zyphoraReaderActive')
-        .catch(() => false);
+      return wc.executeJavaScript('!!window.__zyphoraReaderActive').catch(() => false);
     }
     case 'get-state':
       return getState();
@@ -1584,7 +1582,11 @@ function registerAgentHandlers() {
 
   ipcMain.handle('agent:memory:update', (event, value: unknown) => {
     assertTrustedMainFrame(event);
-    if (!isRecord(value) || !isBoundedString(value.id, 100) || !isBoundedString(value.content, 2_000)) {
+    if (
+      !isRecord(value) ||
+      !isBoundedString(value.id, 100) ||
+      !isBoundedString(value.content, 2_000)
+    ) {
       throw new Error('Invalid memory.');
     }
     updateMemory(value.id, value.content);
@@ -1631,6 +1633,23 @@ function registerAgentHandlers() {
     assertTrustedMainFrame(event);
     if (!isBoundedString(id, 100)) throw new Error('Invalid task id.');
     return runTaskNow(id);
+  });
+
+  /**
+   * Ask Gemini which models this key can use. Runs here because the key never
+   * leaves the main process; the renderer only ever sees the resulting list.
+   */
+  ipcMain.handle('agent:models:list', async (event) => {
+    assertTrustedMainFrame(event);
+    try {
+      const { listModels } = await import('./agentModel');
+      return { ok: true as const, models: await listModels() };
+    } catch (error) {
+      return {
+        ok: false as const,
+        error: error instanceof Error ? error.message : 'Could not load the model list.',
+      };
+    }
   });
 
   ipcMain.handle('agent:key:set', (event, key: unknown) => {

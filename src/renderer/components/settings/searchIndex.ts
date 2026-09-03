@@ -422,6 +422,13 @@ export const SEARCH_INDEX: SearchEntry[] = [
     keywords: 'performance memory tabs sleep discard',
   },
   {
+    section: 'performance',
+    title: 'Browser mode',
+    description:
+      'Minimal hides the AI agent and simplifies the new tab page. Full enables everything.',
+    keywords: 'minimal full mode new tab page background clock agent',
+  },
+  {
     section: 'sync',
     title: 'Account & sync',
     description: 'Sign in to sync bookmarks and history across your devices.',

@@ -402,7 +402,6 @@ export const BrowserWindow: React.FC = () => {
   // and you can keep it open while browsing in another tab.
   const isSettings = activeTab?.url === INTERNAL_PAGES.settings;
 
-
   // Keep internal pages showing a friendly tab title (the webview never loads
   // them, so main never receives a real title for zyphora:// URLs).
   React.useEffect(() => {
@@ -418,9 +417,7 @@ export const BrowserWindow: React.FC = () => {
   // Keep network security settings in sync with the main process before a
   // renderer-initiated navigation can happen.
   React.useEffect(() => {
-    window.browserAPI.security
-      .set({ forceHttps, doNotTrack, stripTracking })
-      .catch(() => {});
+    window.browserAPI.security.set({ forceHttps, doNotTrack, stripTracking }).catch(() => {});
   }, [forceHttps, doNotTrack, stripTracking]);
 
   // Main starts with session capture off and only learns the user's choice
@@ -528,22 +525,24 @@ export const BrowserWindow: React.FC = () => {
     <div className="relative flex h-screen w-screen overflow-hidden bg-[var(--bg)]">
       {/* Left sidebar — hidden when "Show sidebar" is off in General settings. */}
       {general.showSidebar && (
-      <SidebarTabs
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onTabClick={handleTabClick}
-        onTabClose={closeTab}
-        onTabToggleMuted={toggleTabMuted}
-        sleepingTabIds={sleeping}
-        onTabTogglePinned={toggleTabPinned}
-        onTabReorder={reorderTabs}
-        onNewTab={createNewBrowserTab}
-        onOpenSettings={openSettings}
-        onOpenHistory={() => togglePanel('history')}
-        onOpenBookmarks={() => togglePanel('bookmarks')}
-        onOpenRecentlyClosed={() => togglePanel('closed')}
-        onOpenPasswords={passwordManagerEnabled ? () => togglePanel('passwords') : undefined}
-      />
+        <SidebarTabs
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onTabClick={handleTabClick}
+          onTabClose={closeTab}
+          onTabToggleMuted={toggleTabMuted}
+          sleepingTabIds={sleeping}
+          onTabTogglePinned={toggleTabPinned}
+          onTabReorder={reorderTabs}
+          onNewTab={createNewBrowserTab}
+          onOpenSettings={openSettings}
+          onOpenHistory={() => togglePanel('history')}
+          onOpenBookmarks={() => togglePanel('bookmarks')}
+          onOpenRecentlyClosed={() => togglePanel('closed')}
+          onOpenPasswords={passwordManagerEnabled ? () => togglePanel('passwords') : undefined}
+          onToggleAgent={agentAvailable ? () => setAgentOpen((v) => !v) : undefined}
+          agentOpen={agentOpen}
+        />
       )}
 
       {/* Main column */}
@@ -735,16 +734,22 @@ export const BrowserWindow: React.FC = () => {
       />
 
       {/* Site settings popover (anchored to the navbar gear button) */}
-      {siteSettingsOpen && activeTab?.url && (() => {
-        let host = '';
-        try { host = new URL(activeTab.url).hostname.toLowerCase(); } catch { host = ''; }
-        if (!host) return null;
-        return (
-          <div className="absolute bottom-12 right-[180px] z-50">
-            <SiteSettingsPopover host={host} onClose={() => setSiteSettingsOpen(false)} />
-          </div>
-        );
-      })()}
+      {siteSettingsOpen &&
+        activeTab?.url &&
+        (() => {
+          let host = '';
+          try {
+            host = new URL(activeTab.url).hostname.toLowerCase();
+          } catch {
+            host = '';
+          }
+          if (!host) return null;
+          return (
+            <div className="absolute bottom-12 right-[180px] z-50">
+              <SiteSettingsPopover host={host} onClose={() => setSiteSettingsOpen(false)} />
+            </div>
+          );
+        })()}
     </div>
   );
 };

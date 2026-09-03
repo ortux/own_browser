@@ -158,19 +158,20 @@ interface SettingsStore {
   setRestoreSession: (enabled: boolean) => void;
 
   /**
-   * Browser feature level.
+   * Browser feature level — one switch for the whole product.
    *
    * 'minimal' is a deliberately reduced browser: heavier, non-essential
-   * subsystems (currently the AI agent) are hidden and never initialised.
-   * Distinct from `newTabMode`, which only styles the new-tab page.
+   * subsystems (the AI agent) are hidden and never initialised, and the new
+   * tab page drops its photo background, clock and quote for a plain surface.
+   *
+   * This used to be two independent settings (`browserMode` and
+   * `newTabMode`), which let you ask for a minimal browser and still get the
+   * maximal new tab page. They are now a single choice.
    */
   browserMode: 'minimal' | 'full';
   setBrowserMode: (mode: 'minimal' | 'full') => void;
 
-  // New-tab mode
-  newTabMode: 'minimal' | 'full';
   backgroundCategory: BackgroundCategory;
-  setNewTabMode: (mode: 'minimal' | 'full') => void;
   setBackgroundCategory: (category: BackgroundCategory) => void;
 
   // Proxy
@@ -343,9 +344,7 @@ export const useSettingsStore = create<SettingsStore>()(
       browserMode: 'full',
       setBrowserMode: (mode) => set({ browserMode: mode }),
 
-      newTabMode: 'full',
       backgroundCategory: 'random',
-      setNewTabMode: (mode) => set({ newTabMode: mode }),
       setBackgroundCategory: (category) => set({ backgroundCategory: category }),
 
       proxy: null,
@@ -526,7 +525,6 @@ export const useSettingsStore = create<SettingsStore>()(
           sleepTabsAfterMinutes: DEFAULT_SLEEP_MINUTES,
           openDownloadsOnStart: false,
           stripTrackingParams: true,
-          newTabMode: 'full',
           backgroundCategory: 'random',
           security: {
             blockTrackers: true,
@@ -628,9 +626,19 @@ export const useSettingsStore = create<SettingsStore>()(
       merge: (persisted, current) => {
         const stored = persisted as Partial<SettingsStore>;
         const proxy = sanitizeProxy(stored.proxy);
+        // Migration: `newTabMode` was folded into `browserMode`. Someone who
+        // had explicitly chosen a minimal new tab page asked for a quieter
+        // browser, so honour that rather than silently upgrading them.
+        const legacyNewTabMode = (stored as { newTabMode?: unknown }).newTabMode;
+        const browserMode =
+          stored.browserMode === 'minimal' || legacyNewTabMode === 'minimal'
+            ? ('minimal' as const)
+            : (stored.browserMode ?? current.browserMode);
+
         return {
           ...current,
           ...stored,
+          browserMode,
           // Always use the live config value — never restore from localStorage
           authBaseUrl: getApiBaseUrl(),
           authStatus: 'idle',

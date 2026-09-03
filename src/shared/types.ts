@@ -88,7 +88,10 @@ export type RendererToMainMessage =
       favicon?: string;
     }
   // Autofill credentials into a webview's login form
-  | { type: 'autofill-credentials'; tabId: string; username: string; password: string };
+  | { type: 'autofill-credentials'; tabId: string; username: string; password: string }
+  // Toggle reading mode on the active tab's webview. The script source comes
+  // from the renderer (it's a pure-DOM snippet, no Node APIs).
+  | { type: 'reader-toggle'; tabId: string; script: string };
 // IPC Messages from Main to Renderer
 export type MainToRendererMessage =
   | { type: 'state-updated'; state: BrowserState }

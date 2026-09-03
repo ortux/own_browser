@@ -373,6 +373,23 @@ const browserAPI = {
       ipcRenderer.invoke('cert:get', hostname),
   },
 
+  /** Per-site permission decisions (Allow / Block per host+permission). */
+  permissions: {
+    list: (): Promise<Record<string, Record<string, boolean>>> =>
+      ipcRenderer.invoke('permissions:list'),
+    set: (host: string, permission: string, allowed: boolean): Promise<void> =>
+      ipcRenderer.invoke('permissions:set', host, permission, allowed),
+    clear: (host: string, permission: string): Promise<void> =>
+      ipcRenderer.invoke('permissions:clear', host, permission),
+    resetAll: (): Promise<void> => ipcRenderer.invoke('permissions:reset-all'),
+  },
+
+  /** Read the page as a clean typographic article (reading mode). */
+  reader: {
+    toggle: (tabId: string, script: string): Promise<{ ok: boolean; activated?: boolean; reason?: string }> =>
+      ipcRenderer.invoke('browser:message', { type: 'reader-toggle', tabId, script }),
+  },
+
   /** Open external URLs in the default browser. */
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),

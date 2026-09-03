@@ -124,7 +124,6 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
 
   // ── Search bar ──
   const [query, setQuery] = useState('');
-  const [focused, setFocused] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const searchEngine = useSettingsStore((s) => s.getSearchEngine());
@@ -289,16 +288,10 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
               e.preventDefault();
               handleSubmit();
             }}
-            className="mt-7 flex w-full items-center gap-2.5 rounded-md border px-3.5 py-2.5 transition-colors"
+            className="mt-7 flex w-full items-center gap-2.5 rounded-md border px-3.5 py-2.5"
             style={{
               background: isPhoto ? 'rgba(20,20,22,0.72)' : 'var(--surface)',
-              borderColor: focused
-                ? isPhoto
-                  ? 'rgba(255,255,255,0.4)'
-                  : 'var(--border-strong)'
-                : isPhoto
-                  ? 'rgba(255,255,255,0.16)'
-                  : 'var(--border)',
+              borderColor: isPhoto ? 'rgba(255,255,255,0.16)' : 'var(--border)',
             }}
           >
             {engineIcon ? (
@@ -322,8 +315,6 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({ onSearch }) => {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
               placeholder="Search or enter address"
               className="flex-1 bg-transparent text-sm outline-none"
               style={{ color: onPhoto(isPhoto, PHOTO_TEXT, 'var(--text)') }}

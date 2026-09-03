@@ -16,6 +16,8 @@ import {
   CornerDownLeft,
   Download as DownloadIcon,
   Globe,
+  BookOpen,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import type { Tab, HistoryEntry, Download, BlockedRequest } from '../../shared/types';
 import type { CertInfo } from '../../main/certificate';
@@ -33,6 +35,9 @@ interface NavBarProps {
   onBookmark?: () => void;
   isBookmarked?: boolean;
   onOpenDownloads?: () => void;
+  onToggleReader?: () => void;
+  readerActive?: boolean;
+  onOpenSiteSettings?: () => void;
 }
 
 function looksLikeUrl(input: string): boolean {
@@ -76,6 +81,9 @@ export const NavBar: React.FC<NavBarProps> = ({
   onBookmark,
   isBookmarked = false,
   onOpenDownloads,
+  onToggleReader,
+  readerActive = false,
+  onOpenSiteSettings,
 }) => {
   const [input, setInput] = useState('');
   const [isFocused, setIsFocused] = useState(false);
@@ -423,12 +431,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       {/* Address / search bar */}
       <div className="relative flex-1 mx-1">
         <div
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-md border transition-all
-       ${
-         isFocused
-           ? 'bg-[var(--surface-2)] border-[var(--border-strong)]'
-           : 'bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--hover)] hover:border-[var(--border-strong)]'
-       }`}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md border bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--hover)] hover:border-[var(--border-strong)] transition-colors"
         >
           {/* Lock / search / shield — merged security affordance.
         Home (new tab): search icon. On a real site: shield that toggles
@@ -697,6 +700,34 @@ export const NavBar: React.FC<NavBarProps> = ({
       >
         <Star size={16} fill={isBookmarked ? 'currentColor' : 'none'} />
       </button>
+
+      {/* Reader mode — only meaningful on real http(s) pages. */}
+      {onToggleReader && activeTab?.url && /^https?:\/\//.test(activeTab.url) && (
+        <button
+          onClick={onToggleReader}
+          className={`p-2 rounded-md hover:bg-[var(--hover)] transition-colors ${
+            readerActive
+              ? 'text-[var(--accent-fg)] bg-[var(--accent-soft)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+          }`}
+          title="Reading mode (Ctrl+Shift+R)"
+          aria-label="Toggle reading mode"
+        >
+          <BookOpen size={16} />
+        </button>
+      )}
+
+      {/* Per-site settings — opens the SiteSettingsPopover. */}
+      {onOpenSiteSettings && activeTab?.url && /^https?:\/\//.test(activeTab.url) && (
+        <button
+          onClick={onOpenSiteSettings}
+          className="p-2 rounded-md hover:bg-[var(--hover)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)]"
+          title="Site settings"
+          aria-label="Site settings"
+        >
+          <SettingsIcon size={16} />
+        </button>
+      )}
 
       {/* Live download indicator — shows while anything is downloading */}
       {activeDownloads.length > 0 &&

@@ -127,6 +127,14 @@ body {
   border-radius: 4px;
 }
 
+/* Text inputs opt out of the universal ring — the field already carries
+ * its own border, and a glow around the input reads as a box. */
+input:focus-visible,
+textarea:focus-visible,
+[contenteditable]:focus-visible {
+  outline: none;
+}
+
 /* ── Scrollbars ── */
 
 ::-webkit-scrollbar {

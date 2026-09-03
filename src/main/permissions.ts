@@ -157,3 +157,28 @@ function safeCallback(callback: (allowed: boolean) => void, allowed: boolean): v
 export function clearPermissionDecisions(): void {
   decisions.clear();
 }
+
+/** Snapshot of all current host+permission decisions, grouped by host. */
+export function getPermissionDecisions(): Record<string, Record<string, boolean>> {
+  const out: Record<string, Record<string, boolean>> = {};
+  for (const [key, allowed] of decisions) {
+    const sep = key.indexOf('\0');
+    if (sep < 0) continue;
+    const host = key.slice(0, sep);
+    const perm = key.slice(sep + 1);
+    if (!out[host]) out[host] = {};
+    out[host][perm] = allowed;
+  }
+  return out;
+}
+
+/** Set or clear (allowed=false) a single host+permission decision. */
+export function setPermissionDecision(host: string, permission: string, allowed: boolean): void {
+  if (!host) return;
+  decisions.set(decisionKey(host, permission), allowed);
+}
+
+/** Remove a single host+permission decision entirely (falls back to prompt). */
+export function clearPermissionDecision(host: string, permission: string): void {
+  decisions.delete(decisionKey(host, permission));
+}

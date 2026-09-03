@@ -16,12 +16,15 @@ import { FindBar } from './FindBar';
 import { RecentlyClosedPanel } from './RecentlyClosedPanel';
 import { SavePasswordPrompt } from './SavePasswordPrompt';
 import { PasswordsPanel } from './PasswordsPanel';
+import { CommandPalette } from './CommandPalette';
+import { SiteSettingsPopover } from './SiteSettingsPopover';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useBrowserStore } from '../stores/tabStore';
 import { useBrowser } from '../hooks/useBrowser';
 import { useBookmarks } from '../hooks/useBookmarks';
 import { normalizeNavigationUrl } from '../../shared/navigation';
 import { stripTrackingParams } from '../../shared/trackingParams';
+import { getReaderScript } from '../lib/useReaderScript';
 
 function looksLikeUrl(input: string): boolean {
   const trimmed = input.trim();
@@ -74,6 +77,9 @@ export const BrowserWindow: React.FC = () => {
   const [authMode, setAuthMode] = useState<AuthPortalMode | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [siteSettingsOpen, setSiteSettingsOpen] = useState(false);
+  const [readerActive, setReaderActive] = useState(false);
   const togglePanel = (p: Panel) => setPanel((cur) => (cur === p ? null : p));
   const [pendingCredential, setPendingCredential] = useState<PendingCredential | null>(null);
   const [savingCredential, setSavingCredential] = useState(false);
@@ -134,6 +140,22 @@ export const BrowserWindow: React.FC = () => {
       }
     );
   }, [activeTab, toggleBookmark]);
+
+  // ── Reading mode ──
+  const handleReaderToggle = useCallback(async () => {
+    if (!activeTabId || !activeTab?.url || !/^https?:\/\//.test(activeTab.url)) return;
+    try {
+      const result = await window.browserAPI?.reader.toggle(activeTabId, getReaderScript());
+      if (result?.ok) setReaderActive(Boolean(result.activated));
+    } catch (error) {
+      console.error('[reader] toggle failed:', error);
+    }
+  }, [activeTabId, activeTab?.url]);
+
+  // Reader mode is page-scoped: when the URL changes, it is no longer active.
+  React.useEffect(() => {
+    setReaderActive(false);
+  }, [activeTab?.id, activeTab?.url]);
 
   // ── Password manager ──
   // Listen for capture events from the main process. The prompt is only ever
@@ -254,6 +276,9 @@ export const BrowserWindow: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
         setFindOpen(true);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(true);
       } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault();
         setSettingsOpen(true);
@@ -261,7 +286,14 @@ export const BrowserWindow: React.FC = () => {
         if (!passwordManagerEnabled) return;
         e.preventDefault();
         togglePanel('passwords');
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'R' || e.key === 'r')) {
+        e.preventDefault();
+        void handleReaderToggle();
       } else if (e.key === 'Escape') {
+        if (paletteOpen) {
+          setPaletteOpen(false);
+          return;
+        }
         if (pendingCredential) {
           setPendingCredential(null);
           return;
@@ -288,6 +320,7 @@ export const BrowserWindow: React.FC = () => {
     panel,
     settingsOpen,
     pendingCredential,
+    paletteOpen,
     passwordManagerEnabled,
     createNewBrowserTab,
     createTabWithUrl,
@@ -303,6 +336,7 @@ export const BrowserWindow: React.FC = () => {
     goBack,
     goForward,
     handleBookmarkToggle,
+    handleReaderToggle,
   ]);
 
   const isNewTab = !activeTab?.url || activeTab.url === 'about:blank';
@@ -500,6 +534,9 @@ export const BrowserWindow: React.FC = () => {
               onBookmark={handleBookmarkToggle}
               isBookmarked={activeTab?.url ? isBookmarked(activeTab.url) : false}
               onOpenDownloads={() => createTabWithUrl('zyphora://downloads')}
+              onToggleReader={handleReaderToggle}
+              readerActive={readerActive}
+              onOpenSiteSettings={() => setSiteSettingsOpen((v) => !v)}
             />
           </div>
 
@@ -561,6 +598,38 @@ export const BrowserWindow: React.FC = () => {
 
       {/* Download-start notifications */}
       <DownloadToast onOpenDownloads={() => createTabWithUrl('zyphora://downloads')} />
+
+      {/* Command palette — global ⌘K overlay. */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNavigate={handleNavigate}
+        onNewTab={createNewBrowserTab}
+        onActivateTab={activateTab}
+        onCloseTab={closeTab}
+        onToggleMute={toggleTabMuted}
+        onTogglePin={toggleTabPinned}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenDownloads={() => createTabWithUrl('zyphora://downloads')}
+        onPrint={printPage}
+        onFind={() => setFindOpen(true)}
+        onReload={reload}
+        onGoBack={goBack}
+        onGoForward={goForward}
+        onReaderToggle={handleReaderToggle}
+      />
+
+      {/* Site settings popover (anchored to the navbar gear button) */}
+      {siteSettingsOpen && activeTab?.url && (() => {
+        let host = '';
+        try { host = new URL(activeTab.url).hostname.toLowerCase(); } catch { host = ''; }
+        if (!host) return null;
+        return (
+          <div className="absolute bottom-12 right-[180px] z-50">
+            <SiteSettingsPopover host={host} onClose={() => setSiteSettingsOpen(false)} />
+          </div>
+        );
+      })()}
     </div>
   );
 };

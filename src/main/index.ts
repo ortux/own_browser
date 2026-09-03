@@ -82,6 +82,9 @@ import {
   configureSessionPermissions,
   clearPermissionDecisions,
   handlePermissionResponse,
+  getPermissionDecisions,
+  setPermissionDecision,
+  clearPermissionDecision,
 } from './permissions';
 import { configureAdGuardDns } from './dns';
 import {
@@ -237,6 +240,8 @@ function isRendererMessage(value: unknown): value is RendererToMainMessage {
         isBoundedString(value.username, 512) &&
         isBoundedString(value.password, 8_192)
       );
+    case 'reader-toggle':
+      return isBoundedString(value.tabId, 200) && isBoundedString(value.script, 100_000);
     default:
       return false;
   }
@@ -774,6 +779,14 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
         .catch(() => false);
       return { ok: Boolean(filled) };
     }
+    case 'reader-toggle': {
+      const wc = guestContentsForTab(message.tabId);
+      if (!wc || wc.isDestroyed()) return { ok: false, reason: 'tab-not-ready' };
+      const activated = await wc
+        .executeJavaScript(message.script)
+        .catch(() => false);
+      return { ok: true, activated: Boolean(activated) };
+    }
     case 'get-state':
       return getState();
     case 'go-back': {
@@ -888,6 +901,7 @@ app.on('ready', async () => {
   registerProxyHandlers();
   registerAdblockHandlers();
   registerCertHandlers();
+  registerPermissionHandlers();
   registerShellHandlers();
   registerDownloadHandlers();
   createWindow();
@@ -1139,6 +1153,59 @@ function registerCertHandlers() {
       throw new Error('Invalid certificate hostname.');
     }
     return getCertInfo(hostname);
+  });
+}
+
+// ── Per-site permission IPC handlers ─────────────────────────────────────────
+
+const PERMISSION_KEYS: ReadonlySet<string> = new Set([
+  'media',
+  'geolocation',
+  'notifications',
+  'clipboard-read',
+  'clipboard-write',
+  'display-capture',
+  'fullscreen',
+  'pointerLock',
+  'midi',
+  'midiSysex',
+  'usb',
+  'hid',
+  'persistent-storage',
+]);
+
+function registerPermissionHandlers() {
+  ipcMain.handle('permissions:list', (event) => {
+    assertTrustedMainFrame(event);
+    return getPermissionDecisions();
+  });
+  ipcMain.handle(
+    'permissions:set',
+    (event, host: unknown, permission: unknown, allowed: unknown) => {
+      assertTrustedMainFrame(event);
+      if (!isBoundedString(host, 253) || !/^[a-z\d.-]+$/i.test(host)) {
+        throw new Error('Invalid host.');
+      }
+      if (!isBoundedString(permission, 64) || !PERMISSION_KEYS.has(permission)) {
+        throw new Error('Invalid permission.');
+      }
+      if (typeof allowed !== 'boolean') throw new Error('Invalid allowed value.');
+      setPermissionDecision(host, permission, allowed);
+    }
+  );
+  ipcMain.handle('permissions:clear', (event, host: unknown, permission: unknown) => {
+    assertTrustedMainFrame(event);
+    if (!isBoundedString(host, 253) || !/^[a-z\d.-]+$/i.test(host)) {
+      throw new Error('Invalid host.');
+    }
+    if (!isBoundedString(permission, 64) || !PERMISSION_KEYS.has(permission)) {
+      throw new Error('Invalid permission.');
+    }
+    clearPermissionDecision(host, permission);
+  });
+  ipcMain.handle('permissions:reset-all', (event) => {
+    assertTrustedMainFrame(event);
+    clearPermissionDecisions();
   });
 }
 

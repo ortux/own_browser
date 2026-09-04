@@ -39,8 +39,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and package
-        run: npm run dist:${{ matrix.platform }}
+      - name: Build
+        run: npm run build
+
+      - name: Package (Linux)
+        run: npx electron-builder --linux --publish never
+        if: matrix.platform == 'linux'
+
+      - name: Package (Windows)
+        run: npx electron-builder --win --publish never
+        if: matrix.platform == 'win'
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

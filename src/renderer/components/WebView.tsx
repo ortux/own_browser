@@ -109,6 +109,14 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       void window.browserAPI.sendMessage({ type: 'webview-loading', tabId: tab.id, loading: true });
     };
 
+    // `did-attach` can fire before React has installed this effect (especially
+    // when restoring an already-cached page).  In that case the old
+    // event-only registration left main with no way to find a perfectly live
+    // guest, and the agent eventually reported that it could not see the
+    // page.  Registration is idempotent, so probe immediately and retry until
+    // the guest is attached rather than relying on a single lifecycle event.
+    let attachRetry: number | undefined;
+    let attachAttempts = 0;
     const registerGuestContents = () => {
       try {
         attachedRef.current = true;
@@ -118,7 +126,11 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
           webContentsId: el.getWebContentsId(),
         });
       } catch {
-        // The guest may not have attached yet; did-attach will retry.
+        // The guest may not have attached yet. A retry also covers a
+        // `did-attach` event that occurred before this effect was installed.
+        if (attachAttempts++ < 100) {
+          attachRetry = window.setTimeout(registerGuestContents, 100);
+        }
       }
     };
 
@@ -268,8 +280,13 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     el.addEventListener('did-fail-load', onDidFailLoad as EventListener);
     el.addEventListener('render-process-gone', onRenderProcessGone);
     el.addEventListener('ipc-message', onIpcMessage as EventListener);
+    // Do not depend exclusively on `did-attach`: this is intentionally after
+    // listener setup so both an already-attached and a soon-to-attach guest
+    // are registered with the main process.
+    registerGuestContents();
 
     return () => {
+      if (attachRetry !== undefined) window.clearTimeout(attachRetry);
       el.removeEventListener('did-attach', registerGuestContents);
       el.removeEventListener('did-detach', onDidDetach);
       el.removeEventListener('did-start-loading', onLoadStart);

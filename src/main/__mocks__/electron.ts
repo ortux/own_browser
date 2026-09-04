@@ -40,3 +40,18 @@ export const powerMonitor = {
   on: () => {},
   off: () => {},
 };
+
+/**
+ * A Notification that never shows anything, so modules using Electron
+ * notifications (e.g. the agent runner's notify path) can be exercised in
+ * plain Node. `isSupported() === false` keeps the code on its no-op branch.
+ */
+export const Notification = class {
+  static isSupported(): boolean {
+    return false;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-useless-constructor, @typescript-eslint/no-empty-function
+  constructor(_options?: unknown) {}
+  show(): void {}
+  close(): void {}
+};

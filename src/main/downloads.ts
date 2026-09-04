@@ -10,6 +10,9 @@ import { app, session, shell, dialog, Notification } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import type { Download } from '../shared/types';
+import type { AgentEvent } from '../shared/agent';
+import { isAgentRunning } from './agentRunner';
+import { assessDownload, noteDownloadStarted } from './agentDownloads';
 
 let mainWindow: Electron.BrowserWindow | null = null;
 let downloadPath = '';
@@ -127,6 +130,29 @@ export function attachDownloadsToSession(ses: Electron.Session): void {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     // Sanitize the server-provided name so it can't escape the save folder.
     const rawName = item.getFilename() || 'download';
+
+    // Agent-initiated downloads go through their own safeguards: per-task
+    // caps and "block risky downloads". A page the agent is driving must not
+    // be able to hand the user an executable just by talking the model into
+    // a click. Disallowed downloads are cancelled outright; allowed ones are
+    // counted against the per-task limit. (An archive that merely warrants a
+    // confirmation is allowed through here — the click that started it
+    // already went through the run's permission gate.)
+    if (isAgentRunning()) {
+      const verdict = assessDownload(rawName, item.getURL());
+      if (!verdict.allowed) {
+        item.cancel();
+        const notice: AgentEvent = {
+          type: 'message',
+          role: 'agent',
+          text: `I didn't download ${rawName}: ${verdict.reason}`,
+        };
+        mainWindow?.webContents.send('agent:event', notice);
+        return;
+      }
+      noteDownloadStarted();
+    }
+
     const filename =
       rawName
         .replace(/[/\\?%*:|"<>]/g, '_')

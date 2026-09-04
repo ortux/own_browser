@@ -8,7 +8,7 @@
  */
 
 import type { WebContents } from 'electron';
-import type { AgentAction, AgentElement, AgentEvent, AgentStep } from '../shared/agent';
+import type { AgentAction, AgentElement, AgentEvent, AgentSnapshot, AgentStep } from '../shared/agent';
 import {
   resolvePermission,
   hostFromUrl,
@@ -56,8 +56,6 @@ interface RunContext {
   pause: { resolve: () => void } | null;
   /** Tabs this run has opened, against config.security.maxTabs. */
   tabsOpened: number;
-  /** Downloads this run has started, against maxDownloadsPerTask. */
-  downloads: number;
   stopped: boolean;
 }
 
@@ -149,6 +147,18 @@ function makeStep(action: AgentAction, reason?: string): AgentStep {
 }
 
 /**
+ * Record one line of run history.
+ *
+ * The whole history is replayed to the model on every step, so an unbounded
+ * list makes each successive request slower and more expensive for no benefit:
+ * what matters for the next action is the recent trail.
+ */
+function pushHistory(context: RunContext, entry: string): void {
+  context.history.push(entry);
+  if (context.history.length > 60) context.history.splice(0, context.history.length - 60);
+}
+
+/**
  * Translate a low-level action into the permission the user configured.
  *
  * The settings screen speaks in outcomes ("submit forms", "make purchases")
@@ -170,7 +180,13 @@ function permissionForAction(action: AgentAction, elements: AgentElement[]): Age
       return 'scroll';
     case 'type':
     case 'select':
-      return 'read_content';
+      // Typing into a field is a write on the page, not a read. It used to be
+      // charged against 'read_content', which is trivial (auto-allowed even
+      // in "approve every action" mode) — so the agent could type anywhere
+      // with no prompt at all, and per-site "ask" rules never applied.
+      // 'click' is the closest permission: same default, still prompts when
+      // the user asked to approve actions.
+      return 'click';
     case 'key':
       // Enter inside a field is how most forms are submitted.
       return action.key === 'Enter' ? 'submit_form' : 'click';
@@ -218,7 +234,6 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
     gate: null,
     pause: null,
     tabsOpened: 0,
-    downloads: 0,
     stopped: false,
   };
   current = context;
@@ -248,25 +263,54 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
 
       emit({ type: 'state', state: 'thinking' });
 
-      const tabId = host.activeTabId();
-      // The webview may not have attached its webContents yet (e.g. the agent
-      // was started immediately after a navigation). Poll briefly so the user
-      // does not have to click "Run" twice.
-      let wc = host.guestForTab(tabId);
-      if (!wc) {
-        const deadline = Date.now() + 3_000;
-        while (Date.now() < deadline && !context.stopped) {
-          await new Promise((r) => setTimeout(r, 150));
-          wc = host.guestForTab(tabId);
-          if (wc) break;
+      // Resolve the page to act on. The guest webContents may legitimately be
+      // missing for a while: a tab that was asleep re-mounts its webview on
+      // activation and the guest attaches asynchronously, a freshly created
+      // tab has not attached yet, and the user may switch tabs under us while
+      // we wait. Re-read the active tab every tick and allow a generous
+      // window — a too-short one-shot poll here is what made the agent
+      // intermittently claim no page was open when one clearly was.
+      // host is non-null (checked at runAgent entry); the optional chain only
+      // satisfies the compiler, which cannot narrow across closures.
+      const activeTab = (): { tabId: string; url: string; title: string } | undefined =>
+        host?.listTabs().find((t) => t.active);
+      const isBlankPage = (tab: ReturnType<typeof activeTab>): boolean =>
+        !tab?.url || tab.url === 'about:blank' || tab.url.startsWith('zyphora://');
+      const resolved = isBlankPage(activeTab()) ? null : await resolveActivePage(context);
+      let snapshot: AgentSnapshot;
+      if (resolved) {
+        snapshot = await captureSnapshot(resolved.wc, resolved.tabId);
+      } else {
+        // Re-read the tab: it may have changed while we waited. A blank or
+        // internal page never has a guest webContents at all (and there is no
+        // point waiting for one). The run can still proceed: the model is
+        // handed an empty snapshot — plus the list of open tabs — so it can
+        // navigate, switch tabs or ask, exactly as a person would, instead of
+        // the run dying.
+        const tab = activeTab();
+        if (!isBlankPage(tab) && tab) {
+          // The tab points at a real page whose guest never attached (e.g. it
+          // crashed, or attaching is wedged). There is nothing to act on and
+          // no honest snapshot to take.
+          emit({
+            type: 'error',
+            message:
+              `The page on ${hostFromUrl(tab.url) ?? tab.url} is not responding, ` +
+              `so the agent cannot see it. Try reloading the page or switching tabs, then run again.`,
+          });
+          emit({ type: 'state', state: 'error' });
+          notifyAgent('task_failed', 'Task failed', 'The active page could not be read.');
+          return;
         }
+        snapshot = {
+          tabId: tab?.tabId ?? '',
+          url: tab?.url || 'about:blank',
+          title: tab?.title || 'New Tab',
+          text: '',
+          elements: [],
+          scroll: { y: 0, height: 0, viewport: 0 },
+        };
       }
-      if (!wc) {
-        emit({ type: 'error', message: 'No active page for the agent to work with. Make sure a page is loaded and try again.' });
-        break;
-      }
-
-      const snapshot = await captureSnapshot(wc, tabId);
       if (context.stopped) break;
 
       const plan = await planNextAction(
@@ -299,9 +343,14 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
         emit({ type: 'ask', question: action.question });
         notifyAgent('needs_input', 'Needs your input', action.question);
         const answer = await waitForGate(context);
-        if (context.stopped || typeof answer !== 'string') break;
+        if (context.stopped) break;
+        if (typeof answer !== 'string') {
+          emit({ type: 'message', role: 'agent', text: 'Stopped because the question was dismissed.' });
+          emit({ type: 'state', state: 'done' });
+          return;
+        }
         pendingAnswer = answer;
-        context.history.push(`Asked: ${action.question} → user said: ${answer}`);
+        pushHistory(context, `Asked: ${action.question} → user said: ${answer}`);
         continue;
       }
 
@@ -327,7 +376,7 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
             permission: 'never',
             detail: 'Using signed-in sessions is switched off.',
           });
-          context.history.push(`Could not open ${targetHost}: signed-in sessions are off.`);
+          pushHistory(context, `Could not open ${targetHost}: signed-in sessions are off.`);
           continue;
         }
       }
@@ -342,7 +391,7 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
             role: 'agent',
             text: `I've reached the limit of ${config.security.maxTabs} tabs set in Security, so I won't open another.`,
           });
-          context.history.push('Tab limit reached; did not open another tab.');
+          pushHistory(context, 'Tab limit reached; did not open another tab.');
           continue;
         }
         context.tabsOpened++;
@@ -362,7 +411,7 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
           permission: 'never',
           detail: decision.reason,
         });
-        context.history.push(`${description} — not permitted: ${decision.reason}`);
+        pushHistory(context, `${description} — not permitted: ${decision.reason}`);
         continue;
       }
 
@@ -397,7 +446,7 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
         } else if (approved !== true && approved !== 'always') {
           emit({ type: 'step-update', id: record.id, status: 'rejected' });
           logActivity({ domain, action: description, result: 'denied', permission: 'ask' });
-          context.history.push(`${description} — you declined`);
+          pushHistory(context, `${description} — you declined`);
           continue;
         }
       }
@@ -406,10 +455,13 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
       emit({ type: 'step', step: { ...record, status: 'running' } });
 
       try {
-        await performAction(action, tabId, config, context.abort.signal);
+        // Act on the tab the snapshot described (the run may have been
+        // re-targeted to it after a wake/attach wait), not whatever is active
+        // now — a user tab switch mid-step must not redirect a planned action.
+        await performAction(action, snapshot.tabId, config, context.abort.signal);
         emit({ type: 'step-update', id: record.id, status: 'done' });
         logActivity({ domain, action: description, result: 'ok', permission: decision.state });
-        context.history.push(description);
+        pushHistory(context, description);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Action failed';
         emit({ type: 'step-update', id: record.id, status: 'failed', error: message });
@@ -420,13 +472,16 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
           permission: decision.state,
           detail: message,
         });
-        context.history.push(`${description} — failed: ${message}`);
+        pushHistory(context, `${description} — failed: ${message}`);
       }
 
       // Pacing between actions, part of the human feel.
       await new Promise((resolve) => setTimeout(resolve, actionDelayFor(config)));
     }
 
+    // Reaching here without an earlier return means the loop ran out of steps
+    // (every other exit path returns or follows a user stop, which has already
+    // emitted its own terminal state).
     if (!context.stopped) {
       emit({ type: 'message', role: 'agent', text: 'Reached the step limit for this run.' });
       emit({ type: 'state', state: 'done' });
@@ -444,13 +499,36 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
 }
 
 /** A newly created tab's webContents attaches a moment after creation. */
-async function waitForGuest(tabId: string, timeoutMs = 5_000): Promise<WebContents | null> {
+async function waitForGuest(tabId: string, timeoutMs = 5_000, signal?: AbortSignal): Promise<WebContents | null> {
   if (!host || !tabId) return null;
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !signal?.aborted) {
     const wc = host.guestForTab(tabId);
-    if (wc) return wc;
+    if (wc && !wc.isDestroyed()) return wc;
     await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return null;
+}
+
+/**
+ * Wait for the *active* tab to have a live guest webContents.
+ *
+ * Unlike waitForGuest this re-reads which tab is active on every tick, so a
+ * tab switch by the user (or by the agent itself) during the wait is picked
+ * up instead of timing out against a tab that is no longer in front. Only a
+ * live (non-destroyed) guest counts: a stale destroyed one is not a page.
+ */
+async function resolveActivePage(
+  context: RunContext,
+  timeoutMs = 10_000
+): Promise<{ tabId: string; wc: WebContents } | null> {
+  if (!host) return null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && !context.stopped) {
+    const tabId = host.activeTabId();
+    const wc = tabId ? host.guestForTab(tabId) : null;
+    if (tabId && wc && !wc.isDestroyed()) return { tabId, wc };
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
   return null;
 }
@@ -508,9 +586,14 @@ async function performAction(
       return;
     }
 
-    case 'switch_tab':
+    case 'switch_tab': {
       host.activateTab(action.tabId);
+      // The target tab's webview may be unmounted (it was asleep) and is only
+      // re-mounted now that it is becoming active. Wait for the guest to
+      // attach, or the very next step races it and dies with "no active page".
+      await waitForGuest(action.tabId, 10_000, signal);
       return;
+    }
 
     case 'close_tab':
       host.closeTab(action.tabId);

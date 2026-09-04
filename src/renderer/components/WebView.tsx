@@ -59,13 +59,17 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   // reload. This is what keeps ChatGPT (and similar SPAs) sessions intact.
   useEffect(() => {
     const el = webviewRef.current;
-    if (!el || !attachedRef.current) return;
+    if (!el) return;
     if (!tab.url || tab.url === 'about:blank') return;
+    if (!attachedRef.current) {
+      el.src = tab.url;
+      return;
+    }
     let current = '';
     try {
       current = el.getURL?.() ?? '';
     } catch {
-      // Guest not ready yet; the initial `src` already points at the right URL.
+      el.src = tab.url;
       return;
     }
     if (current !== tab.url) {
@@ -119,11 +123,12 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     let attachAttempts = 0;
     const registerGuestContents = () => {
       try {
+        const webContentsId = el.getWebContentsId();
         attachedRef.current = true;
         void window.browserAPI.sendMessage({
           type: 'webview-attached',
           tabId: tab.id,
-          webContentsId: el.getWebContentsId(),
+          webContentsId,
         });
       } catch {
         // The guest may not have attached yet. A retry also covers a

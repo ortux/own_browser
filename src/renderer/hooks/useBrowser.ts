@@ -93,31 +93,53 @@ export const useBrowser = () => {
     return window.browserAPI?.sendMessage({ type: 'restore-closed-tab', index });
   }, []);
 
-  // These drive the webview directly — no round-trip to main needed
+  // These drive the webview directly — no round-trip to main needed.
+  // Wrapped in try/catch because the guest may not have attached yet
+  // (e.g. tab just woke from sleep or is still loading dom-ready).
   const goBack = useCallback(() => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (wv?.canGoBack()) wv.goBack();
+    try {
+      const wv = webviewRegistry.get(store.activeTabId);
+      if (wv?.canGoBack()) wv.goBack();
+    } catch {
+      // Guest not attached yet.
+    }
   }, [store.activeTabId]);
 
   const goForward = useCallback(() => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (wv?.canGoForward()) wv.goForward();
+    try {
+      const wv = webviewRegistry.get(store.activeTabId);
+      if (wv?.canGoForward()) wv.goForward();
+    } catch {
+      // Guest not attached yet.
+    }
   }, [store.activeTabId]);
 
   const reload = useCallback(() => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (wv) wv.reload();
+    try {
+      const wv = webviewRegistry.get(store.activeTabId);
+      if (wv) wv.reload();
+    } catch {
+      // Guest not attached yet.
+    }
   }, [store.activeTabId]);
 
   /** Ctrl+Shift+R — reload bypassing the HTTP cache, as in every other browser. */
   const hardReload = useCallback(() => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (wv) wv.reloadIgnoringCache();
+    try {
+      const wv = webviewRegistry.get(store.activeTabId);
+      if (wv) wv.reloadIgnoringCache();
+    } catch {
+      // Guest not attached yet.
+    }
   }, [store.activeTabId]);
 
   const stop = useCallback(() => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (wv) wv.stop();
+    try {
+      const wv = webviewRegistry.get(store.activeTabId);
+      if (wv) wv.stop();
+    } catch {
+      // Guest not attached yet.
+    }
   }, [store.activeTabId]);
 
   // Zoom is stored per origin in the main process, so it survives both the
@@ -129,18 +151,22 @@ export const useBrowser = () => {
       const wv = webviewRegistry.get(tabId);
       if (!wv) return;
 
-      const next = Math.min(3, Math.max(0.5, compute(wv.getZoomFactor())));
-      wv.setZoomFactor(next);
-
-      let url = '';
       try {
-        url = wv.getURL();
+        const next = Math.min(3, Math.max(0.5, compute(wv.getZoomFactor())));
+        wv.setZoomFactor(next);
+
+        let url = '';
+        try {
+          url = wv.getURL();
+        } catch {
+          // Guest not attached yet; nothing worth remembering.
+          return;
+        }
+        if (!url || url === 'about:blank') return;
+        void window.browserAPI.zoom.set(url, next).catch(() => {});
       } catch {
-        // Guest not attached yet; nothing worth remembering.
-        return;
+        // Guest not attached yet.
       }
-      if (!url || url === 'about:blank') return;
-      void window.browserAPI.zoom.set(url, next).catch(() => {});
     },
     [store.activeTabId]
   );
@@ -150,8 +176,12 @@ export const useBrowser = () => {
   const resetZoom = useCallback(() => applyZoom(() => 1), [applyZoom]);
 
   const printPage = useCallback(() => {
-    const wv = webviewRegistry.get(store.activeTabId);
-    if (wv) void wv.print();
+    try {
+      const wv = webviewRegistry.get(store.activeTabId);
+      if (wv) void wv.print();
+    } catch {
+      // Guest not attached yet.
+    }
   }, [store.activeTabId]);
 
   return {

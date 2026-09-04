@@ -277,9 +277,13 @@ export async function executePageAction(
         // sending keyboard input. Without this pause the first character is
         // sometimes swallowed because it races with the focus handler.
         await jitter(80);
-        // Clear any existing content the way a person would.
-        wc.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] });
-        wc.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: ['control'] });
+        // Clear any existing content the way a person would. Select-all is
+        // Ctrl+A on Windows/Linux but Meta+A on macOS — Ctrl+A there moves
+        // the caret to the line start, so the agent would append to whatever
+        // was already in the field instead of replacing it.
+        const selectAll = process.platform === 'darwin' ? 'meta' : 'control';
+        wc.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: [selectAll] });
+        wc.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: [selectAll] });
         await jitter(30);
         wc.sendInputEvent({ type: 'keyDown', keyCode: 'Delete' });
         wc.sendInputEvent({ type: 'keyUp', keyCode: 'Delete' });

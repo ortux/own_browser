@@ -462,16 +462,15 @@ const tabByWebContentsId = new Map<number, string>();
 
 /** The live guest webContents backing a tab, or null if it has not attached. */
 function guestContentsForTab(tabId: string): Electron.WebContents | null {
-  let fallback: Electron.WebContents | null = null;
   for (const [contentsId, id] of tabByWebContentsId) {
     if (id !== tabId) continue;
-    const wc = webContents.fromId(contentsId) ?? null;
+    const wc = webContents.fromId(contentsId);
+    // A destroyed webContents is not a page: returning it as a "fallback"
+    // made callers blow up with "Object has been destroyed" instead of
+    // waiting for the live guest or reporting that there is none.
     if (wc && !wc.isDestroyed()) return wc;
-    // Remember the first result so we can return it if no live one exists,
-    // but keep looking — a stale entry may sit before the live one.
-    if (!fallback) fallback = wc;
   }
-  return fallback;
+  return null;
 }
 let activeTabId: string = '';
 let nextTabId = 1;

@@ -14,9 +14,8 @@ interface AuthPortalProps {
 
 const API_BASE = getApiBaseUrl();
 
-/** Every text field in this form shares one appearance. */
 const FIELD_CLASS =
-  'w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] transition-colors focus:border-[var(--text-faint)] focus:outline-none';
+  'w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 text-[15px] text-[var(--text)] placeholder:text-[var(--text-faint)] transition-all duration-200 focus:border-[var(--accent)] focus:outline-none focus:ring-4 focus:ring-[var(--accent)]/10 focus:bg-[var(--bg)]';
 
 export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
   const [currentMode, setCurrentMode] = useState<AuthPortalMode>(mode);
@@ -39,19 +38,14 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
     };
     user: { id?: number; email?: string; name?: string; role?: string; created_at?: string };
   }) => {
-    // Save tokens using secure token manager
     saveTokens(payload.tokens);
-
-    // Update settings store with user info
     await useSettingsStore.getState().applyAuthSession(payload);
     setAuthTokens({ access_token: payload.tokens.access_token });
 
-    // Only show device modal if this device hasn't been named yet
     const deviceName = useSettingsStore.getState().deviceName;
     if (!deviceName) {
       setShowDeviceModal(true);
     } else {
-      // Device already registered — go straight to the browser
       window.setTimeout(() => onClose(), 300);
     }
   };
@@ -67,7 +61,6 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
       if (event.origin && event.origin !== window.location.origin && event.origin !== 'null')
         return;
 
-      // Handle OAuth callback from popup
       if (data.type === 'zyphora-oauth-callback' && data.tokens && data.user) {
         await applySocialCallback(data);
       }
@@ -78,15 +71,15 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
   }, []);
 
   const title = useMemo(
-    () => (currentMode === 'signin' ? 'Sign in' : 'Create account'),
+    () => (currentMode === 'signin' ? 'Welcome back' : 'Create your account'),
     [currentMode]
   );
 
   const subtitle = useMemo(
     () =>
       currentMode === 'signin'
-        ? 'Continue to your synchronized browser profile.'
-        : 'Start syncing your browser profile securely.',
+        ? 'Sign in to access your synced browser profile.'
+        : 'Set up your account to sync across devices.',
     [currentMode]
   );
 
@@ -126,16 +119,13 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
         throw new Error(data?.error || 'Unable to authenticate.');
       }
 
-      // Save tokens using secure token manager
       if (data?.tokens) {
         saveTokens(data.tokens);
         setAuthTokens({ access_token: data.tokens.access_token });
       }
 
-      // Apply auth session (store user info)
       await useSettingsStore.getState().applyAuthSession(data);
 
-      // Only show device modal if this device hasn't been named yet
       const deviceName = useSettingsStore.getState().deviceName;
       if (!deviceName) {
         setShowDeviceModal(true);
@@ -160,11 +150,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
 
     try {
       const baseUrl = useSettingsStore.getState().authBaseUrl || API_BASE;
-
-      // Execute OAuth flow (handles popup and callback)
       const callbackPayload = await executeOAuthFlow(provider, baseUrl);
-
-      // Apply the authentication session
       await applySocialCallback(callbackPayload);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start social sign-in.';
@@ -180,78 +166,84 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
 
   const handleDeviceNameSubmit = async (deviceName: string) => {
     if (!authTokens) return;
-    // registerDevice already logs; let the error propagate so DeviceNameModal
-    // can render it inline.
     await useSettingsStore.getState().registerDevice(deviceName, authTokens.access_token);
     setShowDeviceModal(false);
     window.setTimeout(() => onClose(), 300);
   };
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
-      <div className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center px-6 py-10">
-        <div className="mb-7 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">{subtitle}</p>
-          </div>
+    <div className="relative h-full w-full overflow-y-auto bg-[var(--bg)] text-[var(--text)]">
+      {/* Background decoration */}
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-40 -right-40 h-[400px] w-[400px] rounded-full bg-[var(--accent)]/5 blur-[120px]" />
+        <div className="absolute -bottom-40 -left-40 h-[300px] w-[300px] rounded-full bg-[var(--accent)]/3 blur-[100px]" />
+      </div>
+
+      <div className="mx-auto flex min-h-full w-full max-w-[440px] flex-col justify-center px-8 py-12">
+        {/* Header with back button */}
+        <div className="mb-10">
           <button
             type="button"
             onClick={onClose}
-            className="-mr-1 shrink-0 rounded-md px-2 py-1 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+            className="mb-8 inline-flex items-center gap-2 text-[13px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
           >
-            Close
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back
           </button>
-        </div>
 
-        {/* Mode switch */}
-        <div className="mb-6 grid grid-cols-2 border-b border-[var(--border)]">
-          {(['signin', 'signup'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setCurrentMode(mode)}
-              className={`-mb-px border-b-2 pb-2.5 text-sm font-medium transition-colors ${
-                currentMode === mode
-                  ? 'border-[var(--text)] text-[var(--text)]'
-                  : 'border-transparent text-[var(--text-faint)] hover:text-[var(--text-muted)]'
-              }`}
-            >
-              {mode === 'signin' ? 'Sign in' : 'Create account'}
-            </button>
-          ))}
+          {/* Heading */}
+          <div className="mb-6">
+            <h1 className="text-[26px] font-bold tracking-[-0.02em] leading-none">{title}</h1>
+            <p className="mt-2 text-[15px] text-[var(--text-muted)] leading-relaxed">{subtitle}</p>
+          </div>
         </div>
 
         {/* Social providers */}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-3 mb-6">
           <button
             type="button"
             onClick={() => void handleSocialClick('google')}
             disabled={socialLoading !== null}
-            className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] disabled:cursor-wait disabled:opacity-50"
+            className="group flex items-center justify-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 text-[14px] font-medium text-[var(--text)] transition-all duration-200 hover:bg-[var(--hover)] hover:border-[var(--border-strong)] hover:shadow-md disabled:cursor-wait disabled:opacity-50"
           >
+            <svg className="h-5 w-5" viewBox="0 0 24 24">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
             {socialLoading === 'google' ? 'Opening…' : 'Google'}
           </button>
           <button
             type="button"
             onClick={() => void handleSocialClick('github')}
             disabled={socialLoading !== null}
-            className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] disabled:cursor-wait disabled:opacity-50"
+            className="group flex items-center justify-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 text-[14px] font-medium text-[var(--text)] transition-all duration-200 hover:bg-[var(--hover)] hover:border-[var(--border-strong)] hover:shadow-md disabled:cursor-wait disabled:opacity-50"
           >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+              <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+            </svg>
             {socialLoading === 'github' ? 'Opening…' : 'GitHub'}
           </button>
         </div>
 
-        <div className="my-5 flex items-center gap-3 text-xs text-[var(--text-faint)]">
-          <span className="h-px flex-1 bg-[var(--border)]" />
-          or
-          <span className="h-px flex-1 bg-[var(--border)]" />
+        {/* Divider */}
+        <div className="relative mb-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-[var(--border)]"></div>
+          </div>
+          <div className="relative flex justify-center text-[12px]">
+            <span className="bg-[var(--bg)] px-4 text-[var(--text-faint)] uppercase tracking-[0.15em] font-semibold">or continue with email</span>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-5">
           {currentMode === 'signup' && (
             <div>
-              <label htmlFor="zyphora-name" className="mb-1.5 block text-sm font-medium">
+              <label htmlFor="zyphora-name" className="mb-2 block text-[12px] font-semibold text-[var(--text-muted)] uppercase tracking-[0.15em]">
                 Name
               </label>
               <input
@@ -259,15 +251,15 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 className={FIELD_CLASS}
-                placeholder="Your name"
+                placeholder="Your full name"
                 autoComplete="name"
               />
             </div>
           )}
 
           <div>
-            <label htmlFor="zyphora-email" className="mb-1.5 block text-sm font-medium">
-              Email
+            <label htmlFor="zyphora-email" className="mb-2 block text-[12px] font-semibold text-[var(--text-muted)] uppercase tracking-[0.15em]">
+              Email address
             </label>
             <input
               id="zyphora-email"
@@ -281,12 +273,12 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
           </div>
 
           <div>
-            <div className="mb-1.5 flex items-baseline justify-between">
-              <label htmlFor="zyphora-password" className="text-sm font-medium">
+            <div className="mb-2 flex items-baseline justify-between">
+              <label htmlFor="zyphora-password" className="text-[12px] font-semibold text-[var(--text-muted)] uppercase tracking-[0.15em]">
                 Password
               </label>
               {currentMode === 'signup' && (
-                <span className="text-xs text-[var(--text-faint)]">12+ characters</span>
+                <span className="text-[11px] text-[var(--text-faint)] font-medium">12+ characters</span>
               )}
             </div>
             <div className="relative">
@@ -295,37 +287,78 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ mode, onClose }) => {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className={`${FIELD_CLASS} pr-14`}
+                className={`${FIELD_CLASS} pr-16`}
                 placeholder="Enter your password"
                 autoComplete={currentMode === 'signin' ? 'current-password' : 'new-password'}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((value) => !value)}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold text-[var(--text-muted)] transition-colors hover:text-[var(--text)] hover:bg-[var(--hover)]"
               >
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
           </div>
 
+          {/* Status message */}
           {status && (
-            <p
+            <div
               role="alert"
-              className="rounded-md bg-[var(--danger-soft)] px-3 py-2 text-sm leading-relaxed text-[var(--danger)]"
+              className="rounded-xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3.5 text-[14px] leading-relaxed text-[var(--danger)]"
             >
               {status}
-            </p>
+            </div>
           )}
 
+          {/* Submit button */}
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-wait disabled:opacity-60"
+            className="relative w-full overflow-hidden rounded-xl bg-[var(--accent)] px-4 py-4 text-[15px] font-semibold text-[var(--accent-text)] transition-all duration-200 hover:brightness-110 hover:shadow-xl hover:shadow-[var(--accent)]/25 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
           >
-            {loading ? 'Connecting…' : currentMode === 'signin' ? 'Sign in' : 'Create account'}
+            <span className={`transition-opacity ${loading ? 'opacity-0' : 'opacity-100'}`}>
+              {currentMode === 'signin' ? 'Sign in' : 'Create account'}
+            </span>
+            {loading && (
+              <span className="absolute inset-0 flex items-center justify-center">
+                <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                </svg>
+              </span>
+            )}
           </button>
         </form>
+
+        {/* Footer */}
+        <div className="mt-8 text-center">
+          <p className="text-[14px] text-[var(--text-muted)]">
+            {currentMode === 'signin' ? (
+              <>
+                New to Zyphora?{' '}
+                <button
+                  type="button"
+                  onClick={() => setCurrentMode('signup')}
+                  className="font-semibold text-[var(--accent)] hover:text-[var(--accent)]/80 transition-colors"
+                >
+                  Create an account
+                </button>
+              </>
+            ) : (
+              <>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => setCurrentMode('signin')}
+                  className="font-semibold text-[var(--accent)] hover:text-[var(--accent)]/80 transition-colors"
+                >
+                  Sign in
+                </button>
+              </>
+            )}
+          </p>
+        </div>
       </div>
 
       <DeviceNameModal

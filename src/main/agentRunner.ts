@@ -249,9 +249,20 @@ export async function runAgent(goal: string, config: AgentConfig): Promise<void>
       emit({ type: 'state', state: 'thinking' });
 
       const tabId = host.activeTabId();
-      const wc = host.guestForTab(tabId);
+      // The webview may not have attached its webContents yet (e.g. the agent
+      // was started immediately after a navigation). Poll briefly so the user
+      // does not have to click "Run" twice.
+      let wc = host.guestForTab(tabId);
       if (!wc) {
-        emit({ type: 'error', message: 'No active page for the agent to work with.' });
+        const deadline = Date.now() + 3_000;
+        while (Date.now() < deadline && !context.stopped) {
+          await new Promise((r) => setTimeout(r, 150));
+          wc = host.guestForTab(tabId);
+          if (wc) break;
+        }
+      }
+      if (!wc) {
+        emit({ type: 'error', message: 'No active page for the agent to work with. Make sure a page is loaded and try again.' });
         break;
       }
 

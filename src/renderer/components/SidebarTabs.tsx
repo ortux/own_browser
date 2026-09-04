@@ -47,6 +47,8 @@ interface SidebarTabsProps {
   onToggleAgent?: () => void;
   /** Whether the agent panel is currently showing, so the button can reflect it. */
   agentOpen?: boolean;
+  /** Open the Auth Portal for sign-in or sign-up. */
+  onOpenAuth?: () => void;
 }
 
 const COLLAPSED_W = 48;
@@ -131,6 +133,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onOpenPasswords,
   onToggleAgent,
   agentOpen = false,
+  onOpenAuth,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [tabSearch, setTabSearch] = useState('');
@@ -239,7 +242,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
           {/* Bottom icons: profile + settings */}
           <div className="shrink-0 pt-1 border-t border-[var(--border)] flex flex-col gap-0.5">
             <button
-              onClick={onOpenSettings}
+              onClick={onOpenAuth}
               title={account ? accountDisplayName(account) : 'Profile'}
               className="flex items-center justify-center w-full py-2 rounded-md hover:bg-[var(--hover)] transition-colors"
             >
@@ -461,7 +464,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
           <div className="shrink-0 border-t border-[var(--border)] px-2 py-2 space-y-1">
             {/* Profile row */}
             <button
-              onClick={onOpenSettings}
+              onClick={onOpenAuth}
               className="flex items-center gap-2.5 w-full px-3 py-2 rounded-md hover:bg-[var(--hover)] transition-colors group"
             >
               {account ? (

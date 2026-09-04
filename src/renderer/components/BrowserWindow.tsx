@@ -130,6 +130,10 @@ export const BrowserWindow: React.FC = () => {
     else createTabWithUrl(INTERNAL_PAGES.settings);
   }, [tabs, activateTab, createTabWithUrl]);
 
+  const openAuth = useCallback(() => {
+    setAuthMode('signin');
+  }, []);
+
   // The agent is a full-mode feature: in minimal mode it is never rendered and
   // its shortcut does nothing.
   const browserMode = useSettingsStore((s) => s.browserMode);
@@ -542,6 +546,7 @@ export const BrowserWindow: React.FC = () => {
           onOpenPasswords={passwordManagerEnabled ? () => togglePanel('passwords') : undefined}
           onToggleAgent={agentAvailable ? () => setAgentOpen((v) => !v) : undefined}
           agentOpen={agentOpen}
+          onOpenAuth={openAuth}
         />
       )}
 

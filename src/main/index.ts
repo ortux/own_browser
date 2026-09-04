@@ -462,12 +462,16 @@ const tabByWebContentsId = new Map<number, string>();
 
 /** The live guest webContents backing a tab, or null if it has not attached. */
 function guestContentsForTab(tabId: string): Electron.WebContents | null {
+  let fallback: Electron.WebContents | null = null;
   for (const [contentsId, id] of tabByWebContentsId) {
     if (id !== tabId) continue;
-    const wc = webContents.fromId(contentsId);
-    return wc && !wc.isDestroyed() ? wc : null;
+    const wc = webContents.fromId(contentsId) ?? null;
+    if (wc && !wc.isDestroyed()) return wc;
+    // Remember the first result so we can return it if no live one exists,
+    // but keep looking — a stale entry may sit before the live one.
+    if (!fallback) fallback = wc;
   }
-  return null;
+  return fallback;
 }
 let activeTabId: string = '';
 let nextTabId = 1;
@@ -928,6 +932,13 @@ ipcMain.handle('browser:message', async (event, message: RendererToMainMessage) 
     case 'webview-attached': {
       const tab = tabs.get(message.tabId);
       if (tab) {
+        // Purge any stale entry for this tab so guestContentsForTab never
+        // hits a destroyed webContents before the live one.
+        for (const [oldId, oldTabId] of tabByWebContentsId) {
+          if (oldTabId === message.tabId && oldId !== message.webContentsId) {
+            tabByWebContentsId.delete(oldId);
+          }
+        }
         tabByWebContentsId.set(message.webContentsId, message.tabId);
         // A muted tab that reloads (or is restored from a session) comes back
         // with a fresh webContents, which defaults to unmuted. Re-apply.

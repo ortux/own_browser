@@ -28,7 +28,16 @@ const installed = new WeakMap<WebContents, string>();
 async function ensureInstalled(wc: WebContents): Promise<void> {
   const url = wc.getURL();
   if (installed.get(wc) === url) return;
-  await wc.executeJavaScript(agentPageSource);
+  try {
+    await wc.executeJavaScript(agentPageSource);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Could not inject the agent helper into this page. ` +
+        `It may be a special page (chrome-error, about:blank) or have strict Content Security Policy. ` +
+        `Try navigating to a regular website first. (${message})`
+    );
+  }
   installed.set(wc, url);
 }
 
@@ -147,10 +156,24 @@ export async function settleAfterAction(wc: WebContents, signal?: AbortSignal): 
 
 export async function captureSnapshot(wc: WebContents, tabId: string): Promise<AgentSnapshot> {
   await ensureInstalled(wc);
-  const raw = (await wc.executeJavaScript('window.__zyphoraAgentSnapshot(150)')) as Omit<
-    AgentSnapshot,
-    'tabId'
-  >;
+  let raw: Omit<AgentSnapshot, 'tabId'>;
+  try {
+    raw = (await wc.executeJavaScript('window.__zyphoraAgentSnapshot(150)')) as Omit<
+      AgentSnapshot,
+      'tabId'
+    >;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Could not read the page content. The page may have navigated away or crashed. (${message})`
+    );
+  }
+  if (!raw || typeof raw !== 'object') {
+    throw new Error(
+      'The agent helper returned an invalid snapshot. The page may have a Content Security Policy ' +
+        'that blocks injected scripts, or the page is still loading.'
+    );
+  }
   return { ...raw, tabId };
 }
 
@@ -250,11 +273,17 @@ export async function executePageAction(
       // Focus by clicking, so the page sees a genuine focus sequence.
       const focused = await realClick(wc, action.ref);
       if (focused) {
+        // Let the browser finish processing the click's focus event before
+        // sending keyboard input. Without this pause the first character is
+        // sometimes swallowed because it races with the focus handler.
+        await jitter(80);
         // Clear any existing content the way a person would.
         wc.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] });
         wc.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: ['control'] });
+        await jitter(30);
         wc.sendInputEvent({ type: 'keyDown', keyCode: 'Delete' });
         wc.sendInputEvent({ type: 'keyUp', keyCode: 'Delete' });
+        await jitter(30);
         await realType(wc, text, typingDelay);
         return { ok: true };
       }

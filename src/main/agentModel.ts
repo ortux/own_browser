@@ -128,6 +128,31 @@ function extractJson(text: string): unknown {
 }
 
 /**
+ * Extract a human-readable error message from a Gemini API error response body.
+ *
+ * The Gemini API returns errors as JSON like:
+ *   { "error": { "code": 404, "message": "...", "status": "NOT_FOUND" } }
+ *
+ * Returns an empty string if nothing useful can be parsed.
+ */
+function extractGeminiErrorMessage(body: string): string {
+  if (!body) return '';
+  try {
+    const parsed = JSON.parse(body);
+    const err = parsed?.error;
+    if (!err) return '';
+    const parts: string[] = [];
+    if (err.status) parts.push(err.status);
+    if (err.message) parts.push(err.message);
+    return parts.join(' — ');
+  } catch {
+    // Not JSON; return the first 200 chars if it looks like text.
+    const trimmed = body.trim();
+    return trimmed.length > 0 ? trimmed.slice(0, 200) : '';
+  }
+}
+
+/**
  * Assemble the system prompt from the user's configuration.
  *
  * The injection-protection clause is conditional: it is the one part of the
@@ -221,6 +246,9 @@ export async function planNextAction(
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
+    if (config.advanced.debugLogging) {
+      console.error('[agent] Gemini API error', response.status, body);
+    }
     // Never surface the key, which is in the request URL.
     if (response.status === 400 && body.includes('API_KEY_INVALID')) {
       throw new Error('That Gemini API key was rejected. Check it in Settings → AI Agent.');
@@ -228,7 +256,24 @@ export async function planNextAction(
     if (response.status === 429) {
       throw new Error('Gemini rate limit reached. Wait a moment and try again.');
     }
-    throw new Error(`Gemini request failed (${response.status}).`);
+    // Try to extract a human-readable reason from the API response.
+    const apiMessage = extractGeminiErrorMessage(body);
+    if (response.status === 404) {
+      throw new Error(
+        `Model "${model}" was not found (404). It may have been removed or renamed. ` +
+          `Open Settings → AI Agent → Model and pick a different one, or click the reload button ` +
+          `next to the model list to see what your key can use.${apiMessage ? ` API says: ${apiMessage}` : ''}`
+      );
+    }
+    if (response.status === 403) {
+      throw new Error(
+        `Your API key does not have access to "${model}" (403). ` +
+          `Try a different model in Settings → AI Agent → Model, or enable billing at aistudio.google.com.${apiMessage ? ` API says: ${apiMessage}` : ''}`
+      );
+    }
+    throw new Error(
+      `Gemini request failed (${response.status}).${apiMessage ? ` API says: ${apiMessage}` : ''}`
+    );
   }
 
   const data = (await response.json()) as {
@@ -284,14 +329,17 @@ export async function listModels(signal?: AbortSignal): Promise<GeminiModel[]> {
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    // Never surface the key, which is in the request URL.
+    console.error('[agent] Gemini listModels error', response.status, body);
     if (response.status === 400 && body.includes('API_KEY_INVALID')) {
       throw new Error('That Gemini API key was rejected. Check it in Settings → AI Agent.');
     }
     if (response.status === 429) {
       throw new Error('Gemini rate limit reached. Wait a moment and try again.');
     }
-    throw new Error(`Could not load the model list (${response.status}).`);
+    const apiMessage = extractGeminiErrorMessage(body);
+    throw new Error(
+      `Could not load the model list (${response.status}).${apiMessage ? ` API says: ${apiMessage}` : ''}`
+    );
   }
 
   const data = (await response.json()) as {

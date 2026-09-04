@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,16 +12,15 @@ import {
   ShieldAlert,
   ShieldOff,
   ShieldBan,
-  History as HistoryIcon,
-  CornerDownLeft,
   Download as DownloadIcon,
-  Globe,
   BookOpen,
   Settings as SettingsIcon,
 } from 'lucide-react';
-import type { Tab, HistoryEntry, Download, BlockedRequest } from '../../shared/types';
+import type { Tab, Download, BlockedRequest } from '../../shared/types';
 import type { CertInfo } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
+import { looksLikeUrl } from '../../shared/utils';
+import AddressBarSuggestions, { type SuggestionItem } from './AddressBarSuggestions';
 
 interface NavBarProps {
   activeTab: Tab | undefined;
@@ -32,7 +31,6 @@ interface NavBarProps {
   onNavigate: (url: string) => void;
   onOpenSettings: () => void;
   onHome: () => void;
-  /** From General settings → Home button. */
   showHomeButton?: boolean;
   onBookmark?: () => void;
   isBookmarked?: boolean;
@@ -42,34 +40,9 @@ interface NavBarProps {
   onOpenSiteSettings?: () => void;
 }
 
-function looksLikeUrl(input: string): boolean {
-  const trimmed = input.trim();
-  if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('file://') ||
-    trimmed.startsWith('about:') ||
-    trimmed.startsWith('zyphora://') ||
-    trimmed.startsWith('localhost')
-  ) {
-    return true;
-  }
-  return trimmed.includes('.') && !trimmed.includes(' ');
-}
-
-/** Strip protocol for a cleaner display when not focused */
 function displayUrl(url: string): string {
   if (!url || url === 'about:blank') return '';
   return url.replace(/^https?:\/\//, '');
-}
-
-// ── History suggestion helpers ──────────────────────────────────────────────
-function domainOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
 }
 
 export const NavBar: React.FC<NavBarProps> = ({
@@ -92,7 +65,6 @@ export const NavBar: React.FC<NavBarProps> = ({
   const [isFocused, setIsFocused] = useState(false);
   const buildSearchUrl = useSettingsStore((s) => s.buildSearchUrl);
   const getSearchEngine = useSettingsStore((s) => s.getSearchEngine);
-  // Address-bar behaviour, from General settings.
   const searchSuggestions = useSettingsStore((s) => s.general.searchSuggestions);
   const historySuggestions = useSettingsStore((s) => s.general.searchHistorySuggestions);
   const bookmarkSuggestions = useSettingsStore((s) => s.general.searchBookmarkSuggestions);
@@ -102,7 +74,7 @@ export const NavBar: React.FC<NavBarProps> = ({
   const compactToolbar = useSettingsStore((s) => s.general.compactToolbar);
   const engine = getSearchEngine();
 
-  // ── Ad blocker state (mirrors SecuritySettings.blockTrackers) ──
+  // ── Ad blocker state ──
   const blockTrackers = useSettingsStore((s) => s.security.blockTrackers);
   const adblockAllowlist = useSettingsStore((s) => s.adblockAllowlist);
   const setSecurityFlag = useSettingsStore((s) => s.setSecurityFlag);
@@ -120,12 +92,15 @@ export const NavBar: React.FC<NavBarProps> = ({
     () => setSecurityFlag('blockTrackers', !blockTrackers),
     [blockTrackers, setSecurityFlag]
   );
-  // ── History suggestions ──
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const suggestionRequest = useRef(0);
+
+  // ── Suggestions state ──
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [originalInput, setOriginalInput] = useState('');
+  const [userInput, setUserInput] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
+  const ignoreBlurRef = useRef(false);
+  const suggestionCountRef = useRef(0);
 
   // ── Live downloads indicator ──
   const [activeDownloads, setActiveDownloads] = useState<Download[]>([]);
@@ -141,87 +116,34 @@ export const NavBar: React.FC<NavBarProps> = ({
     return unsub;
   }, []);
 
-  const loadSuggestions = useCallback(
-    async (q: string) => {
-      if (!window.browserAPI || !searchSuggestions) {
-        setHistory([]);
-        return;
-      }
-      const request = ++suggestionRequest.current;
-      const query = q.trim();
-      try {
-        // Each source is opt-in, so a user who turned one off never sees it
-        // reappear behind the other.
-        const [fromHistory, fromBookmarks] = await Promise.all([
-          historySuggestions
-            ? query
-              ? window.browserAPI.history.search(query)
-              : window.browserAPI.history.get()
-            : Promise.resolve([]),
-          bookmarkSuggestions && query
-            ? window.browserAPI.bookmarks.search(query)
-            : Promise.resolve([]),
-        ]);
-        // Bookmarks are reshaped into the history entry shape the suggestion
-        // list already renders, rather than forking the list markup.
-        const bookmarkEntries: HistoryEntry[] = fromBookmarks.map((bookmark, index) => ({
-          id: -(index + 1),
-          url: bookmark.url,
-          title: bookmark.title,
-          favicon: bookmark.favicon ?? null,
-          visited_at: Date.now(),
-        }));
-        if (request === suggestionRequest.current) {
-          setHistory([...bookmarkEntries, ...fromHistory]);
-        }
-      } catch {
-        if (request === suggestionRequest.current) setHistory([]);
+  // ── When a suggestion is highlighted (arrow keys), update input text ──
+  const handleHighlight = useCallback(
+    (item: SuggestionItem | null) => {
+      if (item) {
+        setInput(item.url);
+      } else {
+        setInput(originalInput);
       }
     },
-    [searchSuggestions, historySuggestions, bookmarkSuggestions]
+    [originalInput]
   );
 
-  // Fetch (de-duplicated by domain) suggestions whenever the typed query changes.
-  // Debouncing prevents an IPC/database round-trip for every keystroke.
-  useEffect(() => {
-    setActiveIdx(-1);
-    if (!isFocused) return;
-    const timer = setTimeout(() => {
-      void loadSuggestions(input);
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [input, isFocused, loadSuggestions]);
+  const handleActiveIndexChange = useCallback((idx: number) => {
+    setActiveIdx(idx);
+  }, []);
 
-  // De-duplicate history entries by domain, keeping the most recent visit.
-  const suggestions = useMemo(() => {
-    const seen = new Set<string>();
-    const out: HistoryEntry[] = [];
-    for (const e of history) {
-      const d = domainOf(e.url);
-      if (seen.has(d)) continue;
-      seen.add(d);
-      out.push(e);
-      if (out.length >= 8) break;
-    }
-    return out;
-  }, [history]);
-
-  const openSuggestion = useCallback(
-    (entry: HistoryEntry) => {
-      // Navigate to the root domain (e.g. youtube.com) rather than the exact
-      // page that was visited (e.g. a specific video), so clicking a suggestion
-      // lands you on the site's home page.
-      const root = `https://${domainOf(entry.url)}`;
-      onNavigate(root);
+  // ── When a suggestion is selected (click or Enter) ──
+  const handleSuggestionSelect = useCallback(
+    (item: SuggestionItem) => {
+      onNavigate(item.url);
       setIsFocused(false);
       setShowSuggestions(false);
-      setInput(root);
+      setInput(item.url);
+      ignoreBlurRef.current = true;
       searchRef.current?.blur();
     },
     [onNavigate]
   );
-
-  const isLoading = activeTab?.loading;
 
   // ── Certificate / security shield ──
   const [cert, setCert] = useState<CertInfo | null>(null);
@@ -301,7 +223,6 @@ export const NavBar: React.FC<NavBarProps> = ({
         if (!cancelled) setCertPending(false);
       }
     };
-    // Cert is captured during the TLS handshake; query shortly after nav, retry once.
     const t1 = setTimeout(fetchCert, 400);
     const t2 = setTimeout(fetchCert, 1400);
     return () => {
@@ -344,22 +265,25 @@ export const NavBar: React.FC<NavBarProps> = ({
             ? 'Certificate details unavailable'
             : 'Invalid certificate';
 
-  // The left affordance shows the search icon on the home page (and while
-  // typing); on any real site it becomes the shield that reveals cert details.
   const isHome = !activeTab?.url || activeTab.url === 'about:blank';
   const showSearchIcon = isFocused || isHome;
 
   useEffect(() => {
     if (!isFocused) {
-      setInput(activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '');
+      const url = activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '';
+      setInput(url);
+      setUserInput(url);
     }
   }, [activeTab?.url, activeTab?.id, isFocused, showFullUrl]);
 
   const handleFocus = () => {
     setIsFocused(true);
     setShowSuggestions(true);
-    // Show full URL when focused, select all
-    setInput(activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '');
+    const fullUrl = activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '';
+    setInput(fullUrl);
+    setOriginalInput(fullUrl);
+    setUserInput(fullUrl);
+    setActiveIdx(-1);
     setTimeout(() => {
       const el = document.activeElement as HTMLInputElement;
       el?.select();
@@ -367,60 +291,32 @@ export const NavBar: React.FC<NavBarProps> = ({
   };
 
   const handleBlur = () => {
+    if (ignoreBlurRef.current) {
+      ignoreBlurRef.current = false;
+      return;
+    }
     setIsFocused(false);
     setShowSuggestions(false);
-    // Restore stripped display URL
-    setInput(activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '');
+    setActiveIdx(-1);
+    const url = activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '';
+    setInput(url);
+    setUserInput(url);
   };
 
   const handleSubmit = () => {
-    // If a suggestion is highlighted, navigate to it instead of submitting the raw text.
-    if (showSuggestions && activeIdx >= 0 && suggestions[activeIdx]) {
-      openSuggestion(suggestions[activeIdx]);
-      return;
-    }
     const raw = input.trim();
     if (!raw) return;
-    if (!looksLikeUrl(raw) && !searchFromAddressBar) {
-      // Searching from the address bar is off: only real addresses navigate.
-      return;
-    }
+    if (!looksLikeUrl(raw) && !searchFromAddressBar) return;
     const url = looksLikeUrl(raw) ? raw : buildSearchUrl(raw);
     onNavigate(url);
     setIsFocused(false);
     setShowSuggestions(false);
+    setInput(url);
+    setUserInput(url);
     (document.activeElement as HTMLElement)?.blur();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Suggestion navigation takes priority.
-    if (showSuggestions && suggestions.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1));
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setActiveIdx((i) => Math.max(i - 1, 0));
-        return;
-      }
-      if (e.key === 'Enter' && activeIdx >= 0) {
-        e.preventDefault();
-        openSuggestion(suggestions[activeIdx]);
-        return;
-      }
-      if (e.key === 'Escape') {
-        setShowSuggestions(false);
-        return;
-      }
-    }
-    if (e.key === 'Enter') handleSubmit();
-    if (e.key === 'Escape') {
-      setInput(activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '');
-      (document.activeElement as HTMLElement)?.blur();
-    }
-  };
+  const isLoading = activeTab?.loading;
 
   return (
     <div
@@ -465,7 +361,6 @@ export const NavBar: React.FC<NavBarProps> = ({
         </button>
       )}
 
-      {/* Home button — shown only when enabled in General settings. */}
       {showHomeButton && (
         <button
           onClick={onHome}
@@ -481,9 +376,6 @@ export const NavBar: React.FC<NavBarProps> = ({
         <div
           className="flex items-center gap-2 px-3 py-1.5 rounded-md border bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--hover)] hover:border-[var(--border-strong)] transition-colors"
         >
-          {/* Lock / search / shield — merged security affordance.
-        Home (new tab): search icon. On a real site: shield that toggles
-        the certificate details. */}
           <div className="relative shrink-0 flex items-center">
             {showSearchIcon ? (
               <Search size={14} className="text-[var(--text-faint)]" />
@@ -555,80 +447,89 @@ export const NavBar: React.FC<NavBarProps> = ({
             ref={searchRef}
             type="text"
             value={isFocused || showFullUrl ? input : displayUrl(input)}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setOriginalInput(e.target.value);
+              setUserInput(e.target.value);
+              setActiveIdx(-1);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                if (showSuggestions) {
+                  setShowSuggestions(false);
+                  setActiveIdx(-1);
+                  setInput(originalInput);
+                  setUserInput(originalInput);
+                  e.preventDefault();
+                  return;
+                }
+                const url = activeTab?.url && activeTab.url !== 'about:blank' ? activeTab.url : '';
+                setInput(url);
+                setUserInput(url);
+                (document.activeElement as HTMLElement)?.blur();
+                return;
+              }
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const count = suggestionCountRef.current;
+                if (count > 0) {
+                  setShowSuggestions(true);
+                  setActiveIdx((i) => (i < count - 1 ? i + 1 : 0));
+                }
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const count = suggestionCountRef.current;
+                if (count > 0) {
+                  setShowSuggestions(true);
+                  setActiveIdx((i) => (i > 0 ? i - 1 : count - 1));
+                }
+                return;
+              }
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
             onFocus={handleFocus}
             onBlur={handleBlur}
             placeholder={`Search with ${engine.name} or enter URL…`}
             className="flex-1 bg-transparent outline-none text-sm min-w-0 text-[var(--text)] placeholder-[var(--text-faint)]"
             spellCheck={false}
             autoComplete="off"
+            role="combobox"
+            aria-expanded={showSuggestions}
+            aria-controls="navbar-suggestions"
+            aria-activedescendant={activeIdx >= 0 ? `suggestion-${activeIdx}` : undefined}
           />
 
-          {/* Loading indicator inside bar */}
           {isLoading && !isFocused && showLoadingIndicator && (
             <div className="w-3 h-3 rounded-full border-2 border-[var(--text-faint)] border-t-transparent animate-spin shrink-0" />
           )}
         </div>
 
-        {/* History suggestions tooltip/dialog — opens upward (bar sits at the bottom) */}
-        {showSuggestions && isFocused && suggestions.length > 0 && (
-          <div
-            className="absolute bottom-full left-0 right-0 mb-2 max-h-80 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-1.5 z-50"
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
-              {input.trim() ? 'Suggestions from history' : 'Recent domains'}
-            </div>
-            {suggestions.map((s, i) => (
-              <button
-                key={s.id}
-                type="button"
-                onMouseEnter={() => setActiveIdx(i)}
-                onClick={() => openSuggestion(s)}
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors duration-150 ${
-                  i === activeIdx ? 'bg-[var(--hover)]' : 'hover:bg-[var(--hover)]'
-                }`}
-              >
-                {s.favicon ? (
-                  <img
-                    src={s.favicon}
-                    alt=""
-                    className="h-5 w-5 shrink-0 rounded-sm"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <Globe size={18} className="shrink-0 text-[var(--text-faint)]" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-[var(--text)]">
-                    {domainOf(s.url)}
-                  </div>
-                  {s.title && s.title !== domainOf(s.url) && (
-                    <div className="truncate text-xs text-[var(--text-muted)]">{s.title}</div>
-                  )}
-                </div>
-                {i === activeIdx && (
-                  <CornerDownLeft size={14} className="shrink-0 text-[var(--text-faint)]" />
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {showSuggestions && isFocused && suggestions.length === 0 && (
-          <div
-            className="absolute bottom-full left-0 right-0 mb-2 rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_30px_rgba(0,0,0,0.35)] p-3 z-50"
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            <div className="flex items-center gap-2 px-2 text-sm text-[var(--text-muted)]">
-              <HistoryIcon size={14} />
-              {input.trim() ? 'No matches in your history' : 'No history yet'}
-            </div>
-          </div>
-        )}
+        {/* ── Suggestion dropdown (opens upward) ───────────────────────── */}
+        <AddressBarSuggestions
+          query={userInput}
+          isOpen={showSuggestions && isFocused}
+          activeIndex={activeIdx}
+          onSelect={handleSuggestionSelect}
+          onActiveIndexChange={handleActiveIndexChange}
+          onClose={() => {
+            setShowSuggestions(false);
+            setActiveIdx(-1);
+          }}
+          onHighlight={handleHighlight}
+          onCountChange={(count) => {
+            suggestionCountRef.current = count;
+          }}
+          searchEngineUrl={engine.url}
+          searchSuggestions={searchSuggestions}
+          historySuggestions={historySuggestions}
+          bookmarkSuggestions={bookmarkSuggestions}
+          searchFromAddressBar={searchFromAddressBar}
+        />
       </div>
 
       {/* Ad blocker toggle */}
@@ -749,7 +650,6 @@ export const NavBar: React.FC<NavBarProps> = ({
         <Star size={16} fill={isBookmarked ? 'currentColor' : 'none'} />
       </button>
 
-      {/* Reader mode — only meaningful on real http(s) pages. */}
       {onToggleReader && activeTab?.url && /^https?:\/\//.test(activeTab.url) && (
         <button
           onClick={onToggleReader}
@@ -765,7 +665,6 @@ export const NavBar: React.FC<NavBarProps> = ({
         </button>
       )}
 
-      {/* Per-site settings — opens the SiteSettingsPopover. */}
       {onOpenSiteSettings && activeTab?.url && /^https?:\/\//.test(activeTab.url) && (
         <button
           onClick={onOpenSiteSettings}
@@ -777,13 +676,9 @@ export const NavBar: React.FC<NavBarProps> = ({
         </button>
       )}
 
-      {/* Live download indicator — shows while anything is downloading */}
       {activeDownloads.length > 0 &&
         onOpenDownloads &&
         (() => {
-          // Byte-weighted progress across downloads whose size is known.
-          // Unknown-size downloads are excluded; if none are known the bar
-          // pulses indeterminately instead of being stuck at 0%.
           const known = activeDownloads.filter((d) => d.totalBytes > 0);
           const total = known.reduce((s, d) => s + d.totalBytes, 0);
           const received = known.reduce((s, d) => s + d.receivedBytes, 0);
@@ -820,8 +715,6 @@ export const NavBar: React.FC<NavBarProps> = ({
             </button>
           );
         })()}
-
-      {/* Account / menu */}
     </div>
   );
 };

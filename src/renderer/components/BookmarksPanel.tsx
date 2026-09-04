@@ -11,6 +11,13 @@ interface BookmarksPanelProps {
 export const BookmarksPanel: React.FC<BookmarksPanelProps> = ({ onNavigate, onClose }) => {
   const { bookmarks, remove } = useBookmarks();
   const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  React.useEffect(() => {
+    // Bookmarks load asynchronously via the hook; once the first non-undefined
+    // snapshot arrives, mark loading complete.
+    setLoading(false);
+  }, [bookmarks]);
 
   const filtered = query.trim()
     ? bookmarks.filter(
@@ -58,7 +65,10 @@ export const BookmarksPanel: React.FC<BookmarksPanelProps> = ({ onNavigate, onCl
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {filtered.length === 0 && (
+        {loading && (
+          <p className="text-center py-8 text-xs text-[var(--text-faint)]">Loading…</p>
+        )}
+        {!loading && filtered.length === 0 && (
           <p className="text-center py-8 text-xs text-[var(--text-faint)]">
             {query ? 'No results' : 'No bookmarks yet'}
           </p>

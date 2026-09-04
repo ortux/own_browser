@@ -253,6 +253,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({ open, onClose, onOpe
               }
             }}
             rows={2}
+            maxLength={10_000}
             placeholder={question ? 'Answer the agent…' : 'What should the agent do?'}
             disabled={ready === false || (busy && !question)}
             className="flex-1 resize-none rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[var(--accent)] disabled:opacity-50"

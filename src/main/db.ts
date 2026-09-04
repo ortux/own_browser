@@ -99,6 +99,7 @@ export async function initDb(): Promise<void> {
       visited_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_history_visited_at ON history(visited_at);
+    CREATE INDEX IF NOT EXISTS idx_history_url_visited ON history(url, visited_at);
     CREATE TABLE IF NOT EXISTS bookmarks (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       url        TEXT    NOT NULL UNIQUE,

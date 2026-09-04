@@ -33,7 +33,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: 'src/preload/index.ts',
-          passwordCapture: 'src/preload/passwordCapture.js',
+          webviewPreload: 'src/preload/webviewPreload.js',
         },
         output: {
           format: 'cjs',

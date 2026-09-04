@@ -27,8 +27,15 @@ export const useBrowserStore = create<BrowserStore>((set) => ({
   removeTab: (tabId: string) => {
     set((state) => {
       const newTabs = state.tabs.filter((t) => t.id !== tabId);
-      const newActiveTabId =
-        state.activeTabId === tabId ? (newTabs.length > 0 ? newTabs[0].id : '') : state.activeTabId;
+      let newActiveTabId = state.activeTabId;
+      if (state.activeTabId === tabId && newTabs.length > 0) {
+        // Select the next tab, or the previous if the closed tab was the last.
+        const closedIndex = state.tabs.findIndex((t) => t.id === tabId);
+        const nextIndex = Math.min(closedIndex, newTabs.length - 1);
+        newActiveTabId = newTabs[nextIndex].id;
+      } else if (newTabs.length === 0) {
+        newActiveTabId = '';
+      }
 
       return {
         tabs: newTabs,

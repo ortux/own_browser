@@ -9,6 +9,7 @@ interface RecentlyClosedPanelProps {
 
 export const RecentlyClosedPanel: React.FC<RecentlyClosedPanelProps> = ({ onRestore, onClose }) => {
   const [tabs, setTabs] = useState<Tab[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -16,6 +17,8 @@ export const RecentlyClosedPanel: React.FC<RecentlyClosedPanelProps> = ({ onRest
       setTabs(Array.isArray(result) ? (result as Tab[]) : []);
     } catch {
       setTabs([]);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -40,7 +43,10 @@ export const RecentlyClosedPanel: React.FC<RecentlyClosedPanelProps> = ({ onRest
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
-        {tabs.length === 0 ? (
+        {loading && (
+          <p className="py-8 text-center text-xs text-[var(--text-faint)]">Loading…</p>
+        )}
+        {!loading && tabs.length === 0 ? (
           <p className="py-8 text-center text-xs text-[var(--text-faint)]">
             No recently closed tabs
           </p>

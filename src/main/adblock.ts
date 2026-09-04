@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { BlockedRequest } from '../shared/types';
 import { ElectronBlocker, adsLists } from '@ghostery/adblocker-electron';
-import fetch from 'cross-fetch';
+// Electron 28+ provides built-in fetch in the main process.
 
 let enabled = true;
 let blockedCount = 0;

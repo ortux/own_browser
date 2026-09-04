@@ -507,6 +507,10 @@ const browserAPI = {
       ipcRenderer.invoke('dns:set-mode', mode),
   },
 
+  /** Search suggestions from Google Autocomplete (routed through main to bypass CORS). */
+  searchSuggestions: (query: string): Promise<string[]> =>
+    ipcRenderer.invoke('search-suggestions', query),
+
   /** Open external URLs in the default browser. */
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),

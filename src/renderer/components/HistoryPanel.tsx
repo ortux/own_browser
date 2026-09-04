@@ -125,8 +125,9 @@ function Row({
   secondary: string;
 }) {
   return (
-    <div
-      className="group flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[var(--hover)] cursor-pointer transition-colors"
+    <button
+      type="button"
+      className="group flex items-center gap-2.5 px-3 py-2 rounded-md hover:bg-[var(--hover)] cursor-pointer transition-colors text-left w-full"
       onClick={() => onNavigate(entry.url)}
     >
       {entry.favicon ? (
@@ -160,6 +161,6 @@ function Row({
           <Trash2 size={12} />
         </button>
       </div>
-    </div>
+    </button>
   );
 }

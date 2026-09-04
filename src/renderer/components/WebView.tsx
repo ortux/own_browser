@@ -8,9 +8,10 @@ import { caretBrowsingScript } from '../lib/caretBrowsing';
 
 interface WebViewProps {
   tab: Tab;
+  onLinkHover?: (url: string | null) => void;
 }
 
-export const WebView: React.FC<WebViewProps> = ({ tab }) => {
+export const WebView: React.FC<WebViewProps> = ({ tab, onLinkHover }) => {
   const webviewRef = useRef<Electron.WebviewTag>(null);
   const [loadError, setLoadError] = useState<{ code: number; desc: string } | null>(null);
   // Capture the URL only once, on first mount. The webview must NOT have its
@@ -25,16 +26,14 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
   // several events per page load, and without this each one re-hit the API and
   // re-injected the skipper script.
   const sponsorBlockUrlRef = useRef<string | null>(null);
-  // Resolved by the preload bridge before first render, so capture works on the
+  // Resolved by the preload bridge before first render, so it works on the
   // very first page load. Never attached to private tabs.
   const capturePreloadPath = useRef(
     window.browserAPI?.passwords.capturePreloadPath() || undefined
   ).current;
-  // Capturing is only ever attempted when the user enabled the manager and the
-  // tab is not private. Read once per mount: changing `preload` on a live
-  // <webview> has no effect until it reloads anyway.
-  const captureEnabled = useRef(useSettingsStore.getState().passwordManagerEnabled).current;
-  const capturePreload = !tab.privateMode && captureEnabled ? capturePreloadPath : undefined;
+  // The preload is always used (it handles both link clicks and password capture).
+  // It is only omitted for private tabs to avoid leaking state across sessions.
+  const preload = !tab.privateMode ? capturePreloadPath : undefined;
 
   // Register / unregister with the registry so nav controls work
   useEffect(() => {
@@ -90,22 +89,39 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
     const el = webviewRef.current;
     if (!el || !window.browserAPI) return;
 
-    // Password credentials captured by the webview's passwordCapture preload
-    // are forwarded here via ipc-message, then sent to main for the save prompt.
+    // IPC messages from webview preloads are forwarded here via ipc-message,
+    // then routed to main for the appropriate action.
     const onIpcMessage = (e: Electron.IpcMessageEvent) => {
-      if (e.channel !== '__zyphora_pm_submit__') return;
-      if (tab.privateMode) return; // never save passwords in private tabs
-      const [origin, username, password, title, favicon] = e.args as string[];
-      if (!username || !password) return;
-      void window.browserAPI.sendMessage({
-        type: 'webview-credentials',
-        tabId: tab.id,
-        origin: origin || '',
-        username,
-        password,
-        title: title || '',
-        favicon: favicon || undefined,
-      });
+      // Password credentials captured by the passwordCapture preload
+      if (e.channel === '__zyphora_pm_submit__') {
+        if (tab.privateMode) return; // never save passwords in private tabs
+        const [origin, username, password, title, favicon] = e.args as string[];
+        if (!username || !password) return;
+        void window.browserAPI.sendMessage({
+          type: 'webview-credentials',
+          tabId: tab.id,
+          origin: origin || '',
+          username,
+          password,
+          title: title || '',
+          favicon: favicon || undefined,
+        });
+      }
+      // Middle-click / Ctrl+click link opened in new tab
+      else if (e.channel === '__zyphora_link_new_tab__') {
+        const [url] = e.args as string[];
+        if (url) {
+          void window.browserAPI.sendMessage({
+            type: 'create-tab-url',
+            url,
+          });
+        }
+      }
+      // Link hover preview
+      else if (e.channel === '__zyphora_link_hover__') {
+        const [url] = e.args as [string | null];
+        onLinkHover?.(url ?? null);
+      }
     };
 
     const onLoadStart = () => {
@@ -307,7 +323,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
       el.removeEventListener('render-process-gone', onRenderProcessGone);
       el.removeEventListener('ipc-message', onIpcMessage as EventListener);
     };
-  }, [tab.id, tab.privateMode]);
+  }, [tab.id, tab.privateMode, onLinkHover]);
 
   return (
     <div className="relative w-full h-full">
@@ -317,7 +333,7 @@ export const WebView: React.FC<WebViewProps> = ({ tab }) => {
         partition={tab.privateMode ? `temp:tab-${tab.id}` : undefined}
         className="w-full h-full border-none"
         webpreferences="contextIsolation=yes,sandbox=no"
-        preload={capturePreload}
+        preload={preload}
         allowpopups
       />
 

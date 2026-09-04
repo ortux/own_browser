@@ -20,6 +20,7 @@ import { SavePasswordPrompt } from './SavePasswordPrompt';
 import { PasswordsPanel } from './PasswordsPanel';
 import { CommandPalette } from './CommandPalette';
 import { SiteSettingsPopover } from './SiteSettingsPopover';
+import { LinkPreview } from './LinkPreview';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useApplyGeneralSettings } from './settings/useGeneralSettings';
 import { useBrowserStore } from '../stores/tabStore';
@@ -27,20 +28,7 @@ import { useBrowser } from '../hooks/useBrowser';
 import { useBookmarks } from '../hooks/useBookmarks';
 import { normalizeNavigationUrl, INTERNAL_PAGES } from '../../shared/navigation';
 import { stripTrackingParams } from '../../shared/trackingParams';
-
-function looksLikeUrl(input: string): boolean {
-  const trimmed = input.trim();
-  if (
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.startsWith('file://') ||
-    trimmed.startsWith('about:') ||
-    trimmed.startsWith('zyphora://') ||
-    trimmed.startsWith('localhost')
-  )
-    return true;
-  return trimmed.includes('.') && !trimmed.includes(' ');
-}
+import { looksLikeUrl, isMacPlatform } from '../../shared/utils';
 
 type Panel = 'history' | 'bookmarks' | 'closed' | 'passwords' | null;
 
@@ -52,7 +40,7 @@ interface PendingCredential {
   favicon?: string;
 }
 
-const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
+const isMac = isMacPlatform();
 
 export const BrowserWindow: React.FC = () => {
   const tabs = useBrowserStore((s) => s.tabs);
@@ -91,6 +79,7 @@ export const BrowserWindow: React.FC = () => {
   const togglePanel = (p: Panel) => setPanel((cur) => (cur === p ? null : p));
   const [pendingCredential, setPendingCredential] = useState<PendingCredential | null>(null);
   const [savingCredential, setSavingCredential] = useState(false);
+  const [hoveredLink, setHoveredLink] = useState<string | null>(null);
 
   const { toggle: toggleBookmark, isBookmarked } = useBookmarks();
 
@@ -364,6 +353,14 @@ export const BrowserWindow: React.FC = () => {
           setFindOpen(false);
           return;
         }
+        if (siteSettingsOpen) {
+          setSiteSettingsOpen(false);
+          return;
+        }
+        if (agentOpen) {
+          setAgentOpen(false);
+          return;
+        }
         if (panel) {
           setPanel(null);
           return;
@@ -380,6 +377,8 @@ export const BrowserWindow: React.FC = () => {
     paletteOpen,
     passwordManagerEnabled,
     agentAvailable,
+    agentOpen,
+    siteSettingsOpen,
     openSettings,
     createNewBrowserTab,
     createTabWithUrl,
@@ -606,7 +605,7 @@ export const BrowserWindow: React.FC = () => {
                     className="absolute inset-0 w-full h-full"
                     style={{ display: t.id === activeTabId ? 'flex' : 'none' }}
                   >
-                    <WebView tab={t} />
+                    <WebView tab={t} onLinkHover={setHoveredLink} />
                   </div>
                 ))}
 
@@ -621,6 +620,9 @@ export const BrowserWindow: React.FC = () => {
                   onOpenSettings={openSettings}
                 />
               )}
+
+              {/* Link hover preview — shown at bottom like Chrome/Firefox */}
+              <LinkPreview url={hoveredLink} />
             </div>
 
             <NavBar

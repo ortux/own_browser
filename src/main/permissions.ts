@@ -1,5 +1,6 @@
 import { session } from 'electron';
 import type { PermissionRequest } from '../shared/types';
+import { hostFromUrl } from '../shared/utils';
 import { DebouncedWriter, readJsonFile, isRecord } from './jsonStore';
 
 const decisions = new Map<string, boolean>();
@@ -31,14 +32,6 @@ const PERMISSION_LABELS: Record<string, string> = {
   hid: 'HID devices',
   'persistent-storage': 'storage on this device',
 };
-
-function hostFromUrl(value: string): string {
-  try {
-    return new URL(value).hostname.toLowerCase();
-  } catch {
-    return '';
-  }
-}
 
 function decisionKey(host: string, permission: string): string {
   return `${host}\0${permission}`;

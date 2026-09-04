@@ -22,6 +22,7 @@ import {
   INTERNAL_PAGE_TITLES,
 } from '../shared/navigation';
 import { stripTrackingParams } from '../shared/trackingParams';
+import { isRecord } from '../shared/utils';
 import {
   loadClosedTabs,
   scheduleClosedTabsSave,
@@ -263,10 +264,6 @@ function shouldAttemptParamStrip(webContentsId: number, url: string): boolean {
   if (attempted.size > 100) attempted.clear();
   attempted.add(url);
   return true;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 /** Runtime validation is still required even though the renderer is typed. */
@@ -1297,10 +1294,10 @@ app.on('will-quit', () => {
   closeDb();
 });
 
-// ── Password-capture preload path ────────────────────────────────────────────
+// ── Webview preload path ──────────────────────────────────────────────────────
 
-/** Absolute path of the guest preload that captures logins inside webviews. */
-const capturePreloadPath = path.join(__dirname, '../preload/passwordCapture.js');
+/** Absolute path of the guest preload for webviews (password capture + link handling). */
+const capturePreloadPath = path.join(__dirname, '../preload/webviewPreload.js');
 
 // Answered synchronously so the renderer has the path before the first
 // <webview> mounts. Only the trusted shell frame may ask.
@@ -1767,9 +1764,11 @@ function registerDnsHandlers() {
 function registerGeneralSettingsHandlers() {
   ipcMain.handle('general:apply', (event, value: unknown) => {
     assertTrustedMainFrame(event);
-    const incoming = value as Partial<MainGeneralSettings> | null;
-    if (!incoming || typeof incoming !== 'object') throw new Error('Invalid general settings.');
+    if (!isRecord(value)) throw new Error('Invalid general settings.');
+    const incoming = value as Record<string, unknown>;
     const merged: MainGeneralSettings = { ...getMainGeneralSettings(), ...incoming };
+
+    // Field-by-field validation for security-critical settings.
     if (!isBoundedString(merged.acceptLanguages, 200)) {
       throw new Error('Invalid Accept-Language value.');
     }
@@ -1777,6 +1776,31 @@ function registerGeneralSettingsHandlers() {
       if (typeof merged[key] !== 'number' || !Number.isFinite(merged[key])) {
         throw new Error(`Invalid ${key}.`);
       }
+    }
+    // Validate boolean fields.
+    for (const key of [
+      'askWhereToSave',
+      'downloadNotifications',
+      'autoOpenDownloads',
+      'clearCompletedDownloads',
+      'smoothScrolling',
+      'keepOpenOnLastTabClose',
+      'openTabsNextToCurrent',
+      'switchToNewTab',
+      'warnClosingMultipleTabs',
+      'reopenClosedTabs',
+      'caretBrowsing',
+    ] as const) {
+      if (typeof merged[key] !== 'boolean') {
+        throw new Error(`Invalid ${key}.`);
+      }
+    }
+    // Validate externalLinkTarget enum.
+    if (
+      merged.externalLinkTarget !== 'tab' &&
+      merged.externalLinkTarget !== 'window'
+    ) {
+      throw new Error('Invalid externalLinkTarget.');
     }
     setMainGeneralSettings(merged);
     return merged;
@@ -1950,6 +1974,34 @@ function registerDownloadHandlers() {
     return revealFolder();
   });
 }
+
+// ── Search suggestions (Google Autocomplete) ────────────────────────────────
+const suggestionCache = new Map<string, string[]>();
+let suggestionAbort: AbortController | null = null;
+
+ipcMain.handle('search-suggestions', async (_event, query: unknown) => {
+  if (typeof query !== 'string' || !query.trim()) return [];
+  const q = query.trim();
+  const cached = suggestionCache.get(q);
+  if (cached) return cached;
+
+  suggestionAbort?.abort();
+  suggestionAbort = new AbortController();
+  try {
+    const url = `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, { signal: suggestionAbort.signal });
+    const data = await res.json();
+    const suggestions: string[] = Array.isArray(data[1]) ? data[1] : [];
+    suggestionCache.set(q, suggestions);
+    if (suggestionCache.size > 200) {
+      const first = suggestionCache.keys().next().value!;
+      suggestionCache.delete(first);
+    }
+    return suggestions;
+  } catch {
+    return [];
+  }
+});
 
 // Window control IPC (used by custom title bar buttons)
 ipcMain.on('window:minimize', (event) => {

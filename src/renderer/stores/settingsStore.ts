@@ -276,6 +276,10 @@ export const useSettingsStore = create<SettingsStore>()(
         } catch {
           return false;
         }
+        // Prevent duplicate engines with the same URL.
+        const { customSearchEngines } = get();
+        const allEngines = [...SEARCH_ENGINES, ...customSearchEngines];
+        if (allEngines.some((e) => e.url === trimmed)) return false;
         const engine: SearchEngine = {
           id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           name: name.trim() || 'Custom',
@@ -608,7 +612,7 @@ export const useSettingsStore = create<SettingsStore>()(
       },
     }),
     {
-      name: 'own-browser-settings',
+      name: 'zyphora-settings',
       partialize: (state) => {
         // Never persist authBaseUrl (always derived fresh from config) or the
         // transient auth status/error. Destructuring `state` directly keeps

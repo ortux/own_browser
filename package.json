@@ -21,6 +21,7 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write src",
     "test:passwords": "esbuild src/main/passwords.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --external:sql.js --outfile=.tmp-passwords-test.mjs && node .tmp-passwords-test.mjs && node -e \"require('fs').unlinkSync('.tmp-passwords-test.mjs')\"",
@@ -81,7 +82,20 @@
     "directories": {
       "output": "release"
     },
-    "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
     "linux": {
       "target": [
         "AppImage",

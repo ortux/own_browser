@@ -18,8 +18,24 @@ export default defineConfig({
       sourcemap: false,
       reportCompressedSize: false,
       target: 'node22',
+      commonjsOptions: {
+        exclude: [/node_modules[\\/]fluent-ffmpeg[\\/]/],
+      },
       rollupOptions: {
-        external: ['sql.js'],
+        // Externalize everything in node_modules. The main process runs in
+        // Node — there is no benefit to bundling dependencies and doing so
+        // breaks packages with native code, conditional requires, or unusual
+        // module layouts (e.g. whatsapp-web.js / puppeteer / fluent-ffmpeg).
+        external(id) {
+          if (id.endsWith('/lib-cov/fluent-ffmpeg') || id === './lib-cov/fluent-ffmpeg') {
+            return true;
+          }
+          if (id === 'bufferutil' || id === 'utf-8-validate') return true;
+          // Keep entry point and all local source files internal
+          if (id.startsWith('.') || id.startsWith('/') || id.startsWith('src/')) return false;
+          // Externalize Node built-ins and every npm package
+          return true;
+        },
       },
     },
   },

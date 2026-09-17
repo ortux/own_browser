@@ -4,7 +4,7 @@
   "description": "A secure, privacy-focused desktop web browser built with Electron and React",
   "type": "module",
   "main": "./dist/main/index.js",
-  "author": "Suprit Pahari <supritpahari123@gmail.com>",
+  "author": "Rudra Narayan Sahoo <omrudrasahoo2009@gmail.com>",
   "license": "MIT",
   "engines": {
     "node": ">=22.12.0"
@@ -15,13 +15,14 @@
     "typecheck": "tsc --noEmit",
     "preview": "electron-vite preview",
     "start": "electron dist/main/index.js",
+    "prepare:whatsapp-chrome": "node scripts/prepare-whatsapp-chrome.mjs",
     "test": "npm run test:adblock && npm run test:auth && npm run test:passwords && npm run test:session && npm run test:session-restore && npm run test:tracking && npm run test:retention && npm run test:window-state && npm run test:tab-audio && npm run test:tab-sleep && npm run test:tab-order && npm run test:navigation && npm run test:agent && npm run test:agent-config && npm run test:agent-downloads && npm run test:agent-store && npm run test:agent-runner && npm run test:general-settings && npm run test:settings-search",
     "test:adblock": "esbuild src/main/adblock.test.ts --bundle --platform=node --format=esm --outfile=.tmp-adblock-test.mjs && node .tmp-adblock-test.mjs && node -e \"require('fs').unlinkSync('.tmp-adblock-test.mjs')\"",
     "test:auth": "esbuild src/renderer/lib/authApi.test.ts --bundle --platform=node --format=esm --outfile=.tmp-auth-test.mjs && node .tmp-auth-test.mjs && node -e \"require('fs').unlinkSync('.tmp-auth-test.mjs')\"",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
-    "dist:linux": "npm run build && electron-builder --linux",
-    "dist:win": "npm run build && electron-builder --win",
+    "pack": "npm run build && npm run prepare:whatsapp-chrome && electron-builder --dir",
+    "dist": "npm run build && npm run prepare:whatsapp-chrome && electron-builder",
+    "dist:linux": "npm run build && npm run prepare:whatsapp-chrome && electron-builder --linux",
+    "dist:win": "npm run build && npm run prepare:whatsapp-chrome && electron-builder --win",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write src",
     "test:passwords": "esbuild src/main/passwords.test.ts --bundle --platform=node --format=esm --alias:electron=./src/main/__mocks__/electron.ts --external:sql.js --outfile=.tmp-passwords-test.mjs && node .tmp-passwords-test.mjs && node -e \"require('fs').unlinkSync('.tmp-passwords-test.mjs')\"",
@@ -61,17 +62,23 @@
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.18.2",
+    "@types/qrcode": "^1.5.5",
+    "bufferutil": "^4.0.9",
     "cross-fetch": "^4.1.0",
+    "electron-updater": "^6.6.2",
     "lucide-react": "^0.372.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "sql.js": "^1.14.2",
+    "utf-8-validate": "^5.0.10",
+    "whatsapp-web.js": "^1.34.7",
     "zustand": "^4.5.0"
   },
   "build": {
     "appId": "com.you.ownbrowser",
     "productName": "Zyphora",
-    "copyright": "Copyright \u00a9 2026",
+    "copyright": "Copyright © 2026",
     "npmRebuild": false,
     "compression": "maximum",
     "files": [
@@ -79,23 +86,46 @@
       "package.json",
       "!**/*.map"
     ],
+    "extraResources": [
+      {
+        "from": "resources/whatsapp-chrome",
+        "to": "whatsapp-chrome"
+      }
+    ],
     "icon": "public/icon.png",
     "directories": {
       "output": "release"
     },
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ortux",
+        "repo": "own_browser"
+      }
+    ],
     "win": {
       "target": [
         "nsis",
         "portable"
       ],
+      "requestedExecutionLevel": "asInvoker",
       "icon": "public/icon.png"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Zyphora",
+      "menuCategory": "Zyphora",
+      "runAfterFinish": true,
+      "allowElevation": true,
+      "installerLanguages": [
+        "en_US"
+      ]
     },
     "linux": {
       "target": [
@@ -122,5 +152,9 @@
     "asarUnpack": [
       "**/node_modules/sql.js/dist/*.wasm"
     ]
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "electron-winstaller@5.4.0": true
   }
 }

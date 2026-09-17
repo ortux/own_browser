@@ -7,6 +7,8 @@ pnpm-lock.yaml
 dist/
 build/
 release/
+release-final/
+resources/whatsapp-chrome/
 *.tsbuildinfo
 
 # IDE
@@ -30,6 +32,7 @@ yarn-error.log*
 
 # Misc
 .cache/
+.wwebjs_cache/
 *.tmp
 temp/
 

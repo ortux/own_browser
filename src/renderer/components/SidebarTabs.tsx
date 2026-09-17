@@ -15,6 +15,7 @@ import {
   Pin,
   PinOff,
   Bot,
+  Bell,
 } from 'lucide-react';
 import type { Tab } from '../../shared/types';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -49,6 +50,10 @@ interface SidebarTabsProps {
   agentOpen?: boolean;
   /** Open the Auth Portal for sign-in or sign-up. */
   onOpenAuth?: () => void;
+  /** Open the Notification Center panel. */
+  onOpenNotifications?: () => void;
+  /** Unread notification count — shown as a badge on the bell icon. */
+  notifBadge?: number;
 }
 
 const COLLAPSED_W = 48;
@@ -134,6 +139,8 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
   onToggleAgent,
   agentOpen = false,
   onOpenAuth,
+  onOpenNotifications,
+  notifBadge = 0,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [tabSearch, setTabSearch] = useState('');
@@ -185,6 +192,21 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
           {iconBtn(<History size={15} />, 'History', onOpenHistory)}
           {iconBtn(<RotateCcw size={15} />, 'Recently closed', onOpenRecentlyClosed)}
           {onOpenPasswords && iconBtn(<KeyRound size={15} />, 'Passwords', onOpenPasswords)}
+          {onOpenNotifications && (
+            <button
+              key="notifications"
+              onClick={onOpenNotifications}
+              title="Notifications"
+              className="relative flex items-center justify-center w-full py-2.5 text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)] rounded-lg transition-colors"
+            >
+              <Bell size={15} />
+              {notifBadge > 0 && (
+                <span className="absolute top-1 right-1.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-[var(--accent)] text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                  {notifBadge > 99 ? '99+' : notifBadge}
+                </span>
+              )}
+            </button>
+          )}
           {onToggleAgent && (
             <button
               onClick={onToggleAgent}
@@ -291,6 +313,24 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                       icon: <KeyRound size={14} />,
                       label: 'Passwords',
                       onClick: onOpenPasswords as (() => void) | undefined,
+                    },
+                  ]
+                : []),
+              ...(onOpenNotifications
+                ? [
+                    {
+                      icon: (
+                        <span className="relative">
+                          <Bell size={14} />
+                          {notifBadge > 0 && (
+                            <span className="absolute -top-1 -right-1.5 min-w-[13px] h-[13px] px-0.5 rounded-full bg-[var(--accent)] text-white text-[8px] font-bold flex items-center justify-center leading-none">
+                              {notifBadge > 99 ? '99+' : notifBadge}
+                            </span>
+                          )}
+                        </span>
+                      ),
+                      label: 'Notifications',
+                      onClick: onOpenNotifications as (() => void) | undefined,
                     },
                   ]
                 : []),

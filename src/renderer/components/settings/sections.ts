@@ -28,4 +28,5 @@ export type SectionId =
   | 'performance'
   | 'startup'
   | 'updates'
-  | 'about';
+  | 'about'
+  | 'integrations';

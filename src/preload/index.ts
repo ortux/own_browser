@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { RendererToMainMessage, BrowserState } from '../shared/types';
+import type { UpdateInfo } from '../shared/updater';
 
 /**
  * SECURITY: Preload script - the only bridge between untrusted renderer and main process
@@ -17,6 +18,19 @@ import type { RendererToMainMessage, BrowserState } from '../shared/types';
 const capturePreloadPath: string = ipcRenderer.sendSync('passwords:capture-preload-path') ?? '';
 
 const browserAPI = {
+  updater: {
+    getState: (): Promise<UpdateInfo> => ipcRenderer.invoke('updater:get-state'),
+    checkForUpdates: (): Promise<void> => ipcRenderer.invoke('updater:check'),
+    downloadUpdate: (): Promise<void> => ipcRenderer.invoke('updater:download'),
+    installUpdate: (): Promise<void> => ipcRenderer.invoke('updater:install'),
+    onStateChanged: (callback: (state: UpdateInfo) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: UpdateInfo) => callback(state);
+      ipcRenderer.on('updater:state-changed', handler);
+      return () => {
+        ipcRenderer.removeListener('updater:state-changed', handler);
+      };
+    },
+  },
   /**
    * Send a message to the main process and optionally wait for a response
    */
@@ -514,6 +528,114 @@ const browserAPI = {
   /** Open external URLs in the default browser. */
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
+  },
+
+  /** ── Application / Notification Engine ──────────────────────────────────── */
+  engine: {
+    // Notifications
+    notifications: {
+      get: (opts?: { provider?: string; unreadOnly?: boolean; limit?: number }): Promise<import('../shared/types').EngineNotificationUI[]> =>
+        ipcRenderer.invoke('engine:notifications:get', opts),
+      unreadCount: (provider?: string): Promise<number> =>
+        ipcRenderer.invoke('engine:notifications:unread-count', provider),
+      markRead: (id: string): Promise<void> =>
+        ipcRenderer.invoke('engine:notifications:mark-read', id),
+      markAllRead: (provider?: string): Promise<void> =>
+        ipcRenderer.invoke('engine:notifications:mark-all-read', provider),
+      dismiss: (id: string): Promise<void> =>
+        ipcRenderer.invoke('engine:notifications:dismiss', id),
+      clear: (): Promise<void> =>
+        ipcRenderer.invoke('engine:notifications:clear'),
+      openAction: (id: string): Promise<void> =>
+        ipcRenderer.invoke('engine:notification:open-action', id),
+      reply: (id: string, text: string): Promise<void> =>
+        ipcRenderer.invoke('engine:notification:reply', id, text),
+      /** Push: fires whenever a new notification arrives. Returns unsubscribe fn. */
+      onNew: (callback: (n: import('../shared/types').EngineNotificationUI) => void) => {
+        const handler = (_e: Electron.IpcRendererEvent, n: import('../shared/types').EngineNotificationUI) => callback(n);
+        ipcRenderer.on('engine:notification:new', handler);
+        return () => ipcRenderer.removeListener('engine:notification:new', handler);
+      },
+      /** Push: fires when unread badge count changes. */
+      onBadgeUpdate: (callback: (count: number) => void) => {
+        const handler = (_e: Electron.IpcRendererEvent, count: number) => callback(count);
+        ipcRenderer.on('engine:badge:update', handler);
+        return () => ipcRenderer.removeListener('engine:badge:update', handler);
+      },
+    },
+
+    // Accounts
+    accounts: {
+      list: (provider?: string): Promise<import('../shared/types').EngineAccountUI[]> =>
+        ipcRenderer.invoke('engine:accounts:list', provider),
+      add: (account: { id: string; provider: string; displayName: string; email?: string; gmailTokens?: unknown }): Promise<import('../shared/types').EngineAccountUI> =>
+        ipcRenderer.invoke('engine:accounts:add', account),
+      remove: (id: string): Promise<void> =>
+        ipcRenderer.invoke('engine:accounts:remove', id),
+    },
+
+    gmail: {
+      applyTokens: (accountId: string, tokens: unknown): Promise<void> =>
+        ipcRenderer.invoke('engine:gmail:apply-tokens', accountId, tokens),
+    },
+
+    // Integration status
+    integrations: {
+      status: (): Promise<import('../shared/types').IntegrationStatusUI[]> =>
+        ipcRenderer.invoke('engine:integrations:status'),
+      health: (): Promise<import('../shared/types').EngineHealthUI> =>
+        ipcRenderer.invoke('engine:integrations:health'),
+      reconnectAll: (): Promise<void> =>
+        ipcRenderer.invoke('engine:integrations:reconnect-all'),
+    },
+
+    /** Fired when the engine wants to open a URL in a new tab. */
+    onOpenTab: (callback: (url: string) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, url: string) => callback(url);
+      ipcRenderer.on('engine:open-tab', handler);
+      return () => ipcRenderer.removeListener('engine:open-tab', handler);
+    },
+
+    // ── WhatsApp-specific bridge ─────────────────────────────────────────────
+    whatsapp: {
+      /**
+       * Retrieve the cached QR data-URL for an account that is waiting for
+       * a phone scan.  Returns null when the account is already authenticated
+       * or no adapter is running.
+       */
+      getQr: (accountId: string): Promise<string | null> =>
+        ipcRenderer.invoke('engine:whatsapp:get-qr', accountId),
+
+      /**
+       * Subscribe to QR updates pushed from the main process.
+       * Fires with { accountId, qr } where qr is a data-URL or null
+       * (null means the QR was consumed / account authenticated).
+       * Returns an unsubscribe function.
+       */
+      onQr: (callback: (payload: { accountId: string; qr: string | null }) => void) => {
+        const handler = (
+          _e: Electron.IpcRendererEvent,
+          payload: { accountId: string; qr: string | null }
+        ) => callback(payload);
+        ipcRenderer.on('engine:whatsapp:qr', handler);
+        return () => ipcRenderer.removeListener('engine:whatsapp:qr', handler);
+      },
+
+      /**
+       * Subscribe to status changes pushed from the main process.
+       * Fires with { accountId, status } whenever the adapter transitions
+       * (auth_required → connected, connected → disconnected, etc.).
+       * Returns an unsubscribe function.
+       */
+      onStatus: (callback: (payload: { accountId: string; status: string }) => void) => {
+        const handler = (
+          _e: Electron.IpcRendererEvent,
+          payload: { accountId: string; status: string }
+        ) => callback(payload);
+        ipcRenderer.on('engine:whatsapp:status', handler);
+        return () => ipcRenderer.removeListener('engine:whatsapp:status', handler);
+      },
+    },
   },
 };
 

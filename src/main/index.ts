@@ -16,6 +16,7 @@ import { fileURLToPath } from 'url';
 import type { Tab, BrowserState, RendererToMainMessage } from '../shared/types';
 import {
   isAllowedNavigationUrl,
+  isPdfUrl,
   isHttpNavigationUrl,
   normalizeNavigationUrl,
   INTERNAL_PAGES,
@@ -32,6 +33,7 @@ import {
   type ClosedTabRecord,
 } from './closedTabs';
 import { registerPexelsHandlers } from './pexels';
+import { scheduleStartupBootstrap } from './startup';
 import {
   applyGuestPreferences,
   applyStartupSwitches,
@@ -171,6 +173,13 @@ import {
   revealFolder,
   getDownloadPath,
 } from './downloads';
+import { startEngine, stopEngine } from './engine/EngineStartup';
+import { applicationEngine } from './engine/ApplicationEngine';
+import { MockIntegration } from './engine/integrations/MockIntegration';
+import { GmailAdapter } from './engine/integrations/GmailAdapter';
+import { WhatsAppAdapter } from './engine/integrations/WhatsAppAdapter';
+import { registerEngineHandlers } from './engine/engineIPC';
+import { createUpdateManager } from './updateManager';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -179,7 +188,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // still works with software compositing, so prefer that stable path on Linux.
 // Developers can opt back in while diagnosing a specific GPU with
 // ZYPHORA_ENABLE_HARDWARE_ACCELERATION=1.
-if (process.platform === 'linux' && process.env.ZYPHORA_ENABLE_HARDWARE_ACCELERATION !== '1') {
+const lightweightMode = process.env.ZYPHORA_LIGHTWEIGHT === '1' || process.env.ZYPHORA_ENABLE_HARDWARE_ACCELERATION !== '1';
+if (lightweightMode) {
   app.disableHardwareAcceleration();
 }
 
@@ -191,7 +201,7 @@ configureAdGuardDns();
  */
 
 function canOpenInTab(value: string): boolean {
-  return isHttpNavigationUrl(value);
+  return isHttpNavigationUrl(value) || isPdfUrl(value);
 }
 
 /**
@@ -420,6 +430,7 @@ function isProxyInfo(value: unknown): value is ProxyInfo {
 
 // Store for browser state
 let mainWindow: BrowserWindow | null = null;
+let updateManager = createUpdateManager(() => mainWindow);
 const tabs: Map<string, Tab> = new Map();
 const closedTabs: Tab[] = [];
 
@@ -495,6 +506,7 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       webviewTag: true,
+      plugins: true,
       preload: path.join(__dirname, '../preload/index.js'),
     },
     // Must resolve inside dist/, which is all electron-builder packages.
@@ -670,9 +682,14 @@ function createNewTab(rawUrl?: string, privateMode = privateByDefault): string {
   return tabId;
 }
 
-function routePopupToTab(popup: BrowserWindow, privateMode: boolean): void {
-  const tabId = createNewTab(undefined, privateMode);
+function routePopupToTab(popup: BrowserWindow, privateMode: boolean, initialUrl = ''): void {
+  const tabId = createNewTab(canOpenInTab(initialUrl) ? initialUrl : undefined, privateMode);
   if (!tabId) {
+    popup.close();
+    return;
+  }
+
+  if (canOpenInTab(initialUrl)) {
     popup.close();
     return;
   }
@@ -1197,21 +1214,13 @@ app.on('ready', async () => {
   initProxyAutoApply(); // must be before createWindow so session-created fires
   initCertificateMonitor();
   managedSessions.add(session.defaultSession);
-  initAdblock(() => mainWindow?.webContents ?? null);
   configureSessionPermissions(session.defaultSession, () => mainWindow);
   initDownloads(); // session will-download handler — before any webview exists
-  try {
-    await initDb();
-  } catch (error) {
-    // The UI can still browse if local persistence is unavailable. Individual
-    // database IPC calls will reject and the renderer displays empty state
-    // instead of losing the entire browser window at startup.
-    console.error('[db] initialization failed; continuing without persistence:', error);
-  }
   registerPexelsHandlers(isTrustedMainFrame);
   registerDbHandlers();
   registerPrivacyHandlers();
   registerProxyHandlers();
+  registerUpdaterHandlers();
   registerAdblockHandlers();
   registerCertHandlers();
   registerDnsHandlers();
@@ -1231,13 +1240,58 @@ app.on('ready', async () => {
       return { ok: false, summary: error instanceof Error ? error.message : 'Failed.' };
     }
   });
-  startScheduler();
-  loadPermissionDecisions();
-  hydrateClosedTabs();
+  // Keep the browser lightweight on first launch: defer scheduled background work
+  // until the app has already opened and the user is actively browsing.
+  setTimeout(() => {
+    startScheduler();
+  }, 20_000);
   registerPermissionHandlers();
   registerShellHandlers();
   registerDownloadHandlers();
-  createWindow();
+
+  // The window is shown first so the browser feels instant. Expensive tasks
+  // that power the UI (DB, ad-block, engine startup, permission cache) are
+  // completed in the background after the browser shell is already visible.
+  await scheduleStartupBootstrap({
+    openWindow: createWindow,
+    tasks: [
+      async () => {
+        initAdblock(() => mainWindow?.webContents ?? null);
+      },
+      async () => {
+        try {
+          await initDb();
+        } catch (error) {
+          // The UI can still browse if local persistence is unavailable. Individual
+          // database IPC calls will reject and the renderer displays empty state
+          // instead of losing the entire browser window at startup.
+          console.error('[db] initialization failed; continuing without persistence:', error);
+        }
+      },
+      async () => {
+        loadPermissionDecisions();
+        hydrateClosedTabs();
+      },
+      async () => {
+        // ── Application / Notification Engine ─────────────────────────────────────
+        // Register adapter factories — add more providers here as they are built.
+        applicationEngine.register('mock', (account) => new MockIntegration(account, 20_000));
+        applicationEngine.register('gmail', (account) => new GmailAdapter(account));
+        applicationEngine.register('whatsapp', (account) => new WhatsAppAdapter(account));
+        // Start the engine (restores saved accounts, starts network/power monitors)
+        await startEngine();
+        // Register engine IPC handlers
+        registerEngineHandlers(assertTrustedMainFrame);
+      },
+    ],
+    onError: (error, index) => {
+      console.error(`[startup:${index}] background bootstrap failed:`, error);
+    },
+  });
+
+  void updateManager.initialize().catch((error) => {
+    console.error('[updater] background initialization failed:', error);
+  });
 
   // Ctrl/Cmd+J opens the Downloads page. This was a globalShortcut, which
   // registers at the OS level and stole the key from every other application
@@ -1279,6 +1333,8 @@ powerMonitor.on('suspend', () => {
 
 app.on('will-quit', () => {
   stopScheduler();
+  updateManager.dispose();
+  void stopEngine().catch(() => { /* best effort */ });
   // Session-scoped memories are promised not to outlive the session.
   dropSessionMemories();
   flushWindowState();
@@ -1453,6 +1509,28 @@ function registerPrivacyHandlers() {
       });
       await ses.clearCache();
     }
+  });
+}
+
+function registerUpdaterHandlers() {
+  ipcMain.handle('updater:get-state', (event) => {
+    assertTrustedMainFrame(event);
+    return updateManager.getState();
+  });
+  ipcMain.handle('updater:check', async (event) => {
+    assertTrustedMainFrame(event);
+    await updateManager.checkForUpdates();
+    return updateManager.getState();
+  });
+  ipcMain.handle('updater:download', async (event) => {
+    assertTrustedMainFrame(event);
+    await updateManager.downloadUpdate();
+    return updateManager.getState();
+  });
+  ipcMain.handle('updater:install', (event) => {
+    assertTrustedMainFrame(event);
+    updateManager.installUpdate();
+    return updateManager.getState();
   });
 }
 
@@ -2102,6 +2180,15 @@ function isOAuthFlowUrl(value: string): boolean {
   return hostMatches(value, authApiHost());
 }
 
+function isAuthCallbackUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'file:' && /\/auth-callback\.html$/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 // SECURITY: Prevent dangerous protocols in the main renderer window only.
 // Webview tags manage their own navigation separately.
 app.on('web-contents-created', (_event, contents) => {
@@ -2120,7 +2207,10 @@ app.on('web-contents-created', (_event, contents) => {
           navigationUrl.startsWith('https://localhost') ||
           navigationUrl.startsWith('file://') ||
           isOAuthFlowUrl(navigationUrl)
-        : isHttpNavigationUrl(navigationUrl) || navigationUrl === 'about:blank';
+        : isHttpNavigationUrl(navigationUrl) ||
+          navigationUrl === 'about:blank' ||
+          (isOAuthFlowUrl(navigationUrl) && contentsType === 'window') ||
+          (isAuthCallbackUrl(navigationUrl) && contentsType === 'window');
       if (!allowed) event.preventDefault();
     });
   }
@@ -2263,9 +2353,13 @@ app.on('web-contents-created', (_event, contents) => {
   }
 
   if (contentsType === 'webview') {
-    contents.on('did-create-window', (popup) => {
+    contents.on('did-create-window', (popup, details) => {
       const openerTabId = tabByWebContentsId.get(contents.id);
-      routePopupToTab(popup, openerTabId ? tabs.get(openerTabId)?.privateMode === true : false);
+      routePopupToTab(
+        popup,
+        openerTabId ? tabs.get(openerTabId)?.privateMode === true : false,
+        details.url
+      );
     });
   }
 

@@ -7,6 +7,9 @@ on:
 permissions:
   contents: write
 
+env:
+  GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
@@ -43,11 +46,11 @@ jobs:
         run: npm run build
 
       - name: Package (Linux)
-        run: npx electron-builder --linux --publish never
+        run: npx electron-builder --linux --publish always
         if: matrix.platform == 'linux'
 
       - name: Package (Windows)
-        run: npx electron-builder --win --publish never
+        run: npx electron-builder --win --publish always
         if: matrix.platform == 'win'
 
       - name: Upload artifacts

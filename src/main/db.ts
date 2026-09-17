@@ -118,6 +118,54 @@ export async function initDb(): Promise<void> {
       updated_at INTEGER NOT NULL,
       UNIQUE(origin, username)
     );
+
+    -- ── Application / Notification Engine tables ─────────────────────────────
+
+    CREATE TABLE IF NOT EXISTS engine_accounts (
+      id           TEXT    PRIMARY KEY,
+      provider     TEXT    NOT NULL,
+      display_name TEXT    NOT NULL DEFAULT '',
+      email        TEXT,
+      avatar       TEXT,
+      created_at   INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS engine_integration_states (
+      provider      TEXT    NOT NULL,
+      account_id    TEXT    NOT NULL,
+      status        TEXT    NOT NULL DEFAULT 'disconnected',
+      connected_at  INTEGER,
+      last_event_at INTEGER,
+      last_error    TEXT,        -- JSON: IntegrationError | null
+      updated_at    INTEGER NOT NULL,
+      PRIMARY KEY (provider, account_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS engine_processed_events (
+      event_id     TEXT    PRIMARY KEY,
+      provider     TEXT    NOT NULL,
+      processed_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS engine_notifications (
+      id           TEXT    PRIMARY KEY,
+      provider     TEXT    NOT NULL,
+      account_id   TEXT,
+      event_type   TEXT    NOT NULL,
+      title        TEXT,
+      body         TEXT,
+      icon         TEXT,
+      action_url   TEXT,
+      payload      TEXT,        -- JSON blob
+      priority     TEXT    NOT NULL DEFAULT 'normal',
+      created_at   INTEGER NOT NULL,
+      read_at      INTEGER,
+      dismissed_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_engine_notifications_created
+      ON engine_notifications(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_engine_notifications_provider
+      ON engine_notifications(provider);
   `);
 
   try {
@@ -591,5 +639,186 @@ export function deletePassword(id: number) {
 
 export function clearPasswords() {
   db().run('DELETE FROM passwords');
+  persist();
+}
+
+// ── Engine: Accounts ──────────────────────────────────────────────────────────
+
+export interface EngineAccount {
+  id: string;
+  provider: string;
+  display_name: string;
+  email: string | null;
+  avatar: string | null;
+  created_at: number;
+}
+
+export function saveEngineAccount(account: Omit<EngineAccount, 'created_at'>): EngineAccount {
+  const now = Date.now();
+  db().run(
+    `INSERT INTO engine_accounts (id, provider, display_name, email, avatar, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       display_name = excluded.display_name,
+       email        = excluded.email,
+       avatar       = excluded.avatar`,
+    [account.id, account.provider, account.display_name, account.email ?? null, account.avatar ?? null, now]
+  );
+  persist();
+  return queryObjects('SELECT * FROM engine_accounts WHERE id = ? LIMIT 1', [account.id])[0] as unknown as EngineAccount;
+}
+
+export function getEngineAccounts(provider?: string): EngineAccount[] {
+  if (provider) {
+    return queryObjects('SELECT * FROM engine_accounts WHERE provider = ? ORDER BY created_at', [provider]) as unknown as EngineAccount[];
+  }
+  return queryObjects('SELECT * FROM engine_accounts ORDER BY provider, created_at') as unknown as EngineAccount[];
+}
+
+export function deleteEngineAccount(id: string): void {
+  db().run('DELETE FROM engine_accounts WHERE id = ?', [id]);
+  db().run('DELETE FROM engine_integration_states WHERE account_id = ?', [id]);
+  persist();
+}
+
+// ── Engine: Integration States ────────────────────────────────────────────────
+
+export interface EngineIntegrationState {
+  provider: string;
+  account_id: string;
+  status: string;
+  connected_at: number | null;
+  last_event_at: number | null;
+  last_error: string | null;
+  updated_at: number;
+}
+
+export function saveIntegrationState(state: Omit<EngineIntegrationState, 'updated_at'>): void {
+  db().run(
+    `INSERT INTO engine_integration_states
+       (provider, account_id, status, connected_at, last_event_at, last_error, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(provider, account_id) DO UPDATE SET
+       status        = excluded.status,
+       connected_at  = excluded.connected_at,
+       last_event_at = excluded.last_event_at,
+       last_error    = excluded.last_error,
+       updated_at    = excluded.updated_at`,
+    [state.provider, state.account_id, state.status,
+     state.connected_at ?? null, state.last_event_at ?? null,
+     state.last_error ?? null, Date.now()]
+  );
+  persist();
+}
+
+export function getAllIntegrationStates(): EngineIntegrationState[] {
+  return queryObjects('SELECT * FROM engine_integration_states') as unknown as EngineIntegrationState[];
+}
+
+// ── Engine: Processed Events (deduplication) ──────────────────────────────────
+
+export function markEventProcessed(eventId: string, provider: string): void {
+  db().run(
+    `INSERT OR IGNORE INTO engine_processed_events (event_id, provider, processed_at)
+     VALUES (?, ?, ?)`,
+    [eventId, provider, Date.now()]
+  );
+  // Trim old entries (keep last 10k) to prevent unbounded growth
+  db().run(
+    `DELETE FROM engine_processed_events
+     WHERE event_id NOT IN (
+       SELECT event_id FROM engine_processed_events
+       ORDER BY processed_at DESC LIMIT 10000
+     )`
+  );
+  persist();
+}
+
+export function isEventProcessed(eventId: string): boolean {
+  const stmt = db().prepare('SELECT event_id FROM engine_processed_events WHERE event_id = ? LIMIT 1');
+  stmt.bind([eventId]);
+  const found = stmt.step();
+  stmt.free();
+  return found;
+}
+
+// ── Engine: Notifications ─────────────────────────────────────────────────────
+
+export interface EngineNotification {
+  id: string;
+  provider: string;
+  account_id: string | null;
+  event_type: string;
+  title: string | null;
+  body: string | null;
+  icon: string | null;
+  action_url: string | null;
+  payload: string | null;  // JSON
+  priority: string;
+  created_at: number;
+  read_at: number | null;
+  dismissed_at: number | null;
+}
+
+export function saveNotification(n: Omit<EngineNotification, 'read_at' | 'dismissed_at'>): EngineNotification {
+  db().run(
+    `INSERT OR IGNORE INTO engine_notifications
+       (id, provider, account_id, event_type, title, body, icon, action_url, payload, priority, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [n.id, n.provider, n.account_id ?? null, n.event_type,
+     n.title ?? null, n.body ?? null, n.icon ?? null,
+     n.action_url ?? null, n.payload ?? null, n.priority, n.created_at]
+  );
+  persist();
+  return queryObjects('SELECT * FROM engine_notifications WHERE id = ? LIMIT 1', [n.id])[0] as unknown as EngineNotification;
+}
+
+export function getNotifications(opts: {
+  provider?: string;
+  unreadOnly?: boolean;
+  limit?: number;
+} = {}): EngineNotification[] {
+  const { provider, unreadOnly, limit = 100 } = opts;
+  const safe = safeLimit(limit, 100, 500);
+  let sql = 'SELECT * FROM engine_notifications WHERE dismissed_at IS NULL';
+  const params: unknown[] = [];
+  if (provider) { sql += ' AND provider = ?'; params.push(provider); }
+  if (unreadOnly) sql += ' AND read_at IS NULL';
+  sql += ` ORDER BY created_at DESC LIMIT ${safe}`;
+  return queryObjects(sql, params) as unknown as EngineNotification[];
+}
+
+export function markNotificationRead(id: string): void {
+  db().run('UPDATE engine_notifications SET read_at = ? WHERE id = ? AND read_at IS NULL',
+    [Date.now(), id]);
+  persist();
+}
+
+export function markAllNotificationsRead(provider?: string): void {
+  if (provider) {
+    db().run('UPDATE engine_notifications SET read_at = ? WHERE provider = ? AND read_at IS NULL',
+      [Date.now(), provider]);
+  } else {
+    db().run('UPDATE engine_notifications SET read_at = ? WHERE read_at IS NULL', [Date.now()]);
+  }
+  persist();
+}
+
+export function dismissNotification(id: string): void {
+  db().run('UPDATE engine_notifications SET dismissed_at = ? WHERE id = ?', [Date.now(), id]);
+  persist();
+}
+
+export function getUnreadCount(provider?: string): number {
+  let sql = 'SELECT COUNT(*) as cnt FROM engine_notifications WHERE read_at IS NULL AND dismissed_at IS NULL';
+  const params: unknown[] = [];
+  if (provider) { sql += ' AND provider = ?'; params.push(provider); }
+  const rows = queryObjects(sql, params);
+  return Number((rows[0] as Record<string, unknown>)?.cnt ?? 0);
+}
+
+export function clearEngineNotifications(): void {
+  db().run('DELETE FROM engine_notifications');
+  db().run('DELETE FROM engine_processed_events');
   persist();
 }

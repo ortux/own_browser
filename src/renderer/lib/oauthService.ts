@@ -25,6 +25,12 @@ export interface OAuthCallbackPayload {
     token_type: string;
     expires_in: number;
   };
+  provider_tokens?: {
+    access_token: string;
+    refresh_token?: string;
+    token_type: string;
+    expires_in: number;
+  };
   provider: string;
 }
 
@@ -102,6 +108,7 @@ export function waitForOAuthCallback(
         } else if (data.tokens && data.user) {
           resolve({
             tokens: data.tokens,
+            provider_tokens: data.provider_tokens || undefined,
             user: {
               ...data.user,
               name: data.user.name || data.user.display_name || '',
@@ -160,6 +167,10 @@ export function waitForOAuthCallback(
         const refreshToken = params.get('refresh') || params.get('refresh_token') || '';
         const tokenType = params.get('token_type') || 'bearer';
         const expiresIn = Number(params.get('expires_in') || '900');
+        const providerAccessToken = params.get('provider_access_token') || '';
+        const providerRefreshToken = params.get('provider_refresh_token') || '';
+        const providerTokenType = params.get('provider_token_type') || 'Bearer';
+        const providerExpiresIn = Number(params.get('provider_expires_in') || '3600');
         const provider = params.get('provider') || 'google';
         const userRaw = params.get('user') || '';
 
@@ -185,6 +196,12 @@ export function waitForOAuthCallback(
             token_type: tokenType,
             expires_in: expiresIn,
           },
+          provider_tokens: providerAccessToken ? {
+            access_token: providerAccessToken,
+            refresh_token: providerRefreshToken,
+            token_type: providerTokenType,
+            expires_in: providerExpiresIn,
+          } : undefined,
           user: {
             id: typeof user.id === 'number' ? user.id : 0,
             email: typeof user.email === 'string' ? user.email : '',

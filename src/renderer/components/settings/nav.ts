@@ -9,6 +9,7 @@
 import type React from 'react';
 import {
   Accessibility,
+  Bell,
   Bot,
   Blocks,
   Brain,
@@ -118,6 +119,12 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'startup', label: 'Startup', icon: Play, generalAnchor: 'startup' },
       { id: 'updates', label: 'Updates', icon: RotateCcw },
       { id: 'about', label: 'About', icon: Info },
+    ],
+  },
+  {
+    title: 'Integrations',
+    items: [
+      { id: 'integrations', label: 'Integrations', icon: Bell },
     ],
   },
 ];

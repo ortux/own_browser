@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserWindow } from './components/BrowserWindow';
 import { AccountWelcome } from './components/AccountWelcome';
 import { OnboardingFlow } from './components/OnboardingFlow';
+import { FirstRunTour } from './components/FirstRunTour';
 import { useSettingsStore } from './stores/settingsStore';
 import { initHistorySync, syncHistoryWithDevice } from './lib/historySync';
 import { initBookmarksSync, syncBookmarksWithDevice } from './lib/bookmarksSync';
@@ -14,6 +15,7 @@ function App() {
   const account = useSettingsStore((state) => state.account);
   const guestMode = useSettingsStore((state) => state.guestMode);
   const onboardingCompleted = useSettingsStore((state) => state.onboardingCompleted);
+  const firstRunTourCompleted = useSettingsStore((state) => state.firstRunTourCompleted);
   const authPromptLastShownAt = useSettingsStore((state) => state.authPromptLastShownAt);
   const markAuthPromptShown = useSettingsStore((state) => state.markAuthPromptShown);
   const chooseGuest = useSettingsStore((state) => state.chooseGuest);
@@ -77,6 +79,15 @@ function App() {
 
   if (!onboardingCompleted) {
     return <OnboardingFlow onComplete={() => {}} />;
+  }
+
+  if (!firstRunTourCompleted) {
+    return (
+      <div className="relative h-screen w-screen overflow-hidden bg-[var(--bg)]">
+        <BrowserWindow />
+        <FirstRunTour />
+      </div>
+    );
   }
 
   const shouldShowAccountPrompt =

@@ -250,3 +250,50 @@ export type DownloadChannel =
   | 'download:open'
   | 'download:show'
   | 'download:reveal-folder';
+
+// ── Application / Notification Engine types ───────────────────────────────────
+
+export type NotificationPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export interface EngineNotificationUI {
+  id: string;
+  provider: string;
+  accountId: string | null;
+  eventType: string;
+  title: string | null;
+  body: string | null;
+  icon: string | null;
+  actionUrl: string | null;
+  payload: Record<string, unknown> | null;
+  priority: NotificationPriority;
+  createdAt: number;
+  readAt: number | null;
+  dismissedAt: number | null;
+}
+
+export interface EngineAccountUI {
+  id: string;
+  provider: string;
+  displayName: string;
+  email: string | null;
+  avatar: string | null;
+}
+
+export interface IntegrationStatusUI {
+  provider: string;
+  accountId: string;
+  status: string;
+  connectedAt: number | null;
+  lastEventAt: number | null;
+  lastError: { code: string; message: string; recoverable: boolean } | null;
+}
+
+export interface EngineHealthUI {
+  status: 'running' | 'stopped';
+  uptime: number;
+  connectedCount: number;
+  totalIntegrations: number;
+  eventCount: number;
+  errorCount: number;
+  lastEventAt: number | null;
+}

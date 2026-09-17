@@ -6,6 +6,8 @@ import {
   isInternalPageUrl,
   INTERNAL_PAGES,
   INTERNAL_PAGE_TITLES,
+  isPdfUrl,
+  isWhatsAppUrl,
 } from './navigation';
 
 test('file: URLs must be local', () => {
@@ -44,4 +46,20 @@ test('every internal page has a title and is recognised', () => {
     assert.ok(INTERNAL_PAGE_TITLES[url], `${url} should have a tab title`);
   }
   assert.equal(isInternalPageUrl('https://example.com'), false);
+});
+
+test('only the WhatsApp Web origin receives WhatsApp session handling', () => {
+  assert.equal(isWhatsAppUrl('https://web.whatsapp.com/'), true);
+  assert.equal(isWhatsAppUrl('https://web.whatsapp.com/send?phone=1'), true);
+  assert.equal(isWhatsAppUrl('http://web.whatsapp.com/'), false);
+  assert.equal(isWhatsAppUrl('https://whatsapp.com/'), false);
+  assert.equal(isWhatsAppUrl('https://example.com/?next=web.whatsapp.com'), false);
+});
+
+test('PDF URLs are recognised without accepting non-web schemes', () => {
+  assert.equal(isPdfUrl('https://example.com/files/report.pdf'), true);
+  assert.equal(isPdfUrl('https://example.com/report.pdf?download=1'), true);
+  assert.equal(isPdfUrl('http://example.com/report.pdf'), true);
+  assert.equal(isPdfUrl('https://example.com/report.pdf.exe'), false);
+  assert.equal(isPdfUrl('file:///tmp/report.pdf'), false);
 });

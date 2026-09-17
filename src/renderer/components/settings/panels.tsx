@@ -9,6 +9,7 @@
  */
 
 import React from 'react';
+import type { UpdateInfo } from '../../../shared/updater';
 import {
   AlertTriangle,
   Check,
@@ -793,21 +794,80 @@ export const ExtensionsPanel: React.FC = () => (
 );
 
 export const UpdatesPanel: React.FC = () => {
-  const [checkedAt, setCheckedAt] = React.useState<Date | null>(null);
-  const version = window.navigator.userAgent.match(/Electron\/([\d.]+)/)?.[1] ?? 'unknown';
+  const [state, setState] = React.useState<UpdateInfo>({
+    state: 'idle',
+    currentVersion: 'unknown',
+    channel: 'stable',
+  });
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    void window.browserAPI.updater.getState().then(setState);
+    return window.browserAPI.updater.onStateChanged(setState);
+  }, []);
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const formatBytes = (value?: number) => {
+    if (!value || value < 1_024) return `${value ?? 0} B`;
+    const units = ['KB', 'MB', 'GB'];
+    let amount = value;
+    let index = -1;
+    while (amount >= 1_024 && index < units.length - 1) {
+      amount /= 1_024;
+      index += 1;
+    }
+    return `${amount.toFixed(amount >= 10 ? 0 : 1)} ${units[index]}`;
+  };
+
+  const description = (() => {
+    switch (state.state) {
+      case 'checking':
+        return 'Checking the trusted update service...';
+      case 'available':
+        return `Version ${state.availableVersion} is available to download.`;
+      case 'downloading':
+        return `Downloading ${state.availableVersion ?? 'the update'}: ${Math.round(state.downloadProgress ?? 0)}% (${formatBytes(state.bytesDownloaded)} / ${formatBytes(state.totalBytes)}).`;
+      case 'downloaded':
+        return `Version ${state.availableVersion} is ready. Restart Zyphora to complete the update.`;
+      case 'up_to_date':
+        return 'You are running the latest available version.';
+      case 'error':
+        return state.errorMessage ?? 'Zyphora will continue running normally.';
+      default:
+        return `Updates are checked securely in the background on the ${state.channel} channel.`;
+    }
+  })();
 
   return (
     <Section title="Updates" description="Keep Zyphora current.">
       <Panel>
         <Row
-          label="Zyphora is up to date"
-          description={
-            checkedAt
-              ? `Last checked ${checkedAt.toLocaleTimeString()}. Updates are delivered with your installed build (Electron ${version}).`
-              : `Updates are delivered with your installed build (Electron ${version}).`
-          }
+          label={state.state === 'downloaded' ? `Zyphora ${state.availableVersion} is ready` : state.state === 'available' ? 'Zyphora update available' : state.state === 'error' ? 'Unable to update Zyphora' : state.state === 'up_to_date' ? 'Zyphora is up to date' : 'Zyphora updates'}
+          description={`${description} Current version: ${state.currentVersion}.`}
         >
-          <Button onClick={() => setCheckedAt(new Date())}>Check for updates</Button>
+          {state.state === 'available' && (
+            <Button disabled={busy} onClick={() => void run(() => window.browserAPI.updater.downloadUpdate())}>
+              Download update
+            </Button>
+          )}
+          {state.state === 'downloaded' && (
+            <Button variant="primary" disabled={busy} onClick={() => void run(() => window.browserAPI.updater.installUpdate())}>
+              Restart to update
+            </Button>
+          )}
+          {(state.state !== 'available' && state.state !== 'downloaded' && state.state !== 'downloading' && state.state !== 'checking') && (
+            <Button disabled={busy} onClick={() => void run(() => window.browserAPI.updater.checkForUpdates())}>
+              {state.state === 'error' ? 'Retry' : 'Check for updates'}
+            </Button>
+          )}
         </Row>
       </Panel>
     </Section>

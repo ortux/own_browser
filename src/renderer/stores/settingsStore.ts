@@ -117,10 +117,12 @@ interface SettingsStore {
   account: AuthUser | null;
   guestMode: boolean;
   onboardingCompleted: boolean;
+  firstRunTourCompleted: boolean;
   authPromptLastShownAt: number | null;
   markAuthPromptShown: () => void;
   chooseGuest: () => void;
   completeOnboarding: () => void;
+  completeFirstRunTour: () => void;
   /** Epoch ms when the user accepted the Terms of Service, or null. */
   termsAcceptedAt: number | null;
   agreeToTerms: () => void;
@@ -321,10 +323,12 @@ export const useSettingsStore = create<SettingsStore>()(
       account: null,
       guestMode: false,
       onboardingCompleted: false,
+      firstRunTourCompleted: false,
       authPromptLastShownAt: null,
       markAuthPromptShown: () => set({ authPromptLastShownAt: Date.now() }),
       chooseGuest: () => set({ guestMode: true }),
       completeOnboarding: () => set({ onboardingCompleted: true }),
+      completeFirstRunTour: () => set({ firstRunTourCompleted: true }),
       termsAcceptedAt: null,
       // Was `set({})` — a literal no-op, so consent was never recorded.
       agreeToTerms: () => set({ termsAcceptedAt: Date.now() }),
@@ -345,7 +349,10 @@ export const useSettingsStore = create<SettingsStore>()(
       restoreSession: false,
       setRestoreSession: (enabled) => set({ restoreSession: enabled }),
 
-      browserMode: 'full',
+      // Default to the lightweight profile. Full agent features can still be
+      // enabled manually from settings without paying the memory cost on first
+      // launch.
+      browserMode: 'minimal',
       setBrowserMode: (mode) => set({ browserMode: mode }),
 
       backgroundCategory: 'random',

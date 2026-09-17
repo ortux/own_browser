@@ -12,6 +12,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import type { AuthPortalMode } from './AuthPortal';
 import { AgentSettingsPage } from './agent/AgentSettingsPage';
 import { GeneralPage } from './settings/GeneralPage';
+import { IntegrationsPanel } from './settings/IntegrationsPanel';
 import {
   AboutPanel,
   ClearDataPanel,
@@ -295,6 +296,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onOpenAuth }) => {
               {section === 'performance' && <PerformancePanel />}
               {section === 'updates' && <UpdatesPanel />}
               {section === 'about' && <AboutPanel />}
+              {section === 'integrations' && <IntegrationsPanel />}
             </div>
           )}
         </div>

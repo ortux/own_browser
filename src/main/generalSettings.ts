@@ -47,6 +47,13 @@ export function applyStartupSwitches(): void {
   if (!current.smoothScrolling) {
     app.commandLine.appendSwitch('disable-smooth-scrolling');
   }
+
+  // Keep the app in a lightweight browser profile: reduce Chromium's background
+  // processing and avoid costly task scheduling when the window is not focused.
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+  app.commandLine.appendSwitch('disable-background-networking');
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,AudioServiceOutOfProcess');
 }
 
 /**

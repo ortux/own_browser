@@ -86,3 +86,23 @@ export function isHttpNavigationUrl(value: string): boolean {
     return false;
   }
 }
+
+/** True for normal web URLs that point to a PDF document. */
+export function isPdfUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    return parsed.pathname.toLowerCase().endsWith('.pdf');
+  } catch {
+    return false;
+  }
+}
+
+export function isWhatsAppUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && parsed.hostname === 'web.whatsapp.com';
+  } catch {
+    return false;
+  }
+}

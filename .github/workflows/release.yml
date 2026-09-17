@@ -56,13 +56,30 @@ jobs:
         run: npx electron-builder --win --publish never
         if: matrix.platform == 'win'
 
-      - name: Upload artifacts
+      - name: Upload Linux release files
+        if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.platform }}
-          path: release/*
+          name: release-linux
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.yml
+            release/*.blockmap
           if-no-files-found: error
-          retention-days: 5
+          retention-days: 1
+
+      - name: Upload Windows release files
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-win
+          path: |
+            release/*.exe
+            release/*.yml
+            release/*.blockmap
+          if-no-files-found: error
+          retention-days: 1
 
   release:
     name: Create Release

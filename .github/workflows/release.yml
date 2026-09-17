@@ -45,12 +45,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Prepare bundled Chromium
+        run: npm run prepare:whatsapp-chrome
+
       - name: Package (Linux)
-        run: npx electron-builder --linux --publish always
+        run: npx electron-builder --linux --publish never
         if: matrix.platform == 'linux'
 
       - name: Package (Windows)
-        run: npx electron-builder --win --publish always
+        run: npx electron-builder --win --publish never
         if: matrix.platform == 'win'
 
       - name: Upload artifacts

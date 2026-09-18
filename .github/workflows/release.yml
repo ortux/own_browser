@@ -8,11 +8,30 @@ permissions:
   contents: write
 
 env:
-  GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          body: |
+            Automated build from commit ${{ github.sha }}
+
+            **Includes:**
+            - Linux: AppImage, .deb
+            - Windows: NSIS installer, Portable
+          draft: true
+          prerelease: false
+
   build:
     name: Build (${{ matrix.os }})
+    needs: release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -58,56 +77,22 @@ jobs:
 
       - name: Upload Linux release files
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-linux
-          path: |
-            release/*.AppImage
-            release/*.deb
-            release/*.yml
-            release/*.blockmap
-          if-no-files-found: error
-          retention-days: 1
+        run: gh release upload "v${{ github.run_number }}" release/*.AppImage release/*.deb release/*.yml release/*.blockmap --clobber
 
       - name: Upload Windows release files
         if: matrix.platform == 'win'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-win
-          path: |
-            release/*.exe
-            release/*.yml
-            release/*.blockmap
-          if-no-files-found: error
-          retention-days: 1
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path release\* -File -Include *.exe, *.yml, *.blockmap
+          if (-not $files) {
+            throw 'No Windows release files were produced.'
+          }
+          gh release upload "v${{ github.run_number }}" $files.FullName --clobber
 
-  release:
-    name: Create Release
+  publish:
+    name: Publish Release
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release
-          merge-multiple: true
-
-      - name: List release files
-        run: ls -lh release/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ github.run_number }}
-          name: Build ${{ github.run_number }}
-          body: |
-            Automated build from commit ${{ github.sha }}
-
-            **Includes:**
-            - Linux: AppImage, .deb
-            - Windows: NSIS installer, Portable
-          files: release/*
-          draft: false
-          prerelease: false
+      - name: Publish GitHub Release
+        run: gh release edit "v${{ github.run_number }}" --draft=false

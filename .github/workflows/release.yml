@@ -77,7 +77,15 @@ jobs:
 
       - name: Upload Linux release files
         if: matrix.platform == 'linux'
-        run: gh release upload "v${{ github.run_number }}" release/*.AppImage release/*.deb release/*.yml release/*.blockmap --clobber
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(release/*.AppImage release/*.deb release/*.yml release/*.blockmap)
+          if ((${#files[@]} == 0)); then
+            echo 'No Linux release files were produced.' >&2
+            exit 1
+          fi
+          gh release upload "v${{ github.run_number }}" "${files[@]}" --clobber
 
       - name: Upload Windows release files
         if: matrix.platform == 'win'

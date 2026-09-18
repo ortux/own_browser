@@ -430,7 +430,7 @@ function isProxyInfo(value: unknown): value is ProxyInfo {
 
 // Store for browser state
 let mainWindow: BrowserWindow | null = null;
-let updateManager = createUpdateManager(() => mainWindow);
+const updateManager = createUpdateManager(() => mainWindow);
 const tabs: Map<string, Tab> = new Map();
 const closedTabs: Tab[] = [];
 

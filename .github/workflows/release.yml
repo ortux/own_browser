@@ -72,7 +72,7 @@ jobs:
         if: matrix.platform == 'linux'
 
       - name: Package (Windows)
-        run: npx electron-builder --win --publish never
+        run: npx electron-builder --win nsis portable --publish never
         if: matrix.platform == 'win'
 
       - name: Upload Linux release files
@@ -94,6 +94,10 @@ jobs:
           $files = Get-ChildItem -Path release\* -File -Include *.exe, *.yml, *.blockmap
           if (-not $files) {
             throw 'No Windows release files were produced.'
+          }
+          $installer = $files | Where-Object { $_.Name -match '-setup\.exe$' }
+          if (-not $installer) {
+            throw 'No NSIS installer was produced.'
           }
           gh release upload "v${{ github.run_number }}" $files.FullName --clobber
 

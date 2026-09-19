@@ -10,6 +10,7 @@ release/
 release-final/
 resources/whatsapp-chrome/
 *.tsbuildinfo
+.agents/
 
 # IDE
 .vscode/

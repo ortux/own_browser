@@ -68,8 +68,6 @@
     "electron-updater": "^6.6.2",
     "lucide-react": "^0.372.0",
     "qrcode": "^1.5.4",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
     "sql.js": "^1.14.2",
     "utf-8-validate": "^5.0.10",
     "whatsapp-web.js": "^1.34.7",
@@ -113,6 +111,7 @@
       "icon": "public/icon.png"
     },
     "nsis": {
+      "artifactName": "${productName}-${version}-${os}-${arch}-setup.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
@@ -126,6 +125,9 @@
       "installerLanguages": [
         "en_US"
       ]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${os}-${arch}-portable.${ext}"
     },
     "linux": {
       "target": [

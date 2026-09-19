@@ -103,4 +103,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Publish GitHub Release
-        run: gh release edit "v${{ github.run_number }}" --draft=false
+        run: gh release edit "v${{ github.run_number }}" --repo "${{ github.repository }}" --draft=false

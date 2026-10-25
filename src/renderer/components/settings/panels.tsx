@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Check,
   Globe,
+  Lock,
   Plus,
   RefreshCw,
   Blocks,
@@ -631,9 +632,27 @@ export const DownloadsPanel: React.FC = () => {
   );
 };
 
-// ─── Performance (proxy + tab sleeping + new tab mode) ───────────────────────
+// ─── Performance (proxy + tab sleeping + browser mode) ───────────────────────
 
-export const PerformancePanel: React.FC = () => {
+/** Inline lock banner shown when a feature requires a signed-in account. */
+const AuthRequired: React.FC<{
+  label: string;
+  onOpenAuth: (mode: AuthPortalMode) => void;
+}> = ({ label, onOpenAuth }) => (
+  <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
+    <Lock size={15} className="shrink-0 text-[var(--text-faint)]" />
+    <p className="flex-1 text-sm text-[var(--text-muted)]">
+      {label}
+    </p>
+    <div className="flex gap-2 shrink-0">
+      <Button variant="primary" onClick={() => onOpenAuth('signin')}>Log in</Button>
+      <Button onClick={() => onOpenAuth('signup')}>Sign up</Button>
+    </div>
+  </div>
+);
+
+export const PerformancePanel: React.FC<{ onOpenAuth: (mode: AuthPortalMode) => void }> = ({ onOpenAuth }) => {
+  const account = useSettingsStore((s) => s.account);
   const sleepTabs = useSettingsStore((s) => s.sleepTabs);
   const setSleepTabs = useSettingsStore((s) => s.setSleepTabs);
   const sleepTabsAfterMinutes = useSettingsStore((s) => s.sleepTabsAfterMinutes);
@@ -678,16 +697,30 @@ export const PerformancePanel: React.FC = () => {
             label="Browser mode"
             description="Minimal is a quieter browser: the AI agent is hidden and never loaded, and the new tab page drops its photo background, clock and quote. Full enables everything."
           >
-            <Select
-              label="Browser mode"
-              value={browserMode}
-              onChange={(value) => setBrowserMode(value as 'minimal' | 'full')}
-              options={[
-                { id: 'minimal', label: 'Minimal' },
-                { id: 'full', label: 'Full' },
-              ]}
-              className="w-40"
-            />
+            {account ? (
+              <Select
+                label="Browser mode"
+                value={browserMode}
+                onChange={(value) => setBrowserMode(value as 'minimal' | 'full')}
+                options={[
+                  { id: 'minimal', label: 'Minimal' },
+                  { id: 'full', label: 'Full' },
+                ]}
+                className="w-40"
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--text-faint)]">Currently: {browserMode}</span>
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth('signin')}
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                  title="Sign in to switch to Full mode"
+                >
+                  <Lock size={11} /> Sign in to change
+                </button>
+              </div>
+            )}
           </Row>
         </Panel>
       </Section>
@@ -696,39 +729,48 @@ export const PerformancePanel: React.FC = () => {
         title="Proxy"
         description="Route browser traffic through a configured anonymous proxy."
       >
-        <Panel>
-          <Row
-            icon={proxyEnabled ? Wifi : WifiOff}
-            label={proxyEnabled ? 'Proxy enabled' : 'No proxy — using direct connection'}
-            description="Public proxies may be slow, blocked by some sites, or go offline without notice."
-          >
-            <Switch
-              label="Enable proxy"
-              checked={proxyEnabled}
-              onChange={toggleProxy}
-              disabled={proxyStatus === 'fetching' || proxyStatus === 'verifying'}
-            />
-          </Row>
-          {(proxyStatus === 'fetching' || proxyStatus === 'verifying') && (
+        {account ? (
+          <Panel>
             <Row
-              icon={RefreshCw}
-              label={proxyStatus === 'fetching' ? 'Fetching proxy…' : 'Verifying connection…'}
-            />
-          )}
-          {proxyStatus === 'failed' && proxyError && (
-            <Row icon={AlertTriangle} danger label={proxyError} />
-          )}
-          {proxyEnabled && proxy && proxyStatus === 'active' && (
-            <Row
-              label={`Connected via ${proxy.ipPort}`}
-              description={`${proxy.country} · ${proxy.type.toUpperCase()} · ${proxy.proxyLevel} · ${proxy.speed}s`}
+              icon={proxyEnabled ? Wifi : WifiOff}
+              label={proxyEnabled ? 'Proxy enabled' : 'No proxy — using direct connection'}
+              description="Public proxies may be slow, blocked by some sites, or go offline without notice."
             >
-              <Button icon={RefreshCw} onClick={fetchAndApply}>
-                Rotate
-              </Button>
+              <Switch
+                label="Enable proxy"
+                checked={proxyEnabled}
+                onChange={toggleProxy}
+                disabled={proxyStatus === 'fetching' || proxyStatus === 'verifying'}
+              />
             </Row>
-          )}
-        </Panel>
+            {(proxyStatus === 'fetching' || proxyStatus === 'verifying') && (
+              <Row
+                icon={RefreshCw}
+                label={proxyStatus === 'fetching' ? 'Fetching proxy…' : 'Verifying connection…'}
+              />
+            )}
+            {proxyStatus === 'failed' && proxyError && (
+              <Row icon={AlertTriangle} danger label={proxyError} />
+            )}
+            {proxyEnabled && proxy && proxyStatus === 'active' && (
+              <Row
+                label={`Connected via ${proxy.ipPort}`}
+                description={`${proxy.country} · ${proxy.type.toUpperCase()} · ${proxy.proxyLevel} · ${proxy.speed}s`}
+              >
+                <Button icon={RefreshCw} onClick={fetchAndApply}>
+                  Rotate
+                </Button>
+              </Row>
+            )}
+          </Panel>
+        ) : (
+          <div className="mt-2">
+            <AuthRequired
+              label="Sign in to use the anonymous proxy feature."
+              onOpenAuth={onOpenAuth}
+            />
+          </div>
+        )}
       </Section>
     </>
   );

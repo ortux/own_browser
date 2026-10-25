@@ -170,6 +170,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
 
   return (
     <div
+      data-tour="sidebar-tabs"
       className="flex flex-col h-full bg-[var(--chrome)] border-r border-[var(--border)] shrink-0 select-none z-10 overflow-hidden transition-[width] duration-200 ease-in-out"
       style={{ width: expanded ? `${EXPANDED_W}px` : `${COLLAPSED_W}px` }}
       onMouseEnter={() => setExpanded(true)}
@@ -274,7 +275,9 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
                 <User size={15} className="text-[var(--text-muted)]" />
               )}
             </button>
-            {iconBtn(<Settings size={15} />, 'Settings', onOpenSettings)}
+            <div data-tour="settings-btn">
+              {iconBtn(<Settings size={15} />, 'Settings', onOpenSettings)}
+            </div>
           </div>
         </div>
       )}
@@ -530,6 +533,7 @@ export const SidebarTabs: React.FC<SidebarTabsProps> = ({
 
             {/* Settings */}
             <button
+              data-tour="settings-btn"
               onClick={onOpenSettings}
               className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)] transition-colors"
             >

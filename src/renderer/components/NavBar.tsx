@@ -320,6 +320,7 @@ export const NavBar: React.FC<NavBarProps> = ({
 
   return (
     <div
+      data-tour="navbar"
       className={`flex items-center gap-1 bg-[var(--chrome)] border-t border-[var(--border)] shrink-0 ${
         compactToolbar ? 'px-1.5 py-0.5' : 'px-2 py-1.5'
       }`}
@@ -372,7 +373,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       )}
 
       {/* Address / search bar */}
-      <div className="relative flex-1 mx-1">
+      <div data-tour="address-bar" className="relative flex-1 mx-1">
         <div
           className="flex items-center gap-2 px-3 py-1.5 rounded-md border bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--hover)] hover:border-[var(--border-strong)] transition-colors"
         >
@@ -533,7 +534,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       </div>
 
       {/* Ad blocker toggle */}
-      <div className="relative shrink-0">
+      <div data-tour="adblock-shield" className="relative shrink-0">
         <button
           onClick={() => setShowAdblock((v) => !v)}
           className={`p-2 rounded-md hover:bg-[var(--hover)] transition-colors ${

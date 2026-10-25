@@ -61,14 +61,23 @@ function toActionUrl(event: NormalizedEvent): string | null {
 export class NotificationManager {
   private unsubscribe: (() => void) | null = null;
   private desktopEnabled = true;
+  /**
+   * Epoch-ms timestamp recorded when start() is called (i.e. when the app
+   * launched). Any event whose timestamp is older than this is silently
+   * dropped — this prevents WhatsApp / Gmail from re-firing desktop toasts
+   * and flooding the notification center with messages that arrived before
+   * the current session started.
+   */
+  private sessionStartedAt = 0;
 
   start() {
+    this.sessionStartedAt = Date.now();
     this.unsubscribe = eventProcessor.onProcessed((event) =>
       this.handle(event).catch((err) =>
         console.error('[NotificationManager] handle error:', err)
       )
     );
-    console.info('[NotificationManager] started');
+    console.info('[NotificationManager] started (session start:', this.sessionStartedAt, ')');
   }
 
   stop() {
@@ -81,6 +90,22 @@ export class NotificationManager {
   }
 
   private async handle(event: NormalizedEvent) {
+    // ── Session-start filter ───────────────────────────────────────────────
+    // Drop events that pre-date the current app session. Without this guard
+    // WhatsApp replays cached messages on reconnect, and Gmail's first poll
+    // returns all unread mail — both of which fire spurious desktop toasts.
+    if (event.timestamp < this.sessionStartedAt) {
+      console.info(
+        `[NotificationManager] Skipping pre-session event: ${event.id} ` +
+        `(ts=${event.timestamp}, session=${this.sessionStartedAt})`
+      );
+      // Still mark it processed so it never surfaces on future reconnects.
+      if (!isEventProcessed(event.id)) {
+        markEventProcessed(event.id, event.provider);
+      }
+      return;
+    }
+
     // ── Deduplication ──────────────────────────────────────────────────────
     if (isEventProcessed(event.id)) {
       console.info('[NotificationManager] Ignoring duplicate event:', event.id);

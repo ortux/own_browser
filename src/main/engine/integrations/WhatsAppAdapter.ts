@@ -126,6 +126,13 @@ export class WhatsAppAdapter extends Integration {
   private readyWaiter: { resolve: () => void; reject: (error: Error) => void } | null = null;
   private readyTimer: NodeJS.Timeout | null = null;
   private isReady = false;
+  /**
+   * Epoch-ms when the adapter's 'ready' event fired for the current session.
+   * Messages whose wwebjs timestamp (seconds) × 1000 is older than this are
+   * considered "catch-up" history and are silently dropped so they do not
+   * flood the notification center on every reconnect.
+   */
+  private readyAt = 0;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -234,6 +241,7 @@ export class WhatsAppAdapter extends Integration {
     await this.destroyClient();
     this.state.transition('disconnected');
     this.lastQr = null;
+    this.readyAt = 0;
     this.pushStatus();
   }
 
@@ -325,6 +333,7 @@ export class WhatsAppAdapter extends Integration {
     c.on('ready', () => {
       console.info('[WhatsAppAdapter] Client ready');
       this.isReady = true;
+      this.readyAt = Date.now();
       this.clearReadyWatchdog();
       this.readyWaiter?.resolve();
       this.state.transition('connected');
@@ -359,6 +368,14 @@ export class WhatsAppAdapter extends Integration {
       if (msg.isStatus) return;
       // Skip messages sent by us
       if (msg.fromMe) return;
+
+      // Skip messages that pre-date this session's ready event.
+      // wwebjs timestamps are in seconds; readyAt is in ms.
+      const msgTimestampMs = (msg.timestamp ?? 0) * 1_000;
+      if (this.readyAt > 0 && msgTimestampMs < this.readyAt) {
+        console.info('[WhatsAppAdapter] Skipping pre-session message (ts=%d, readyAt=%d)', msgTimestampMs, this.readyAt);
+        return;
+      }
 
       const messageId = this.getMessageId(msg);
       if (messageId) {

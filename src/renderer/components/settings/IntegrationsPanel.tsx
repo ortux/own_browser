@@ -14,10 +14,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Bell, Mail, MessageSquare, RefreshCw, Trash2,
   CheckCircle2, AlertCircle, WifiOff, Plus, Zap,
-  QrCode, X, Smartphone,
+  QrCode, X, Smartphone, Lock,
 } from 'lucide-react';
 import type { EngineAccountUI, IntegrationStatusUI, EngineHealthUI } from '../../../shared/types';
 import { executeOAuthFlow } from '../../lib/oauthService';
+import { useSettingsStore } from '../../stores/settingsStore';
+import type { AuthPortalMode } from '../AuthPortal';
 
 // ── Provider metadata ──────────────────────────────────────────────────────────
 
@@ -214,7 +216,8 @@ const QRModal: React.FC<QRModalProps> = ({ accountId, onClose }) => {
 
 // ── Main panel ─────────────────────────────────────────────────────────────────
 
-export const IntegrationsPanel: React.FC = () => {
+export const IntegrationsPanel: React.FC<{ onOpenAuth: (mode: AuthPortalMode) => void }> = ({ onOpenAuth }) => {
+  const account = useSettingsStore((s) => s.account);
   const [accounts, setAccounts]   = useState<EngineAccountUI[]>([]);
   const [statuses, setStatuses]   = useState<IntegrationStatusUI[]>([]);
   const [health, setHealth]       = useState<EngineHealthUI | null>(null);
@@ -354,6 +357,48 @@ export const IntegrationsPanel: React.FC = () => {
   // Providers not yet connected
   const connectedProviders  = new Set(accounts.map((a) => a.provider));
   const availableToAdd      = Object.keys(PROVIDER_META).filter((p) => !connectedProviders.has(p));
+
+  // ── Auth gate ─────────────────────────────────────────────────────────────
+  if (!account) {
+    return (
+      <div className="max-w-2xl space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--text)]">Integrations</h2>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Connect services to receive unified notifications in Zyphora.
+          </p>
+        </div>
+        <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-5 py-4">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)]">
+            <Lock size={16} className="text-[var(--accent-fg)]" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-[var(--text)]">Sign in to use integrations</p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              Connecting WhatsApp, Gmail, and other services requires a Zyphora account so your
+              integration credentials can be stored securely.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenAuth('signin')}
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
+              >
+                Log in
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenAuth('signup')}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
+              >
+                Sign up
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

@@ -1,52 +1,92 @@
-export type TourTarget = {
-  x: number;
-  y: number;
-  width?: number;
-  height?: number;
-};
+/**
+ * First-run tour step definitions.
+ *
+ * Each step targets a real DOM element via a `data-tour` attribute selector.
+ * The FirstRunTour component resolves these to live pixel rects via
+ * getBoundingClientRect, so the highlight box always tracks the actual element
+ * regardless of window size or layout configuration.
+ */
 
 export type FirstRunTourStep = {
+  /** Unique identifier for the step. */
   id: string;
+  /** Heading shown in the tour card. */
   title: string;
+  /** Body text shown in the tour card. */
   description: string;
+  /** Short action hint shown in the pointer row. */
   pointerText: string;
-  target: TourTarget;
+  /**
+   * CSS attribute selector for the element to highlight.
+   * Must match exactly one element that is in the DOM when the tour renders.
+   * Convention: use `[data-tour="<value>"]`.
+   */
+  selector: string;
+  /**
+   * Optional padding (px) added around the matched element's bounding rect.
+   * Defaults to 6.
+   */
+  padding?: number;
+  /**
+   * Where to anchor the info card relative to the highlighted element.
+   * - 'auto'   → the component picks the side with the most space (default)
+   * - 'top'    → card appears above the element
+   * - 'bottom' → card appears below the element
+   * - 'left'   → card appears to the left
+   * - 'right'  → card appears to the right
+   */
+  cardPlacement?: 'auto' | 'top' | 'bottom' | 'left' | 'right';
 };
 
 export const FIRST_RUN_TOUR_STEPS: FirstRunTourStep[] = [
   {
-    id: 'nav-bar',
+    id: 'address-bar',
     title: 'Address bar',
-    description: 'Type any website here. This is your main entry point for browsing, search, and quick navigation.',
+    description:
+      'Type any URL or search query here. Press Enter to navigate — the browser will search for you if it looks like a query.',
     pointerText: 'Start here to visit a site or search the web.',
-    target: { x: 220, y: 34, width: 420, height: 42 },
+    selector: '[data-tour="address-bar"]',
+    padding: 4,
+    cardPlacement: 'top',
   },
   {
-    id: 'tabs',
-    title: 'Tabs',
-    description: 'Open multiple tabs and switch between them quickly. Each tab behaves like a separate browser context.',
-    pointerText: 'Use tabs to keep multiple pages open at once.',
-    target: { x: 80, y: 18, width: 120, height: 36 },
+    id: 'adblock-shield',
+    title: 'Privacy & ad blocker',
+    description:
+      'This shield toggles the built-in tracker and ad blocker. When lit up, it is actively protecting your browsing session.',
+    pointerText: 'Click to toggle tracker blocking for the current session.',
+    selector: '[data-tour="adblock-shield"]',
+    padding: 6,
+    cardPlacement: 'top',
   },
   {
-    id: 'security',
-    title: 'Privacy & security',
-    description: 'This shield toggles tracker blocking and security protections that help keep browsing private.',
-    pointerText: 'Click here to enable tracker blocking and privacy tools.',
-    target: { x: 700, y: 18, width: 42, height: 42 },
+    id: 'sidebar-tabs',
+    title: 'Tab sidebar',
+    description:
+      'Your open tabs live here. Hover to expand the panel and see full page titles. Drag tabs to reorder them.',
+    pointerText: 'Hover the sidebar to expand it and manage your tabs.',
+    selector: '[data-tour="sidebar-tabs"]',
+    padding: 0,
+    cardPlacement: 'right',
   },
   {
-    id: 'settings',
+    id: 'settings-btn',
     title: 'Settings',
-    description: 'Open the settings panel to customize the browser, proxy, downloads, and privacy controls.',
+    description:
+      'Open settings to customise the browser — change search engine, proxy, downloads, privacy controls, and more.',
     pointerText: 'Use settings to fine-tune the browser for your workflow.',
-    target: { x: 780, y: 18, width: 42, height: 42 },
+    selector: '[data-tour="settings-btn"]',
+    padding: 4,
+    cardPlacement: 'right',
   },
   {
-    id: 'new-tab',
-    title: 'New tab page',
-    description: 'Your start page is designed for fast access. You can search, open bookmarks, and return to recent pages here.',
-    pointerText: 'This area is your home base for quick browsing.',
-    target: { x: 420, y: 120, width: 320, height: 180 },
+    id: 'content-area',
+    title: 'Page content area',
+    description:
+      'Web pages load here. The new-tab page gives you quick access to bookmarks and recently visited sites.',
+    pointerText: 'This is your main browsing canvas.',
+    selector: '[data-tour="content-area"]',
+    padding: 0,
+    cardPlacement: 'auto',
   },
 ];

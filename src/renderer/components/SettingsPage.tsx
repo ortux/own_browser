@@ -293,10 +293,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onOpenAuth }) => {
               {section === 'downloads' && <DownloadsPanel />}
               {section === 'extensions' && <ExtensionsPanel />}
               {section === 'sync' && <SyncPanel onOpenAuth={onOpenAuth} />}
-              {section === 'performance' && <PerformancePanel />}
+              {section === 'performance' && <PerformancePanel onOpenAuth={onOpenAuth} />}
               {section === 'updates' && <UpdatesPanel />}
               {section === 'about' && <AboutPanel />}
-              {section === 'integrations' && <IntegrationsPanel />}
+              {section === 'integrations' && <IntegrationsPanel onOpenAuth={onOpenAuth} />}
             </div>
           )}
         </div>

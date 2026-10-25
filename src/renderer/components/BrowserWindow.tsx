@@ -557,7 +557,7 @@ export const BrowserWindow: React.FC = () => {
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Browser + navbar */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <div className="flex-1 overflow-hidden relative bg-[var(--bg)]">
+            <div data-tour="content-area" className="flex-1 overflow-hidden relative bg-[var(--bg)]">
               {findOpen && !isSettings && (
                 <FindBar tabId={activeTabId || undefined} onClose={() => setFindOpen(false)} />
               )}
